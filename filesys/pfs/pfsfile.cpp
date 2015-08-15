@@ -7,11 +7,18 @@ using namespace filesys;
 using namespace filesys::pfs;
 using namespace std;
 
-PfsFile::PfsFile(int fileid, shared_ptr<PfsFile> parent)
-    : fileid_(fileid),
-      ctime_(std::chrono::system_clock::now()),
+PfsFile::PfsFile(
+    shared_ptr<PfsFilesystem> fs, int fileid, shared_ptr<PfsFile> parent)
+    : fs_(fs),
+      fileid_(fileid),
+      ctime_(chrono::system_clock::now()),
       parent_(parent)
 {
+}
+
+shared_ptr<Filesystem> PfsFile::fs()
+{
+    return fs_.lock();
 }
 
 shared_ptr<Getattr> PfsFile::getattr()
@@ -19,18 +26,27 @@ shared_ptr<Getattr> PfsFile::getattr()
     return make_shared<PfsGetattr>(fileid_, ctime_);
 }
 
-void PfsFile::setattr(std::function<void(Setattr*)> cb)
+void PfsFile::setattr(function<void(Setattr*)> cb)
 {
     throw system_error(EROFS, system_category());
 }
 
 shared_ptr<File> PfsFile::lookup(const string& name)
 {
+    if (name == ".") {
+        return shared_from_this();
+    }
+    if (name == "..") {
+        if (parent_)
+            return parent_;
+        else
+            return shared_from_this();
+    }
     return find(name)->checkMount();
 }
 
 shared_ptr<File> PfsFile::open(
-    const string&, int, std::function<void(Setattr*)>)
+    const string&, int, function<void(Setattr*)>)
 {
     throw system_error(EISDIR, system_category());
 }
@@ -60,8 +76,42 @@ uint32_t PfsFile::write(uint64_t, const vector<uint8_t>&)
     throw system_error(EISDIR, system_category());
 }
 
-std::shared_ptr<File> PfsFile::mkdir(
+shared_ptr<File> PfsFile::mkdir(
+    const string& name, function<void(Setattr*)> cb)
+{
+    throw system_error(EROFS, system_category());
+}
+
+shared_ptr<File> PfsFile::symlink(
+    const string& name, const string& data,
+    function<void(Setattr*)> cb)
+{
+    throw system_error(EROFS, system_category());
+}
+
+std::shared_ptr<File> PfsFile::mkfifo(
     const std::string& name, std::function<void(Setattr*)> cb)
+{
+    throw system_error(EROFS, system_category());
+}
+
+void PfsFile::remove(const string& name)
+{
+    throw system_error(EROFS, system_category());
+}
+
+void PfsFile::rmdir(const string& name)
+{
+    throw system_error(EROFS, system_category());
+}
+
+void PfsFile::rename(
+    const string& toName, shared_ptr<File> fromDir, const string& fromName)
+{
+    throw system_error(EROFS, system_category());
+}
+
+void PfsFile::link(const std::string& name, std::shared_ptr<File> file)
 {
     throw system_error(EROFS, system_category());
 }
@@ -69,6 +119,11 @@ std::shared_ptr<File> PfsFile::mkdir(
 shared_ptr<DirectoryIterator> PfsFile::readdir()
 {
     return make_shared<PfsDirectoryIterator>(entries_);
+}
+
+std::shared_ptr<Fsattr> PfsFile::fsstat()
+{
+    return make_shared<PfsFsattr>();
 }
 
 shared_ptr<PfsFile> PfsFile::find(const string& name)

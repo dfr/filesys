@@ -3,21 +3,63 @@ cc_binary(
     copts = ["-std=c++14"],
     srcs = glob(["*.cpp", "commands/*.cpp"]),
     deps = [
-        "//src/nfs:nfs",
-        "//include:hdrs",
-        "//rpcxx",
+        "//filesys",
         "//third_party/glog",
         "//third_party/gflags"
     ],
     linkstatic = 1
 )
 
-cc_library(
-    name = "commands",
-    srcs = glob(["commands/*.cpp"]),
-    hdrs = ["command.h"],
-    deps = [
-        "//include:hdrs"
-    ],
-    linkstatic = 1
+sh_test(
+    name = "cat_test",
+    size = "small",
+    srcs = ["test/cat_test.sh"],
+    deps = [":unittest"],
+    data = [":fscli"],
+)
+
+sh_test(
+    name = "cd_test",
+    size = "small",
+    srcs = ["test/cd_test.sh"],
+    deps = [":unittest"],
+    data = [":fscli"],
+)
+
+sh_test(
+    name = "chmod_test",
+    size = "small",
+    srcs = ["test/chmod_test.sh"],
+    deps = [":unittest"],
+    data = [":fscli"],
+)
+
+sh_test(
+    name = "ln_test",
+    size = "small",
+    srcs = ["test/ln_test.sh"],
+    deps = [":unittest"],
+    data = [":fscli"],
+)
+
+sh_test(
+    name = "mv_test",
+    size = "small",
+    srcs = ["test/mv_test.sh"],
+    deps = [":unittest"],
+    data = [":fscli"],
+)
+
+sh_test(
+    name = "rm_test",
+    size = "small",
+    srcs = ["test/rm_test.sh"],
+    deps = [":unittest"],
+    data = [":fscli"],
+)
+
+sh_library(
+    name = "unittest",
+    srcs = ["test/unittest.bash"],
+    data = ["test/testenv.sh"]
 )

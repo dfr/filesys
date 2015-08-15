@@ -1,29 +1,11 @@
+#include <system_error>
+
 #include <fs++/filesys.h>
 
-#include "cli/command.h"
+#include "cli/fscli.h"
 
 using namespace filesys;
 using namespace std;
-
-vector<string> parsePath(const string& path)
-{
-    vector<string> res;
-    string entry;
-    for (auto ch: path) {
-        if (ch == '/') {
-            if (entry.size() > 0) {
-                res.push_back(entry);
-                entry.clear();
-            }
-        }
-        else {
-            entry.push_back(ch);
-        }
-    }
-    if (entry.size() > 0)
-        res.push_back(entry);
-    return res;
-}
 
 CommandState::CommandState(shared_ptr<File> root)
     : root_(root),
@@ -33,72 +15,99 @@ CommandState::CommandState(shared_ptr<File> root)
 
 shared_ptr<File> CommandState::lookup(const string& name)
 {
-    shared_ptr<File> f;
-    vector<string> path;
-    if (name[0] == '/') {
-        f = root_;
-        path = parsePath(name.substr(1));
-    }
-    else {
-        f = cwd_;
-        path = parsePath(name);
-    }
-    for (auto& entry: path)
-        f = f->lookup(entry);
-    return f;
+    auto p = resolvepath(name);
+    return p.first->lookup(p.second);
 }
 
 shared_ptr<File> CommandState::open(const string& name, int flags, int mode)
 {
-    shared_ptr<File> f;
-    vector<string> path;
-    if (name[0] == '/') {
-        f = root_;
-        path = parsePath(name.substr(1));
-    }
-    else {
-        f = cwd_;
-        path = parsePath(name);
-    }
-    int i = 0;
-    for (auto& entry: path) {
-        if (i == path.size() - 1)
-            f = f->open(
-                entry, flags,
-                [mode](Setattr* sattr){ sattr->setMode(mode); });
-        else
-            f = f->lookup(entry);
-        i++;
-    }
-    return f;
+    auto p = resolvepath(name);
+    return p.first->open(
+        p.second, flags, [mode](Setattr* sattr){ sattr->setMode(mode); });
 }
 
-std::shared_ptr<File> CommandState::mkdir(const std::string& name, int mode)
+shared_ptr<File> CommandState::mkdir(const string& name, int mode)
 {
-    shared_ptr<File> f;
-    vector<string> path;
-    if (name[0] == '/') {
-        f = root_;
-        path = parsePath(name.substr(1));
-    }
-    else {
-        f = cwd_;
-        path = parsePath(name);
-    }
-    int i = 0;
-    for (auto& entry: path) {
-        if (i == path.size() - 1)
-            f = f->mkdir(
-                entry,
-                [mode](Setattr* sattr){ sattr->setMode(mode); });
-        else
-            f = f->lookup(entry);
-        i++;
-    }
-    return f;
+    auto p = resolvepath(name);
+    return p.first->mkdir(
+        p.second, [mode](Setattr* sattr){ sattr->setMode(mode); });
+}
+
+shared_ptr<File> CommandState::symlink(const string& name, const string& path)
+{
+    auto p = resolvepath(name);
+    return p.first->symlink(
+        p.second, path, [](Setattr* sattr){ sattr->setMode(0777); });
+}
+
+std::shared_ptr<File> CommandState::mkfifo(const std::string& name)
+{
+    auto p = resolvepath(name);
+    return p.first->mkfifo(
+        p.second, [](Setattr* sattr){ sattr->setMode(0666); });
+}
+
+void CommandState::remove(const std::string& name)
+{
+    auto p = resolvepath(name, false);
+    p.first->remove(p.second);
+}
+
+void CommandState::rmdir(const std::string& name)
+{
+    auto p = resolvepath(name);
+    p.first->rmdir(p.second);
 }
 
 void CommandState::chdir(shared_ptr<File> dir)
 {
     cwd_ = dir;
+}
+
+std::pair<std::shared_ptr<File>, std::string>
+CommandState::resolvepath(const std::string& name, bool follow)
+{
+    shared_ptr<File> f;
+    auto path = parsePath(name);
+    if (name[0] == '/') {
+        f = root_;
+    }
+    else {
+        f = cwd_;
+    }
+restart:
+    if (path.size() == 0) {
+        return make_pair(f, ".");
+    }
+    auto leafEntry = path.back();
+    path.pop_back();
+    while (path.size() > 0) {
+        auto entry = path.front();
+        path.pop_front();
+        f = f->lookup(entry);
+        if (f->getattr()->type() == FileType::SYMLINK) {
+            auto dest = f->readlink();
+            auto newpath = parsePath(dest);
+            if (dest[0] == '/')
+                f = root_;
+            for (auto& entry: path)
+                newpath.push_back(entry);
+            path = newpath;
+        }
+    }
+    try {
+        // If the leaf exists, check for symbolic links
+        auto leaf = f->lookup(leafEntry);
+        if (follow && leaf->getattr()->type() == FileType::SYMLINK) {
+            auto dest = leaf->readlink();
+            if (dest[0] == '/')
+                f = root_;
+            path = parsePath(dest);
+            goto restart;
+        }
+    }
+    catch (system_error& e) {
+        // Ignore
+    }
+    return make_pair(f, leafEntry);
 }

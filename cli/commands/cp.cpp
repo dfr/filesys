@@ -2,7 +2,7 @@
 
 #include <fs++/filesys.h>
 
-#include "cli/command.h"
+#include "cli/fscli.h"
 
 using namespace std;
 
@@ -29,20 +29,50 @@ public:
             usage();
             return;
         }
-
-        shared_ptr<File> in, out;
+        pair<shared_ptr<File>, string> from, to;
         try {
-            in = state.open(args[0], OpenFlags::READ, 0);
+            from = state.resolvepath(args[0]);
+            from.first->lookup(from.second);
         }
         catch (system_error& e) {
             cout << args[0] << ": " << e.what() << endl;
             return;
         }
         try {
-            out = state.open(
-                args[1],
+            to = state.resolvepath(args[1]);
+        }
+        catch (system_error& e) {
+            cout << args[1] << ": " << e.what() << endl;
+            return;
+        }
+
+        // If the target exists, and it is a directory, we copy to a
+        // destination in that directory with the same name as the source
+        try {
+            auto f = to.first->lookup(to.second);
+            if (f->getattr()->type() == FileType::DIRECTORY) {
+                to.first = f;
+                to.second = leafEntry(args[0]);
+            }
+        }
+        catch (system_error& e) {
+            // Ignore
+        }
+
+        shared_ptr<File> in, out;
+        try {
+            in = from.first->open(
+                from.second, OpenFlags::READ, [](Setattr* sattr){});
+        }
+        catch (system_error& e) {
+            cout << args[0] << ": " << e.what() << endl;
+            return;
+        }
+        try {
+            out = to.first->open(
+                to.second,
                 OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE,
-                0666);
+                [](Setattr* sattr){ sattr->setMode(0666); });
         }
         catch (system_error& e) {
             cout << args[1] << ": " << e.what() << endl;

@@ -1,11 +1,11 @@
 cc_library(
     name = "nfs",
     copts = ["-std=c++14"],
-    srcs = glob(["*.cpp"]) + [":mount"] + [":nfs_prot"],
+    srcs = glob(["*.cpp"]) + [":mount", ":nfs_prot"],
     deps = [
-        "//include:hdrs",
-        "//src/pfs:pfs",
-        "//rpcxx:rpcxx",
+        "//filesys:hdrs",
+        "//filesys/pfs",
+        "//rpcxx",
         "//third_party/glog:glog"
     ],
     visibility = ["//visibility:public"]

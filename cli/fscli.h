@@ -1,10 +1,52 @@
 #pragma once
 
+#include <deque>
+#include <iomanip>
+#include <iostream>
 #include <map>
 #include <string>
 #include <vector>
 
 namespace filesys {
+
+std::deque<std::string> parsePath(const std::string& path);
+std::string leafEntry(const std::string& path);
+std::string humanizeNumber(long val);
+
+template <int... Widths>
+class TableFormatter
+{
+public:
+    TableFormatter(std::ostream& str) : str_(str)
+    {
+    }
+
+    template <typename... T>
+    void operator()(T... fields)
+    {
+        format(std::make_pair(Widths, fields)...);
+        str_ << std::endl;
+    }
+
+private:
+    template <typename T>
+    void format(const std::pair<int, T>& field)
+    {
+        if (field.first < 0)
+            str_ << std::right << std::setw(-field.first) << field.second;
+        else
+            str_ << std::left << std::setw(field.first) << field.second;
+    }
+
+    template <typename T, typename... Rest>
+    void format(const std::pair<int, T>& field, Rest... rest)
+    {
+        format(field);
+        format(rest...);
+    }
+
+    std::ostream& str_;
+};
 
 class CommandState
 {
@@ -14,7 +56,14 @@ public:
     std::shared_ptr<File> lookup(const std::string& name);
     std::shared_ptr<File> open(const std::string& name, int flags, int mode);
     std::shared_ptr<File> mkdir(const std::string& name, int mode);
+    std::shared_ptr<File> symlink(
+        const std::string& name, const std::string& path);
+    std::shared_ptr<File> mkfifo(const std::string& name);
+    void remove(const std::string& path);
+    void rmdir(const std::string& path);
     void chdir(std::shared_ptr<File> dir);
+    std::pair<std::shared_ptr<File>, std::string> resolvepath(
+        const std::string& path, bool follow = true);
 
 private:
     std::shared_ptr<File> root_;

@@ -3,13 +3,10 @@
 #include <string>
 #include <vector>
 
-#include <rpc++/errors.h>
-
 namespace filesys {
 
 struct UrlParser
 {
-    using RpcError = oncrpc::RpcError;
     UrlParser(const std::string& url)
     {
         std::string s = url;
@@ -17,7 +14,7 @@ struct UrlParser
         schemeSpecific = s;
         if (isHostbased()) {
             if (s.substr(0, 2) != "//")
-                throw RpcError("malformed url");
+                throw std::runtime_error("malformed url");
             s = s.substr(2);
             parseHost(s);
             if (s[0] == ':') {
@@ -26,9 +23,9 @@ struct UrlParser
             }
             path = s;
         }
-        else if (scheme == "unix") {
+        else if (scheme == "file") {
             if (s.substr(0, 2) != "//")
-                throw RpcError("malformed url");
+                throw std::runtime_error("malformed url");
             path = s.substr(2);
         }
     }
@@ -43,15 +40,15 @@ struct UrlParser
     {
         scheme = "";
         if (!std::isalpha(s[0]))
-            throw RpcError("malformed url");
+            throw std::runtime_error("malformed url");
         while (s.size() > 0 && s[0] != ':') {
             if (!std::isalpha(s[0]))
-                throw RpcError("malformed url");
+                throw std::runtime_error("malformed url");
             scheme += s[0];
             s = s.substr(1);
         }
         if (s.size() == 0 || s[0] != ':')
-            throw RpcError("malformed url");
+            throw std::runtime_error("malformed url");
         s = s.substr(1);
     }
 
@@ -79,14 +76,14 @@ struct UrlParser
         host = "";
         for (int i = 0; i < 4; i++) {
             if (s.size() == 0)
-                throw RpcError("malformed IPv4 address");
+                throw std::runtime_error("malformed IPv4 address");
             if (i > 0) {
                 if (s[0] != '.')
-                    throw RpcError("malformed IPv4 address");
+                    throw std::runtime_error("malformed IPv4 address");
                 host += '.';
                 s = s.substr(1);
                 if (s.size() == 0)
-                    throw RpcError("malformed IPv4 address");
+                    throw std::runtime_error("malformed IPv4 address");
             }
             while (s.size() > 0 && std::isdigit(s[0])) {
                 host += s[0];
@@ -102,7 +99,7 @@ struct UrlParser
         host = '[';
         auto i = s.find(']');
         if (i == std::string::npos)
-            throw RpcError("malformed IPv6 address");
+            throw std::runtime_error("malformed IPv6 address");
         auto t = s.substr(1, i - 1);
         s = s.substr(i + 1);
         while (t.size() > 0 &&
@@ -111,7 +108,7 @@ struct UrlParser
             t = t.substr(1);
         }
         if (t.size() != 0)
-            throw RpcError("malformed IPv6 address");
+            throw std::runtime_error("malformed IPv6 address");
         host += ']';
     }
 

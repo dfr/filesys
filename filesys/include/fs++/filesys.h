@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -9,6 +10,7 @@
 namespace filesys {
 
 class File;
+class Filesystem;
 
 /// Possible file types
 enum class FileType {
@@ -117,11 +119,27 @@ public:
     virtual void setAtime(std::chrono::system_clock::time_point atime) = 0;
 };
 
+/// Filesystem attributes
+class Fsattr
+{
+public:
+    virtual ~Fsattr() {}
+    virtual size_t tbytes() const = 0;
+    virtual size_t fbytes() const = 0;
+    virtual size_t abytes() const = 0;
+    virtual size_t tfiles() const = 0;
+    virtual size_t ffiles() const = 0;
+    virtual size_t afiles() const = 0;
+};
+
 /// A file, directory or other filesystem object
 class File
 {
 public:
     virtual ~File() {}
+
+    /// Return the file system that owns this file
+    virtual std::shared_ptr<Filesystem> fs() = 0;
 
     /// Return an object which can be used to access the file attributes
     virtual std::shared_ptr<Getattr> getattr() = 0;
@@ -159,9 +177,39 @@ public:
         const std::string& name,
         std::function<void(Setattr*)> cb) = 0;
 
+    /// Create a new directory
+    virtual std::shared_ptr<File> symlink(
+        const std::string& name,
+        const std::string& data,
+        std::function<void(Setattr*)> cb) = 0;
+
+    /// Create a new directory
+    virtual std::shared_ptr<File> mkfifo(
+        const std::string& name,
+        std::function<void(Setattr*)> cb) = 0;
+
+    /// Remove a file
+    virtual void remove(const std::string& name) = 0;
+
+    /// Remove a directory
+    virtual void rmdir(const std::string& name) = 0;
+
+    /// Rename a file or directory
+    virtual void rename(
+        const std::string& toName,
+        std::shared_ptr<File> fromDir,
+        const std::string& fromName) = 0;
+
+    /// Link an existing file to this directory
+    virtual void link(
+        const std::string& name, std::shared_ptr<File> file) = 0;
+
     /// Return an iterator object which can be used to read the contents of
     /// a directory
     virtual std::shared_ptr<DirectoryIterator> readdir() = 0;
+
+    /// Return file system attributes
+    virtual std::shared_ptr<Fsattr> fsstat() = 0;
 };
 
 class Filesystem
@@ -176,7 +224,49 @@ public:
 class FilesystemFactory
 {
 public:
-    virtual std::shared_ptr<Filesystem> mount(const std::string& url) = 0;
+    virtual std::string name() const = 0;
+    virtual std::pair<std::shared_ptr<Filesystem>, std::string> mount(
+        const std::string& url) = 0;
+};
+
+class FilesystemManager
+{
+public:
+    FilesystemManager();
+
+    static FilesystemManager& instance()
+    {
+        static FilesystemManager fsman;
+        return fsman;
+    }
+
+    template <typename FS, typename... Args>
+    std::shared_ptr<FS> mount(const std::string& name, Args... args)
+    {
+        auto res = std::make_shared<FS>(std::forward<Args>(args)...);
+        filesystems_[name] = res;
+        return res;
+    }
+
+    void add(std::shared_ptr<FilesystemFactory> fsfac)
+    {
+        factories_[fsfac->name()] = fsfac;
+    }
+
+    std::shared_ptr<FilesystemFactory> find(const std::string& name)
+    {
+        auto i = factories_.find(name);
+        if (i == factories_.end())
+            return nullptr;
+        return i->second;
+    }
+
+    auto begin() { return filesystems_.begin(); }
+    auto end() { return filesystems_.end(); }
+
+private:
+    std::map<std::string, std::shared_ptr<FilesystemFactory>> factories_;
+    std::map<std::string, std::shared_ptr<Filesystem>> filesystems_;
 };
 
 }

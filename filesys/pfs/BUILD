@@ -4,7 +4,7 @@ cc_library(
     srcs = glob(["*.cpp"]),
     hdrs = ["pfsfs.h"],
     deps = [
-        "//include:hdrs",
+        "//filesys:hdrs",
         "//third_party/glog:glog"
     ],
     visibility = ["//visibility:public"]

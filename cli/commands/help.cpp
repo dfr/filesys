@@ -3,7 +3,7 @@
 
 #include <fs++/filesys.h>
 
-#include "cli/command.h"
+#include "cli/fscli.h"
 
 using namespace std;
 

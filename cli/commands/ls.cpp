@@ -1,52 +1,11 @@
 #include <algorithm>
-#include <iomanip>
-#include <iostream>
 #include <sstream>
 
 #include <fs++/filesys.h>
 
-#include "cli/command.h"
+#include "cli/fscli.h"
 
 using namespace std;
-
-namespace {
-
-template <int... Widths>
-class TableFormatter
-{
-public:
-    TableFormatter(ostream& str) : str_(str)
-    {
-    }
-
-    template <typename... T>
-    void operator()(T... fields)
-    {
-        format(make_pair(Widths, fields)...);
-        str_ << endl;
-    }
-
-private:
-    template <typename T>
-    void format(const pair<int, T>& field)
-    {
-        if (field.first < 0)
-            str_ << right << setw(-field.first) << field.second;
-        else
-            str_ << left << setw(field.first) << field.second;
-    }
-
-    template <typename T, typename... Rest>
-    void format(const pair<int, T>& field, Rest... rest)
-    {
-        format(field);
-        format(rest...);
-    }
-
-    ostream& str_;
-};
-
-}
 
 namespace filesys {
 
@@ -110,16 +69,21 @@ public:
             usage();
             return;
         }
-        TableFormatter<11, 4, 5, 5, -7, 1, 17, 1> tf(cout);
+        TableFormatter<11, 4, 5, 5, -5, 1, 17, 1> tf(cout);
         try {
             typedef pair<string, shared_ptr<File>> entryT;
             vector<entryT> files;
             auto dir = args.size() == 0 ? state.cwd() : state.lookup(args[0]);
-            for (auto iter = dir->readdir(); iter->valid(); iter->next()) {
-                auto name = iter->name();
-                if (name == "." || name == "..")
-                    continue;
-                files.push_back(make_pair(name, iter->file()));
+            if (dir->getattr()->type() == FileType::DIRECTORY) {
+                for (auto iter = dir->readdir(); iter->valid(); iter->next()) {
+                    auto name = iter->name();
+                    if (name == "." || name == "..")
+                        continue;
+                    files.push_back(make_pair(name, iter->file()));
+                }
+            }
+            else {
+                files.push_back(make_pair(args[0], dir));
             }
             struct cmp {
                 int operator()(const entryT& a, const entryT& b) {
@@ -139,14 +103,14 @@ public:
                    attr->nlink(),
                    attr->uid(),
                    attr->gid(),
-                   attr->size(),
+                   humanizeNumber(attr->size()),
                    " ",
                    formatTime(attr->mtime()),
                    name);
             }
         }
         catch (system_error& e) {
-            cout << e.what() << endl;
+            cout << args[0] << ": " << e.what() << endl;
         }
     }
 };

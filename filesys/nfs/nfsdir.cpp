@@ -1,9 +1,8 @@
 #include <fs++/filesys.h>
-#include <fs++/nfsfs.h>
 #include <fs++/urlparser.h>
 #include <glog/logging.h>
 
-#include "src/nfs/nfsfs.h"
+#include "nfsfs.h"
 
 using namespace filesys;
 using namespace filesys::nfs;
@@ -35,7 +34,7 @@ std::shared_ptr<File> NfsDirectoryIterator::file() const
         return file_;
     if (entry_->name_handle.handle_follows &&
         entry_->name_attributes.attributes_follow) {
-        file_ = dir_->fs()->find(
+        file_ = dir_->nfs()->find(
             std::move(entry_->name_handle.handle()),
             std::move(entry_->name_attributes.attributes()));
     }
@@ -58,7 +57,7 @@ void NfsDirectoryIterator::next()
 
 void NfsDirectoryIterator::readdir(cookie3 cookie)
 {
-    auto res = dir_->fs()->readdirplus(
+    auto res = dir_->nfs()->readdirplus(
         READDIRPLUS3args{dir_->fh(), cookie, verf_, 2048, 8192});
     if (res.status == NFS3_OK) {
         verf_ = std::move(res.resok().cookieverf);

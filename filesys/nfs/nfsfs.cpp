@@ -2,7 +2,6 @@
 #include <sstream>
 
 #include <fs++/filesys.h>
-#include <fs++/nfsfs.h>
 #include <fs++/urlparser.h>
 #include <rpc++/channel.h>
 #include <rpc++/client.h>
@@ -10,38 +9,39 @@
 #include <glog/logging.h>
 #include <glog/stl_logging.h>
 
-#include "src/nfs/nfsfs.h"
-#include "src/nfs/mount.h"
-#include "src/pfs/pfsfs.h"
+#include "nfsfs.h"
+#include "filesys/pfs/pfsfs.h"
+#include "filesys/nfs/mount.h"
 
 using namespace filesys;
 using namespace filesys::nfs;
+using namespace std;
 
 NfsFilesystem::NfsFilesystem(
-    std::shared_ptr<oncrpc::Channel> chan, nfs_fh3&& rootfh)
+    shared_ptr<oncrpc::Channel> chan, nfs_fh3&& rootfh)
     : NfsProgram3<oncrpc::SysClient>(chan),
-      rootfh_(std::move(rootfh))
+      rootfh_(move(rootfh))
 {
 }
 
-std::shared_ptr<File>
+shared_ptr<File>
 NfsFilesystem::root()
 {
     nfs_fh3 fh = rootfh_;
-    return find(std::move(fh));
-};
+    return find(move(fh));
+}
 
-std::shared_ptr<NfsFile>
+shared_ptr<NfsFile>
 NfsFilesystem::find(nfs_fh3&& fh)
 {
     auto res = getattr(GETATTR3args{fh});
     if (res.status == NFS3_OK)
-        return find(std::move(fh), std::move(res.resok().obj_attributes));
+        return find(move(fh), move(res.resok().obj_attributes));
     else
-        throw std::system_error(res.status, std::system_category());
+        throw system_error(res.status, system_category());
 }
 
-std::shared_ptr<NfsFile>
+shared_ptr<NfsFile>
 NfsFilesystem::find(nfs_fh3&& fh, fattr3&& attr)
 {
     auto id = attr.fileid;
@@ -61,39 +61,45 @@ NfsFilesystem::find(nfs_fh3&& fh, fattr3&& attr)
             lru_.pop_back();
         }
         VLOG(2) << "adding fileid: " << id;
-        auto file = std::make_shared<NfsFile>(
-            shared_from_this(), std::move(fh), std::move(attr));
+        auto file = make_shared<NfsFile>(
+            shared_from_this(), move(fh), move(attr));
         auto p = lru_.insert(lru_.begin(), file);
         cache_[id] = p;
         return file;
     }
 }
 
-std::shared_ptr<Filesystem>
-NfsFilesystemFactory::mount(const std::string& url)
+pair<shared_ptr<Filesystem>, string>
+NfsFilesystemFactory::mount(const string& url)
 {
-    auto pfs = std::make_shared<pfs::PfsFilesystem>();
-    auto chan = oncrpc::Channel::open(url, "tcp");
-
     UrlParser p(url);
-
     LOG(INFO) << "Connecting to mount service on " << p.host;
     Mountprog3<oncrpc::SysClient> mountprog(p.host);
 
+    auto& fsman = FilesystemManager::instance();
+    auto pfs = fsman.mount<pfs::PfsFilesystem>(p.host + ":/");
+    auto chan = oncrpc::Channel::open(url, "tcp");
+
     auto exports = mountprog.listexports();
-    for (auto p = exports.get(); p; p = p->ex_next.get()) {
-        LOG(INFO) << "mounting " << p->ex_dir;
-        auto mnt = mountprog.mnt(std::move(p->ex_dir));
+    for (auto exp = exports.get(); exp; exp = exp->ex_next.get()) {
+        LOG(INFO) << "mounting " << exp->ex_dir;
+        auto mnt = mountprog.mnt(move(exp->ex_dir));
         if (mnt.fhs_status == MNT3_OK) {
             LOG(INFO) << "Accepted auth flavors: "
                       << mnt.mountinfo().auth_flavors;
             nfs_fh3 fh;
-            fh.data = std::move(mnt.mountinfo().fhandle);
+            fh.data = move(mnt.mountinfo().fhandle);
             pfs->add(
-                p->ex_dir,
-                std::make_shared<NfsFilesystem>(chan, std::move(fh)));
+                exp->ex_dir,
+                fsman.mount<NfsFilesystem>(
+                    p.host + ":" + exp->ex_dir, chan, move(fh)));
         }
     }
 
-    return pfs;
+    return make_pair(pfs, p.path);
 };
+
+void filesys::nfs::init(FilesystemManager* fsman)
+{
+    fsman->add(make_shared<NfsFilesystemFactory>());
+}

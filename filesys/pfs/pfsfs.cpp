@@ -28,7 +28,6 @@ static vector<string> parsePath(const string& path)
 }
 
 PfsFilesystem::PfsFilesystem()
-    : root_(make_shared<PfsFile>(nextid_++, nullptr))
 {
 }
 
@@ -44,6 +43,10 @@ PfsFilesystem::add(const std::string& path, shared_ptr<Filesystem> mount)
     if (paths_.find(path) != paths_.end())
         throw system_error(EEXIST, system_category());
 
+    if (!root_) {
+        root_ = make_shared<PfsFile>(shared_from_this(), nextid_++, nullptr);
+    }
+
     vector<string> entries = parsePath(path);
     assert(entries.size() > 0);
 
@@ -53,7 +56,8 @@ PfsFilesystem::add(const std::string& path, shared_ptr<Filesystem> mount)
             dir = dir->find(entry);
         }
         catch (system_error& e) {
-            auto newdir = make_shared<PfsFile>(nextid_++, dir);
+            auto newdir = make_shared<PfsFile>(
+                shared_from_this(), nextid_++, dir);
             dir->add(entry, newdir);
             dir = newdir;
         }

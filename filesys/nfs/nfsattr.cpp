@@ -1,9 +1,8 @@
 #include <fs++/filesys.h>
-#include <fs++/nfsfs.h>
 #include <fs++/urlparser.h>
 #include <glog/logging.h>
 
-#include "src/nfs/nfsfs.h"
+#include "nfsfs.h"
 
 using namespace filesys;
 using namespace filesys::nfs;
@@ -98,38 +97,59 @@ std::chrono::system_clock::time_point NfsGetattr::ctime() const
     return  fromNfsTime(attr_.ctime);
 }
 
-void NfsSettattr::setMode(int mode)
+NfsSetattr::NfsSetattr(sattr3& attr)
+    : attr_(attr)
+{
+    attr_.mode.set_set_it(false);
+    attr_.uid.set_set_it(false);
+    attr_.gid.set_set_it(false);
+    attr_.size.set_set_it(false);
+    attr_.mtime.set_set_it(DONT_CHANGE);
+    attr_.atime.set_set_it(DONT_CHANGE);
+}
+
+void NfsSetattr::setMode(int mode)
 {
     attr_.mode.set_set_it(true);
     attr_.mode.mode() = mode;
 }
 
-void NfsSettattr::setUid(int uid)
+void NfsSetattr::setUid(int uid)
 {
     attr_.uid.set_set_it(true);
     attr_.uid.uid() = uid;
 }
 
-void NfsSettattr::setGid(int gid)
+void NfsSetattr::setGid(int gid)
 {
     attr_.gid.set_set_it(true);
     attr_.gid.gid() = gid;
 }
 
-void NfsSettattr::setSize(std::uint64_t size)
+void NfsSetattr::setSize(std::uint64_t size)
 {
     attr_.size.set_set_it(true);
     attr_.size.size() = size;
 }
 
-void NfsSettattr::setMtime(std::chrono::system_clock::time_point mtime)
+void NfsSetattr::setMtime(std::chrono::system_clock::time_point mtime)
 {
     attr_.mtime.set_set_it(SET_TO_CLIENT_TIME);
     attr_.mtime.mtime() = toNfsTime(mtime);
 }
 
-void NfsSettattr::setAtime(std::chrono::system_clock::time_point atime)
+void NfsSetattr::setAtime(std::chrono::system_clock::time_point atime)
 {
     attr_.atime.set_set_it(SET_TO_CLIENT_TIME);
     attr_.atime.atime() = toNfsTime(atime);
+}
+
+NfsFsattr::NfsFsattr(const FSSTAT3resok& res)
+    : tbytes_(res.tbytes),
+      fbytes_(res.fbytes),
+      abytes_(res.abytes),
+      tfiles_(res.tfiles),
+      ffiles_(res.ffiles),
+      afiles_(res.afiles)
+{
 }

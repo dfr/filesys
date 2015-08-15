@@ -71,12 +71,25 @@ private:
     std::chrono::system_clock::time_point time_;
 };
 
+class PfsFsattr: public Fsattr
+{
+public:
+    size_t tbytes() const override { return 0; }
+    size_t fbytes() const override { return 0; }
+    size_t abytes() const override { return 0; }
+    size_t tfiles() const override { return 0; }
+    size_t ffiles() const override { return 0; }
+    size_t afiles() const override { return 0; }
+};
+
 class PfsFile: public File, public std::enable_shared_from_this<PfsFile>
 {
 public:
-    PfsFile(int fileid, std::shared_ptr<PfsFile> parent);
+    PfsFile(std::shared_ptr<PfsFilesystem>,
+            int fileid, std::shared_ptr<PfsFile> parent);
 
     // File overrides
+    std::shared_ptr<Filesystem> fs() override;
     std::shared_ptr<Getattr> getattr() override;
     void setattr(std::function<void(Setattr*)> cb) override;
     std::shared_ptr<File> lookup(const std::string& name) override;
@@ -92,7 +105,20 @@ public:
         std::uint64_t offset, const std::vector<std::uint8_t>& data) override;
     std::shared_ptr<File> mkdir(
         const std::string& name, std::function<void(Setattr*)> cb) override;
+    std::shared_ptr<File> symlink(
+        const std::string& name, const std::string& data,
+        std::function<void(Setattr*)> cb) override;
+    std::shared_ptr<File> mkfifo(
+        const std::string& name, std::function<void(Setattr*)> cb) override;
+    void remove(const std::string& name) override;
+    void rmdir(const std::string& name) override;
+    void rename(
+        const std::string& toName,
+        std::shared_ptr<File> fromDir,
+        const std::string& fromName) override;
+    void link(const std::string& name, std::shared_ptr<File> file) override;
     std::shared_ptr<DirectoryIterator> readdir() override;
+    std::shared_ptr<Fsattr> fsstat() override;
 
     int fileid() const { return fileid_; }
     std::shared_ptr<PfsFile> parent() const { return parent_; }
@@ -114,6 +140,7 @@ public:
     }
 
 private:
+    std::weak_ptr<PfsFilesystem> fs_;
     int fileid_;
     std::chrono::system_clock::time_point ctime_;
     std::shared_ptr<PfsFile> parent_;
