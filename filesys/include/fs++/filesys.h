@@ -9,6 +9,29 @@
 
 namespace filesys {
 
+namespace detail {
+
+/// A simple wrapper for system_clock::now which we can mock for testing
+class Clock
+{
+public:
+    typedef std::chrono::system_clock::time_point time_point;
+    typedef std::chrono::system_clock::duration duration;
+    virtual ~Clock() {}
+    virtual time_point now() = 0;
+};
+
+class SystemClock: public Clock
+{
+public:
+    virtual time_point now()
+    {
+        return std::chrono::system_clock::now();
+    }
+};
+
+}
+
 class File;
 class Filesystem;
 

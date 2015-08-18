@@ -57,7 +57,7 @@ void NfsDirectoryIterator::next()
 
 void NfsDirectoryIterator::readdir(cookie3 cookie)
 {
-    auto res = dir_->nfs()->readdirplus(
+    auto res = dir_->nfs()->proto()->readdirplus(
         READDIRPLUS3args{dir_->fh(), cookie, verf_, 2048, 8192});
     if (res.status == NFS3_OK) {
         verf_ = std::move(res.resok().cookieverf);

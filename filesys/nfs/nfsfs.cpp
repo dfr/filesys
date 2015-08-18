@@ -18,23 +18,33 @@ using namespace filesys::nfs;
 using namespace std;
 
 NfsFilesystem::NfsFilesystem(
-    shared_ptr<oncrpc::Channel> chan, nfs_fh3&& rootfh)
-    : NfsProgram3<oncrpc::SysClient>(chan),
+    shared_ptr<INfsProgram3> proto,
+    shared_ptr<detail::Clock> clock,
+    nfs_fh3&& rootfh)
+    : proto_(proto),
+      clock_(clock),
       rootfh_(move(rootfh))
+{
+}
+
+NfsFilesystem::~NfsFilesystem()
 {
 }
 
 shared_ptr<File>
 NfsFilesystem::root()
 {
-    nfs_fh3 fh = rootfh_;
-    return find(move(fh));
+    if (!root_) {
+        nfs_fh3 fh = rootfh_;
+        root_ = find(move(fh));
+    }
+    return root_;
 }
 
 shared_ptr<NfsFile>
 NfsFilesystem::find(nfs_fh3&& fh)
 {
-    auto res = getattr(GETATTR3args{fh});
+    auto res = proto_->getattr(GETATTR3args{fh});
     if (res.status == NFS3_OK)
         return find(move(fh), move(res.resok().obj_attributes));
     else
@@ -79,6 +89,8 @@ NfsFilesystemFactory::mount(const string& url)
     auto& fsman = FilesystemManager::instance();
     auto pfs = fsman.mount<pfs::PfsFilesystem>(p.host + ":/");
     auto chan = oncrpc::Channel::open(url, "tcp");
+    auto proto = make_shared<NfsProgram3<oncrpc::SysClient>>(chan);
+    auto clock = make_shared<detail::SystemClock>();
 
     auto exports = mountprog.listexports();
     for (auto exp = exports.get(); exp; exp = exp->ex_next.get()) {
@@ -92,7 +104,7 @@ NfsFilesystemFactory::mount(const string& url)
             pfs->add(
                 exp->ex_dir,
                 fsman.mount<NfsFilesystem>(
-                    p.host + ":" + exp->ex_dir, chan, move(fh)));
+                    p.host + ":" + exp->ex_dir, proto, clock, move(fh)));
         }
     }
 

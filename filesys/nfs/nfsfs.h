@@ -9,6 +9,8 @@
 namespace filesys {
 namespace nfs {
 
+constexpr detail::Clock::duration ATTR_TIMEOUT = std::chrono::seconds(5);
+
 class NfsFilesystem;
 
 class NfsGetattr: public Getattr
@@ -111,11 +113,15 @@ public:
     std::uint64_t fileid() const { return attr_.fileid; }
     const nfs_fh3& fh() const { return fh_; }
     std::shared_ptr<NfsFilesystem> nfs() const { return fs_.lock(); }
-    void updateAttr(post_op_attr&& attr);
 
 private:
+    std::shared_ptr<File> find(
+        const std::string& name, post_op_fh3& fh, post_op_attr& attr);
+    void update(post_op_attr&& attr);
+
     std::weak_ptr<NfsFilesystem> fs_;
     nfs_fh3 fh_;
+    detail::Clock::time_point attrTime_;
     fattr3 attr_;
 };
 
@@ -141,24 +147,30 @@ private:
 };
 
 class NfsFilesystem: public Filesystem,
-                     public std::enable_shared_from_this<NfsFilesystem>,
-                     public NfsProgram3<oncrpc::SysClient>
+                     public std::enable_shared_from_this<NfsFilesystem>
 {
 public:
-    NfsFilesystem(std::shared_ptr<oncrpc::Channel> chan, nfs_fh3&& rootfh);
+    NfsFilesystem(
+        std::shared_ptr<INfsProgram3> proto,
+        std::shared_ptr<detail::Clock> clock,
+        nfs_fh3&& rootfh);
+    ~NfsFilesystem();
     std::shared_ptr<File> root() override;
 
+    auto proto() const { return proto_; }
+    auto clock() const { return clock_; }
     std::shared_ptr<NfsFile> find(nfs_fh3&& fh);
-    std::shared_ptr<NfsFile> find(nfs_fh3&& fh, fattr3&& attr);
-private:
+    std::shared_ptr<NfsFile> find(nfs_fh3&& fh, fattr3&& attrp);
 
-    std::shared_ptr<oncrpc::Channel> channel_;
-    std::shared_ptr<oncrpc::Client> client_;
+private:
+    std::shared_ptr<INfsProgram3> proto_;
+    std::shared_ptr<detail::Clock> clock_;
     nfs_fh3 rootfh_;
+    std::shared_ptr<File> root_;
     typedef std::list<std::shared_ptr<NfsFile>> lruT;
     lruT lru_;
     std::unordered_map<std::uint64_t, lruT::iterator> cache_;
-    int maxCache_ = 1024;
+    static constexpr int maxCache_ = 1024;
 };
 
 class NfsFilesystemFactory: public FilesystemFactory
