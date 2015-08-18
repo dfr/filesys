@@ -10,3 +10,6 @@
 [submodule "rpcxx"]
 	path = rpcxx
 	url = ../rpcxx
+[submodule "third_party/gmock/upstream"]
+	path = third_party/gmock/upstream
+	url = https://chromium.googlesource.com/external/gmock
