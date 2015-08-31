@@ -115,7 +115,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    auto mnt = fac->mount(argv[1]);
+    auto mnt = fac->mount(&fsman, argv[1]);
     CommandState state(mnt.first->root());
     state.chdir(state.lookup(mnt.second));
 

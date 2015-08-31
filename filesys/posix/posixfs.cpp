@@ -17,7 +17,9 @@ using namespace std;
 
 PosixFilesystem::PosixFilesystem(const std::string& path)
 {
-    rootfd_ = ::open(path.c_str(), O_RDONLY);
+    rootfd_ = ::open(path.size() > 0 ? path.c_str() : ".", O_RDONLY);
+    if (rootfd_ < 0)
+	throw system_error(errno, system_category());
     struct ::stat st;
     ::fstat(rootfd_, &st);
     rootid_ = st.st_ino;
@@ -69,11 +71,10 @@ PosixFilesystem::find(
 }
 
 pair<shared_ptr<Filesystem>, string>
-PosixFilesystemFactory::mount(const string& url)
+PosixFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
 {
     UrlParser p(url);
-    auto& fsman = FilesystemManager::instance();
-    return make_pair(fsman.mount<PosixFilesystem>(p.path, p.path), ".");
+    return make_pair(fsman->mount<PosixFilesystem>(p.path, p.path), ".");
 };
 
 void filesys::posix::init(FilesystemManager* fsman)

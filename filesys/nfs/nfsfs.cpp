@@ -80,14 +80,13 @@ NfsFilesystem::find(nfs_fh3&& fh, fattr3&& attr)
 }
 
 pair<shared_ptr<Filesystem>, string>
-NfsFilesystemFactory::mount(const string& url)
+NfsFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
 {
     UrlParser p(url);
     LOG(INFO) << "Connecting to mount service on " << p.host;
     Mountprog3<oncrpc::SysClient> mountprog(p.host);
 
-    auto& fsman = FilesystemManager::instance();
-    auto pfs = fsman.mount<pfs::PfsFilesystem>(p.host + ":/");
+    auto pfs = fsman->mount<pfs::PfsFilesystem>(p.host + ":/");
     auto chan = oncrpc::Channel::open(url, "tcp");
     auto proto = make_shared<NfsProgram3<oncrpc::SysClient>>(chan);
     auto clock = make_shared<detail::SystemClock>();
@@ -103,7 +102,7 @@ NfsFilesystemFactory::mount(const string& url)
             fh.data = move(mnt.mountinfo().fhandle);
             pfs->add(
                 exp->ex_dir,
-                fsman.mount<NfsFilesystem>(
+                fsman->mount<NfsFilesystem>(
                     p.host + ":" + exp->ex_dir, proto, clock, move(fh)));
         }
     }

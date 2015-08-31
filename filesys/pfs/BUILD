@@ -23,5 +23,9 @@ cc_test(
     deps = [
         ":pfs",
         "//third_party/gtest:gtest_main"
-    ]
+    ],
+    linkopts = select ({
+        "//:freebsd": ["-pthread"],
+        "//:darwin": [],
+    })
 )

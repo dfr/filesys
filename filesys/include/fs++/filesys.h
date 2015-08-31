@@ -34,6 +34,7 @@ public:
 
 class File;
 class Filesystem;
+class FilesystemManager;
 
 /// Possible file types
 enum class FileType {
@@ -249,7 +250,7 @@ class FilesystemFactory
 public:
     virtual std::string name() const = 0;
     virtual std::pair<std::shared_ptr<Filesystem>, std::string> mount(
-        const std::string& url) = 0;
+        FilesystemManager* fsman, const std::string& url) = 0;
 };
 
 class FilesystemManager

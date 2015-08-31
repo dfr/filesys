@@ -178,7 +178,7 @@ class NfsFilesystemFactory: public FilesystemFactory
 public:
     std::string name() const override { return "nfs"; }
     std::pair<std::shared_ptr<Filesystem>, std::string> mount(
-        const std::string& url) override;
+        FilesystemManager* fsman, const std::string& url) override;
 };
 
 void init(FilesystemManager* fsman);
