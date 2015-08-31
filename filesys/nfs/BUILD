@@ -27,6 +27,11 @@ genrule(
     cmd = "$(location //rpcxx/utils/rpcgen) -txic -n filesys::nfs $(location nfs_prot.x) > $(OUTS)",
 )
 
+test_suite(
+    name = "small",
+    tags = ["small"]
+)
+
 cc_test(
     name = "nfs_test",
     size = "small",

@@ -10,6 +10,11 @@ cc_binary(
     linkstatic = 1
 )
 
+test_suite(
+    name = "small",
+    tags = ["small"]
+)
+
 sh_test(
     name = "cat_test",
     size = "small",

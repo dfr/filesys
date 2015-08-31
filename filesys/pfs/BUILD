@@ -10,6 +10,11 @@ cc_library(
     visibility = ["//visibility:public"]
 )
 
+test_suite(
+    name = "small",
+    tags = ["small"]
+)
+
 cc_test(
     name = "pfs_test",
     size = "small",
