@@ -53,8 +53,8 @@ public:
         hasSize_ = true;
         size_ = size;
     }
-    void setMtime(std::chrono::system_clock::time_point mtime) {}
-    void setAtime(std::chrono::system_clock::time_point atime) {}
+    void setMtime(std::chrono::system_clock::time_point mtime) override {}
+    void setAtime(std::chrono::system_clock::time_point atime) override {}
 
     bool hasMode_ = false;
     bool hasSize_ = false;
@@ -193,7 +193,7 @@ private:
 class PosixFilesystemFactory: public FilesystemFactory
 {
 public:
-    std::string name() const { return "file"; }
+    std::string name() const override { return "file"; }
     std::pair<std::shared_ptr<Filesystem>, std::string> mount(
         const std::string& url) override;
 };
