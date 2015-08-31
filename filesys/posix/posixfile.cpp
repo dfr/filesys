@@ -95,7 +95,9 @@ shared_ptr<File> PosixFile::lookup(const string& name)
         oflag = O_RDWR;
     else
         oflag = O_RDONLY;
+#ifdef O_SYMLINK
     oflag |= O_SYMLINK;
+#endif
     fd = ::openat(fd_, name.c_str(), oflag);
     if (fd < 0 && errno == EISDIR) {
         fd = ::openat(fd_, name.c_str(), O_RDONLY);
