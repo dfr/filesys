@@ -473,16 +473,21 @@ TEST_F(NfsTest, Read)
     EXPECT_CALL(*proto.get(), read(_))
         .Times(1)
         .WillOnce(InvokeWithoutArgs([]() {
+            auto buf = make_shared<oncrpc::Buffer>(1024);
+            fill_n(buf->data(), 1024, 99);
             return READ3res(
                 NFS3_OK,
                 READ3resok{
                     post_op_attr(false),
                     1024,
                     false,
-                    vector<uint8_t>(1024, 99)});
+                    buf});
         }));
-    vector<uint8_t> buf(1024, 99);
-    EXPECT_EQ(buf, nfs->root()->read(0, 1024, atEof));
+
+    auto buf = nfs->root()->read(0, 1024, atEof);
+    EXPECT_EQ(1024, buf->size());
+    for (auto v: *buf)
+        EXPECT_EQ(99, v);
 
     EXPECT_CALL(*proto.get(), read(_))
         .Times(1)
@@ -507,7 +512,8 @@ TEST_F(NfsTest, Write)
                     {pre_op_attr(false), post_op_attr(false)},
                     123, DATA_SYNC, {}});
         }));
-    vector<uint8_t> buf(1024, 99);
+    auto buf = make_shared<oncrpc::Buffer>(1024);
+    fill_n(buf->data(), 1024, 99);
     EXPECT_EQ(123, nfs->root()->write(0, buf));
 
     EXPECT_CALL(*proto.get(), write(_))

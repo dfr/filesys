@@ -14,5 +14,6 @@ cc_library(
     name = "hdrs",
     hdrs = glob(["include/fs++/*.h"]),
     includes = ["include"],
+    deps = ["//rpcxx"],
     visibility = ["//visibility:public"]
 )

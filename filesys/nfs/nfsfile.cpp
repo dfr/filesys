@@ -171,7 +171,7 @@ NfsFile::readlink()
     }
 }
 
-vector<uint8_t>
+shared_ptr<oncrpc::Buffer>
 NfsFile::read(uint64_t offset, uint32_t size, bool& eof)
 {
     auto fs = fs_.lock();
@@ -188,11 +188,11 @@ NfsFile::read(uint64_t offset, uint32_t size, bool& eof)
 }
 
 uint32_t
-NfsFile::write(uint64_t offset, const vector<uint8_t>& data)
+NfsFile::write(uint64_t offset, shared_ptr<oncrpc::Buffer> data)
 {
     auto fs = fs_.lock();
     auto res = fs->proto()->write(
-        WRITE3args{fh_, offset, count3(data.size()), UNSTABLE, data});
+        WRITE3args{fh_, offset, count3(data->size()), UNSTABLE, data});
     if (res.status == NFS3_OK) {
         // We ignore file_wcc.before since we aren't caching (yet)
         update(move(res.resok().file_wcc.after));

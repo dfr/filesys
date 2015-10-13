@@ -37,8 +37,8 @@ public:
             bool eof = false;
             while (!eof) {
                 auto data = f->read(offset, 8192, eof);
-                cout.write(reinterpret_cast<char*>(data.data()), data.size());
-                offset += data.size();
+                cout.write(reinterpret_cast<char*>(data->data()), data->size());
+                offset += data->size();
             }
         }
         catch (system_error& e) {

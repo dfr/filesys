@@ -97,7 +97,7 @@ public:
                 auto data = in->read(offset, 1024, eof);
                 // XXX: handle short writes
                 out->write(offset, data);
-                offset += data.size();
+                offset += data->size();
             }
             in->close();
             out->commit();

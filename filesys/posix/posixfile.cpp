@@ -26,7 +26,7 @@ using namespace std;
 
 PosixFile::PosixFile(
     shared_ptr<PosixFilesystem> fs, shared_ptr<PosixFile> parent,
-    const std::string& name, std::uint64_t fileid, int fd)
+    const string& name, uint64_t fileid, int fd)
     : fs_(fs),
       parent_(parent),
       name_(name),
@@ -160,21 +160,25 @@ string PosixFile::readlink()
     return buf;
 }
 
-vector<uint8_t> PosixFile::read(uint64_t offset, uint32_t count, bool& eof)
+shared_ptr<oncrpc::Buffer>
+PosixFile::read(uint64_t offset, uint32_t count, bool& eof)
 {
-    vector<uint8_t> buf(count);
-    auto n = ::pread(fd_, buf.data(), count, offset);
+    auto buf = make_shared<oncrpc::Buffer>(count);
+    auto n = ::pread(fd_, buf->data(), count, offset);
     if (n < 0)
         throw system_error(errno, system_category());
     eof = n < count;
-    buf.resize(n);
+    if (n != count) {
+        // Return a subset of the buffer we allocated
+        buf = make_shared<oncrpc::Buffer>(buf, 0, n);
+    }
     return buf;
 }
 
-uint32_t PosixFile::write(uint64_t offset, const vector<uint8_t>& data)
+uint32_t PosixFile::write(uint64_t offset, shared_ptr<oncrpc::Buffer> data)
 {
-    auto p = data.data();
-    auto len = data.size();
+    auto p = data->data();
+    auto len = data->size();
     while (len > 0) {
         auto n = ::pwrite(fd_, p, len, offset);
         if (n < 0)
@@ -183,7 +187,7 @@ uint32_t PosixFile::write(uint64_t offset, const vector<uint8_t>& data)
         len -= n;
         offset += n;
     }
-    return data.size();
+    return data->size();
 }
 
 shared_ptr<File> PosixFile::mkdir(
@@ -210,8 +214,8 @@ shared_ptr<File> PosixFile::symlink(
     throw system_error(errno, system_category());
 }
 
-std::shared_ptr<File> PosixFile::mkfifo(
-    const std::string& name, std::function<void(Setattr*)> cb)
+shared_ptr<File> PosixFile::mkfifo(
+    const string& name, function<void(Setattr*)> cb)
 {
     if (name[0] == '/')
         throw system_error(EACCES, system_category());
@@ -249,7 +253,7 @@ void PosixFile::rename(
         throw system_error(errno, system_category());
 }
 
-void PosixFile::link(const std::string& name, std::shared_ptr<File> file)
+void PosixFile::link(const string& name, shared_ptr<File> file)
 {
     if (name[0] == '/')
         throw system_error(EACCES, system_category());
@@ -264,7 +268,7 @@ shared_ptr<DirectoryIterator> PosixFile::readdir()
     return make_shared<PosixDirectoryIterator>(fs_.lock(), shared_from_this());
 }
 
-std::shared_ptr<Fsattr> PosixFile::fsstat()
+shared_ptr<Fsattr> PosixFile::fsstat()
 {
     auto res = make_shared<PosixFsattr>();
     if (::fstatfs(fd_, &res->stat) < 0)

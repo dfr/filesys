@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include <rpc++/xdr.h>
+
 namespace filesys {
 
 namespace detail {
@@ -189,12 +191,12 @@ public:
     virtual std::string readlink() = 0;
 
     /// Read data from a file
-    virtual std::vector<std::uint8_t> read(
+    virtual std::shared_ptr<oncrpc::Buffer> read(
         std::uint64_t offset, std::uint32_t size, bool& eof) = 0;
 
     /// Write data to a file
     virtual std::uint32_t write(
-        std::uint64_t offset, const std::vector<std::uint8_t>& data) = 0;
+        std::uint64_t offset, std::shared_ptr<oncrpc::Buffer> data) = 0;
 
     /// Create a new directory
     virtual std::shared_ptr<File> mkdir(

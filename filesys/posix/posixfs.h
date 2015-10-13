@@ -113,10 +113,10 @@ public:
     void close() override;
     void commit() override;
     std::string readlink() override;
-    std::vector<std::uint8_t> read(
+    std::shared_ptr<oncrpc::Buffer> read(
         std::uint64_t offset, std::uint32_t size, bool& eof) override;
     std::uint32_t write(
-        std::uint64_t offset, const std::vector<std::uint8_t>& data) override;
+        std::uint64_t offset, std::shared_ptr<oncrpc::Buffer> data) override;
     std::shared_ptr<File> mkdir(
         const std::string& name, std::function<void(Setattr*)> cb) override;
     std::shared_ptr<File> symlink(

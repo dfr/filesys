@@ -66,12 +66,12 @@ string PfsFile::readlink()
     throw system_error(EISDIR, system_category());
 }
 
-vector<uint8_t> PfsFile::read(uint64_t, uint32_t, bool&)
+std::shared_ptr<oncrpc::Buffer> PfsFile::read(uint64_t, uint32_t, bool&)
 {
     throw system_error(EISDIR, system_category());
 }
 
-uint32_t PfsFile::write(uint64_t, const vector<uint8_t>&)
+uint32_t PfsFile::write(uint64_t, std::shared_ptr<oncrpc::Buffer>)
 {
     throw system_error(EISDIR, system_category());
 }
