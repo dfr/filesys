@@ -22,7 +22,7 @@ PosixFilesystem::PosixFilesystem(const std::string& path)
 	throw system_error(errno, system_category());
     struct ::stat st;
     ::fstat(rootfd_, &st);
-    rootid_ = st.st_ino;
+    rootid_ = FileId(st.st_ino);
 }
 
 shared_ptr<File>
@@ -37,13 +37,13 @@ PosixFilesystem::find(
 {
     struct ::stat st;
     ::fstat(fd, &st);
-    return find(parent, name, st.st_ino, fd);
+    return find(parent, name, FileId(st.st_ino), fd);
 }
 
 shared_ptr<PosixFile>
 PosixFilesystem::find(
     std::shared_ptr<PosixFile> parent, const std::string& name,
-    std::uint64_t id, int fd)
+    FileId id, int fd)
 {
     auto i = cache_.find(id);
     if (i != cache_.end()) {

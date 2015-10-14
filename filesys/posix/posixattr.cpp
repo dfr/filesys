@@ -67,9 +67,9 @@ std::uint64_t PosixGetattr::used() const
     return stat_.st_blocks * stat_.st_blksize;
 }
 
-std::uint64_t PosixGetattr::fileid() const
+FileId PosixGetattr::fileid() const
 {
-    return stat_.st_ino;
+    return FileId(stat_.st_ino);
 }
 
 std::chrono::system_clock::time_point PosixGetattr::mtime() const

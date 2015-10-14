@@ -31,9 +31,9 @@ bool PosixDirectoryIterator::valid() const
     return next_ != nullptr;
 }
 
-uint64_t PosixDirectoryIterator::fileid() const
+FileId PosixDirectoryIterator::fileid() const
 {
-    return next_->d_ino;
+    return FileId(next_->d_ino);
 }
 
 string PosixDirectoryIterator::name() const
@@ -53,7 +53,7 @@ shared_ptr<File> PosixDirectoryIterator::file() const
         if (fd < 0)
             throw system_error(errno, system_category());
     }
-    return fs_->find(parent_, next_->d_name, next_->d_ino, fd);
+    return fs_->find(parent_, next_->d_name, FileId(next_->d_ino), fd);
 }
 
 void PosixDirectoryIterator::next()

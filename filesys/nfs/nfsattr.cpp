@@ -77,9 +77,9 @@ std::uint64_t NfsGetattr::used() const
     return attr_.used;
 }
 
-std::uint64_t NfsGetattr::fileid() const
+FileId NfsGetattr::fileid() const
 {
-    return attr_.fileid;
+    return FileId(attr_.fileid);
 }
 
 std::chrono::system_clock::time_point NfsGetattr::mtime() const

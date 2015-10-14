@@ -26,7 +26,7 @@ public:
     int gid() const override;
     std::uint64_t size() const override;
     std::uint64_t used() const override;
-    std::uint64_t fileid() const override;
+    FileId fileid() const override;
     std::chrono::system_clock::time_point mtime() const override;
     std::chrono::system_clock::time_point atime() const override;
     std::chrono::system_clock::time_point ctime() const override;
@@ -110,7 +110,7 @@ public:
     std::shared_ptr<DirectoryIterator> readdir() override;
     std::shared_ptr<Fsattr> fsstat() override;
 
-    std::uint64_t fileid() const { return attr_.fileid; }
+    FileId fileid() const { return FileId(attr_.fileid); }
     const nfs_fh3& fh() const { return fh_; }
     std::shared_ptr<NfsFilesystem> nfs() const { return fs_.lock(); }
 
@@ -131,7 +131,7 @@ public:
     NfsDirectoryIterator(std::shared_ptr<NfsFile> dir);
 
     bool valid() const override;
-    std::uint64_t fileid() const override;
+    FileId fileid() const override;
     std::string name() const override;
     std::shared_ptr<File> file() const override;
     void next() override;

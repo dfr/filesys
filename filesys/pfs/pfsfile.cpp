@@ -8,7 +8,7 @@ using namespace filesys::pfs;
 using namespace std;
 
 PfsFile::PfsFile(
-    shared_ptr<PfsFilesystem> fs, int fileid, shared_ptr<PfsFile> parent)
+    shared_ptr<PfsFilesystem> fs, FileId fileid, shared_ptr<PfsFile> parent)
     : fs_(fs),
       fileid_(fileid),
       ctime_(chrono::system_clock::now()),

@@ -18,9 +18,9 @@ bool NfsDirectoryIterator::valid() const
     return entry_.get() != nullptr;
 }
 
-std::uint64_t NfsDirectoryIterator::fileid() const
+FileId NfsDirectoryIterator::fileid() const
 {
-    return entry_->fileid;
+    return FileId(entry_->fileid);
 }
 
 std::string NfsDirectoryIterator::name() const

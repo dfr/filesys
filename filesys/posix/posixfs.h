@@ -28,7 +28,7 @@ public:
     int gid() const override;
     std::uint64_t size() const override;
     std::uint64_t used() const override;
-    std::uint64_t fileid() const override;
+    FileId fileid() const override;
     std::chrono::system_clock::time_point mtime() const override;
     std::chrono::system_clock::time_point atime() const override;
     std::chrono::system_clock::time_point ctime() const override;
@@ -134,14 +134,14 @@ public:
     std::shared_ptr<DirectoryIterator> readdir() override;
     std::shared_ptr<Fsattr> fsstat() override;
 
-    std::uint64_t fileid() const { return id_; }
+    FileId fileid() const { return id_; }
     int fd() const { return fd_; }
 
 private:
     std::weak_ptr<PosixFilesystem> fs_;
     std::shared_ptr<PosixFile> parent_;
     std::string name_;
-    std::uint64_t id_;
+    FileId id_;
     int fd_;
 };
 
@@ -154,7 +154,7 @@ public:
     ~PosixDirectoryIterator();
 
     bool valid() const override;
-    std::uint64_t fileid() const override;
+    FileId fileid() const override;
     std::string name() const override;
     std::shared_ptr<File> file() const override;
     void next() override;
@@ -178,11 +178,11 @@ public:
         const std::string& name, int fd);
     std::shared_ptr<PosixFile> find(
         std::shared_ptr<PosixFile> parent,
-        const std::string& name, std::uint64_t id, int fd);
+        const std::string& name, FileId id, int fd);
 
 private:
     int rootfd_;
-    std::uint64_t rootid_;
+    FileId rootid_;
 
     typedef std::list<std::shared_ptr<PosixFile>> lruT;
     lruT lru_;

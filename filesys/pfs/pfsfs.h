@@ -14,7 +14,7 @@ class PfsFilesystem;
 class PfsGetattr: public Getattr
 {
 public:
-    PfsGetattr(int fileid, std::chrono::system_clock::time_point time)
+    PfsGetattr(FileId fileid, std::chrono::system_clock::time_point time)
         : fileid_(fileid),
           time_(time)
     {
@@ -49,7 +49,7 @@ public:
     {
         return 0;
     }
-    std::uint64_t fileid() const override
+    FileId fileid() const override
     {
         return fileid_;
     }
@@ -67,7 +67,7 @@ public:
     }
 
 private:
-    int fileid_;
+    FileId fileid_;
     std::chrono::system_clock::time_point time_;
 };
 
@@ -86,7 +86,7 @@ class PfsFile: public File, public std::enable_shared_from_this<PfsFile>
 {
 public:
     PfsFile(std::shared_ptr<PfsFilesystem>,
-            int fileid, std::shared_ptr<PfsFile> parent);
+            FileId fileid, std::shared_ptr<PfsFile> parent);
 
     // File overrides
     std::shared_ptr<Filesystem> fs() override;
@@ -120,7 +120,7 @@ public:
     std::shared_ptr<DirectoryIterator> readdir() override;
     std::shared_ptr<Fsattr> fsstat() override;
 
-    int fileid() const { return fileid_; }
+    FileId fileid() const { return fileid_; }
     std::shared_ptr<PfsFile> parent() const { return parent_; }
     std::shared_ptr<PfsFile> find(const std::string& name);
     void add(const std::string& name, std::shared_ptr<PfsFile> dir)
@@ -141,7 +141,7 @@ public:
 
 private:
     std::weak_ptr<PfsFilesystem> fs_;
-    int fileid_;
+    FileId fileid_;
     std::chrono::system_clock::time_point ctime_;
     std::shared_ptr<PfsFile> parent_;
     std::shared_ptr<Filesystem> mount_;
@@ -155,7 +155,7 @@ public:
         const std::map<std::string, std::weak_ptr<PfsFile>>& entries);
 
     bool valid() const override;
-    std::uint64_t fileid() const override;
+    FileId fileid() const override;
     std::string name() const override;
     std::shared_ptr<File> file() const override;
     void next() override;

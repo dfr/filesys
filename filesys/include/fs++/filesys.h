@@ -38,6 +38,20 @@ class File;
 class Filesystem;
 class FilesystemManager;
 
+/// A unique identifier for a file in some filesystem
+class FileId
+{
+public:
+    FileId() : id_(0) {}
+    explicit FileId(std::uint64_t id) : id_(id) {}
+
+    auto id() const { return id_; }
+    operator std::uint64_t() const { return id_; }
+
+private:
+    std::uint64_t id_;
+};
+
 /// Possible file types
 enum class FileType {
     FILE,
@@ -68,7 +82,7 @@ public:
     virtual bool valid() const = 0;
 
     /// Return the current entry's file id
-    virtual std::uint64_t fileid() const = 0;
+    virtual FileId fileid() const = 0;
 
     /// Return the current entry's file name
     virtual std::string name() const = 0;
@@ -110,7 +124,7 @@ public:
     /// XXX specdata?
 
     /// Return the file id
-    virtual std::uint64_t fileid() const = 0;
+    virtual FileId fileid() const = 0;
 
     /// Return the time the file was last modified
     virtual std::chrono::system_clock::time_point mtime() const = 0;

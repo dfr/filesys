@@ -18,7 +18,7 @@ bool PfsDirectoryIterator::valid() const
     return p_ != entries_.end();
 }
 
-std::uint64_t PfsDirectoryIterator::fileid() const
+FileId PfsDirectoryIterator::fileid() const
 {
     return p_->second.lock()->fileid();
 }
