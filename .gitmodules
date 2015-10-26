@@ -13,3 +13,6 @@
 [submodule "third_party/gmock/upstream"]
 	path = third_party/gmock/upstream
 	url = https://chromium.googlesource.com/external/gmock
+[submodule "third_party/rocksdb/upstream"]
+	path = third_party/rocksdb/upstream
+	url = https://github.com/facebook/rocksdb.git
