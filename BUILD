@@ -7,6 +7,7 @@ test_suite(
         "//cli:small",
         "//filesys/pfs:small",
         "//filesys/nfs:small",
+        "//filesys/objfs:small",
     ]
 )
 

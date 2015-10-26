@@ -5,7 +5,8 @@ cc_library(
     deps = [
         ":hdrs",
         "//filesys/nfs",
-        "//filesys/posix"
+        "//filesys/posix",
+        "//filesys/objfs",
     ],
     visibility = ["//visibility:public"]
 )

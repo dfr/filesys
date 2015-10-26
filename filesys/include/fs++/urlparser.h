@@ -28,6 +28,11 @@ struct UrlParser
                 throw std::runtime_error("malformed url");
             path = s.substr(2);
         }
+        else if (scheme == "objfs") {
+            if (s.substr(0, 2) != "//")
+                throw std::runtime_error("malformed url");
+            path = s.substr(2);
+        }
     }
 
     bool isHostbased()
