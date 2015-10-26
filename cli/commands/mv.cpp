@@ -47,12 +47,14 @@ public:
             return;
         }
 
-        // If the target exists, we assume its a directory and that
-        // the desired name is the same as the source
+        // If the target exists, and its a directory set the target to that
+        // directory with the same name as the source
         try {
             auto f = to.first->lookup(to.second);
-            to.first = f;
-            to.second = leafEntry(args[0]);
+            if (f->getattr()->type() == FileType::DIRECTORY) {
+                to.first = f;
+                to.second = leafEntry(args[0]);
+            }
         }
         catch (system_error& e) {
             // Ignore
