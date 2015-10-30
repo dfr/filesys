@@ -86,3 +86,8 @@ std::chrono::system_clock::time_point PosixGetattr::ctime() const
 {
     return fromTimespec(stat_.st_ctimespec);
 }
+
+std::chrono::system_clock::time_point PosixGetattr::birthtime() const
+{
+    return fromTimespec(stat_.st_birthtimespec);
+}

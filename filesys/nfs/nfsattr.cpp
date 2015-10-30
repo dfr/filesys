@@ -97,6 +97,11 @@ std::chrono::system_clock::time_point NfsGetattr::ctime() const
     return  fromNfsTime(attr_.ctime);
 }
 
+std::chrono::system_clock::time_point NfsGetattr::birthtime() const
+{
+    return  fromNfsTime({0, 0});
+}
+
 NfsSetattr::NfsSetattr(sattr3& attr)
     : attr_(attr)
 {

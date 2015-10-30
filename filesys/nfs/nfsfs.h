@@ -30,6 +30,7 @@ public:
     std::chrono::system_clock::time_point mtime() const override;
     std::chrono::system_clock::time_point atime() const override;
     std::chrono::system_clock::time_point ctime() const override;
+    std::chrono::system_clock::time_point birthtime() const override;
 
 private:
     fattr3 attr_;

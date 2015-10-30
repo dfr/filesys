@@ -65,6 +65,10 @@ public:
     {
         return time_;
     }
+    std::chrono::system_clock::time_point birthtime() const override
+    {
+        return time_;
+    }
 
 private:
     FileId fileid_;

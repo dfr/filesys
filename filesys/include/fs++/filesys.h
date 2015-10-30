@@ -134,6 +134,9 @@ public:
 
     /// Return the time the file attributes last changed
     virtual std::chrono::system_clock::time_point ctime() const = 0;
+
+    /// Return the time the file was created
+    virtual std::chrono::system_clock::time_point birthtime() const = 0;
 };
 
 /// Settable attributes
