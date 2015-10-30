@@ -69,6 +69,7 @@ struct OpenFlags
 {
     static constexpr int READ = 1;
     static constexpr int WRITE = 2;
+    static constexpr int RDWR = 3;
     static constexpr int CREATE = 4;
     static constexpr int TRUNCATE = 8;
     static constexpr int EXCLUSIVE = 16;
