@@ -3,6 +3,7 @@
 
 #include <fs++/filesys.h>
 #include <fs++/urlparser.h>
+#include <fs++/proto/mount.h>
 #include <rpc++/channel.h>
 #include <rpc++/client.h>
 #include <rpc++/errors.h>
@@ -11,7 +12,6 @@
 
 #include "nfsfs.h"
 #include "filesys/pfs/pfsfs.h"
-#include "filesys/nfs/mount.h"
 
 using namespace filesys;
 using namespace filesys::nfs;

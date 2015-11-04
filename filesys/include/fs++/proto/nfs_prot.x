@@ -27,9 +27,6 @@
  * Mountain View, California  94043
  */
 
-const TRUE = 1;
-const FALSE = 0;
-
 const NFS_PORT          = 2048;
 const NFS_MAXDATA       = 8192;
 const NFS_MAXPATHLEN    = 1024;

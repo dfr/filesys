@@ -3,8 +3,7 @@
 #include <list>
 
 #include <fs++/filesys.h>
-
-#include "filesys/nfs/nfs_prot.h"
+#include <fs++/proto/nfs_prot.h>
 
 namespace filesys {
 namespace nfs {
