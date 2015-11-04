@@ -45,6 +45,14 @@ shared_ptr<Filesystem> PosixFile::fs()
     return fs_.lock();
 }
 
+void
+PosixFile::handle(FileHandle& fh)
+{
+    fh.fsid = fs_.lock()->fsid();
+    fh.handle.resize(sizeof(FileId));
+    *reinterpret_cast<FileId*>(fh.handle.data()) = id_;
+}
+
 shared_ptr<Getattr> PosixFile::getattr()
 {
     struct ::stat st;

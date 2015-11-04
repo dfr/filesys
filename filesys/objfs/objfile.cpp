@@ -54,6 +54,14 @@ shared_ptr<Filesystem> ObjFile::fs()
     return fs_.lock();
 }
 
+void
+ObjFile::handle(FileHandle& fh)
+{
+    fh.fsid = fs_.lock()->fsid();
+    fh.handle.resize(sizeof(FileId));
+    *reinterpret_cast<FileId*>(fh.handle.data()) = FileId(meta_.fileid);
+}
+
 shared_ptr<Getattr> ObjFile::getattr()
 {
     // XXX: defer the call to spaceUsed until Getattr::used is called?

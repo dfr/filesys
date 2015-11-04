@@ -7,6 +7,8 @@ using namespace filesys;
 using namespace filesys::pfs;
 using namespace std;
 
+int PfsFilesystem::nextfsid_ = 1;
+
 static vector<string> parsePath(const string& path)
 {
     vector<string> res;
@@ -29,12 +31,31 @@ static vector<string> parsePath(const string& path)
 
 PfsFilesystem::PfsFilesystem()
 {
+    fsid_.resize(sizeof(uint32_t));
+    *reinterpret_cast<uint32_t*>(fsid_.data()) = nextfsid_++;
 }
 
 std::shared_ptr<File>
 PfsFilesystem::root()
 {
     return root_;
+}
+
+const FilesystemId&
+PfsFilesystem::fsid() const
+{
+    static FilesystemId nullfsid;
+    return nullfsid;
+}
+
+shared_ptr<File>
+PfsFilesystem::find(const FileHandle& fh)
+{
+    assert(fh.fsid == fsid_);
+    auto i = idmap_.find(int(*reinterpret_cast<const FileId*>(fh.handle.data())));
+    if (i == idmap_.end() || i->second.expired())
+        throw system_error(ESTALE, system_category());
+    return i->second.lock();
 }
 
 void
@@ -45,7 +66,9 @@ PfsFilesystem::add(const std::string& path, shared_ptr<Filesystem> mount)
 
     if (!root_) {
         root_ = make_shared<PfsFile>(
-            shared_from_this(), FileId(nextid_++), nullptr);
+            shared_from_this(), FileId(nextid_), nullptr);
+        idmap_[nextid_] = root_;
+        nextid_++;
     }
 
     vector<string> entries = parsePath(path);
@@ -58,7 +81,9 @@ PfsFilesystem::add(const std::string& path, shared_ptr<Filesystem> mount)
         }
         catch (system_error& e) {
             auto newdir = make_shared<PfsFile>(
-                shared_from_this(), FileId(nextid_++), dir);
+                shared_from_this(), FileId(nextid_), dir);
+            idmap_[nextid_] = newdir;
+            nextid_++;
             dir->add(entry, newdir);
             dir = newdir;
         }

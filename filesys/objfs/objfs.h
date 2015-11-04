@@ -188,6 +188,7 @@ public:
 
     // File overrides
     std::shared_ptr<Filesystem> fs() override;
+    void handle(FileHandle& fh) override;
     std::shared_ptr<Getattr> getattr() override;
     void setattr(std::function<void(Setattr*)> cb) override;
     std::shared_ptr<File> lookup(const std::string& name) override;
@@ -265,6 +266,8 @@ public:
     ~ObjFilesystem() override;
 
     std::shared_ptr<File> root() override;
+    const FilesystemId& fsid() const override;
+    std::shared_ptr<File> find(const FileHandle& fh) override;
 
     auto defaultNS() const { return defaultNS_; }
     auto directoriesNS() const { return directoriesNS_; }
@@ -288,6 +291,7 @@ public:
     std::shared_ptr<ObjFile> find(FileId fileid);
     void add(std::shared_ptr<ObjFile> file);
     void writeMeta(Transaction* trans);
+    void setFsid();
 
 private:
     std::unique_ptr<Database> db_;
@@ -295,6 +299,7 @@ private:
     Namespace* directoriesNS_;
     Namespace* dataNS_;
     ObjFilesystemMeta meta_;
+    FilesystemId fsid_;
     std::shared_ptr<ObjFile> root_;
     typedef std::list<std::shared_ptr<ObjFile>> lruT;
     lruT lru_;

@@ -81,6 +81,7 @@ public:
 
     // File overrides
     std::shared_ptr<Filesystem> fs() override;
+    void handle(FileHandle& fh) override;
     std::shared_ptr<Getattr> getattr() override;
     void setattr(std::function<void(Setattr*)> cb) override;
     std::shared_ptr<File> lookup(const std::string& name) override;
@@ -157,6 +158,8 @@ public:
         nfs_fh3&& rootfh);
     ~NfsFilesystem();
     std::shared_ptr<File> root() override;
+    const FilesystemId& fsid() const override;
+    std::shared_ptr<File> find(const FileHandle& fh) override;
 
     auto proto() const { return proto_; }
     auto clock() const { return clock_; }

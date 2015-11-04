@@ -105,6 +105,7 @@ public:
 
     // File overrides
     std::shared_ptr<Filesystem> fs() override;
+    void handle(FileHandle& fh) override;
     std::shared_ptr<Getattr> getattr() override;
     void setattr(std::function<void(Setattr*)> cb) override;
     std::shared_ptr<File> lookup(const std::string& name) override;
@@ -173,6 +174,8 @@ class PosixFilesystem: public Filesystem,
 public:
     PosixFilesystem(const std::string& path);
     std::shared_ptr<File> root() override;
+    const FilesystemId& fsid() const override;
+    std::shared_ptr<File> find(const FileHandle& fh) override;
 
     std::shared_ptr<PosixFile> find(
         std::shared_ptr<PosixFile> parent,
@@ -184,6 +187,7 @@ public:
 private:
     int rootfd_;
     FileId rootid_;
+    FilesystemId fsid_;
 
     typedef std::list<std::shared_ptr<PosixFile>> lruT;
     lruT lru_;

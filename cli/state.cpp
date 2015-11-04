@@ -1,3 +1,4 @@
+#include <cctype>
 #include <system_error>
 
 #include <fs++/filesys.h>
@@ -13,8 +14,53 @@ CommandState::CommandState(shared_ptr<File> root)
 {
 }
 
+static int parseHexDigit(char ch)
+{
+    if (ch >= '0' && ch <= '9')
+        return ch - '0';
+    if (ch >= 'a' && ch <= 'f')
+        return ch - 'a' + 10;
+    if (ch >= 'A' && ch <= 'F')
+        return ch - 'A' + 10;
+    throw system_error(ENOENT, system_category());
+}
+
+static vector<uint8_t> parseByteArray(const string& s)
+{
+    vector<uint8_t> res;
+    uint8_t b;
+
+    if (s.size() & 1)
+        throw system_error(ENOENT, system_category());
+    for (auto i = 0; i < int(s.size()); i++) {
+        auto n = parseHexDigit(s[i]);
+        if (i & 1) {
+            b |= n;
+            res.push_back(b);
+        }
+        else {
+            b = n << 4;
+        }
+    }
+    return res;
+}
+
+static shared_ptr<File> lookupfh(const string& s)
+{
+    auto i = s.find('/');
+    if (i == string::npos || s.find('/', i + 1) != string::npos)
+        throw system_error(ENOENT, system_category());
+    auto fsid = parseByteArray(s.substr(3, i - 3));
+    auto handle = parseByteArray(s.substr(i + 1));
+    FileHandle fh{1, fsid, handle};
+    return FilesystemManager::instance().find(fh);
+}
+
 shared_ptr<File> CommandState::lookup(const string& name)
 {
+    if (name.substr(0, 3) == "FH:") {
+        return lookupfh(name);
+    }
     auto p = resolvepath(name);
     return p.first->lookup(p.second);
 }

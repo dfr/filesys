@@ -94,6 +94,7 @@ public:
 
     // File overrides
     std::shared_ptr<Filesystem> fs() override;
+    void handle(FileHandle& fh) override;
     std::shared_ptr<Getattr> getattr() override;
     void setattr(std::function<void(Setattr*)> cb) override;
     std::shared_ptr<File> lookup(const std::string& name) override;
@@ -176,6 +177,8 @@ class PfsFilesystem: public Filesystem,
 public:
     PfsFilesystem();
     std::shared_ptr<File> root() override;
+    const FilesystemId& fsid() const override;
+    std::shared_ptr<File> find(const FileHandle& fh) override;
 
     /// Add a path to the filesystem
     void add(const std::string& path,
@@ -185,8 +188,11 @@ public:
     void remove(const std::string& path);
 
 private:
+    static int nextfsid_;
+    FilesystemId fsid_;
     int nextid_ = 1;
     std::shared_ptr<PfsFile> root_;
+    std::map<int, std::weak_ptr<PfsFile>> idmap_;
     std::map<std::string, std::shared_ptr<PfsFile>> paths_;
 };
 

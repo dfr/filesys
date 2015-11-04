@@ -33,6 +33,7 @@ ObjFilesystem::ObjFilesystem(const std::string& filename)
                 << meta_.vers << ", expected: " << 1;
             throw system_error(EACCES, system_category());
         }
+        setFsid();
     }
     catch (oncrpc::XdrError&) {
         LOG(ERROR) << "error decoding filesystem metadata";
@@ -74,6 +75,7 @@ ObjFilesystem::root()
             meta.attr.atime = time.count();
             meta.attr.mtime = time.count();
             meta.attr.ctime = time.count();
+            setFsid();
             root_ = make_shared<ObjFile>(shared_from_this(), move(meta));
             add(root_);
 
@@ -87,6 +89,24 @@ ObjFilesystem::root()
         }
     }
     return root_;
+}
+
+const FilesystemId&
+ObjFilesystem::fsid() const
+{
+    return fsid_;
+}
+
+shared_ptr<File>
+ObjFilesystem::find(const FileHandle& fh)
+{
+    assert(fh.fsid == fsid_);
+    try {
+        return find(*reinterpret_cast<const FileId*>(fh.handle.data()));
+    }
+    catch (system_error&) {
+        throw system_error(ESTALE, system_category());
+    }
 }
 
 shared_ptr<ObjFile>
@@ -130,6 +150,13 @@ ObjFilesystem::writeMeta(Transaction* trans)
         defaultNS(),
         KeyType(FileId(0)),
         oncrpc::Buffer(xm.writePos(), xm.buf()));
+}
+
+void
+ObjFilesystem::setFsid()
+{
+    fsid_.resize(sizeof(meta_.fsid));
+    *reinterpret_cast<UUID*>(fsid_.data()) = meta_.fsid;
 }
 
 pair<shared_ptr<Filesystem>, string>

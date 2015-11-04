@@ -21,6 +21,14 @@ shared_ptr<Filesystem> PfsFile::fs()
     return fs_.lock();
 }
 
+void
+PfsFile::handle(FileHandle& fh)
+{
+    fh.fsid = fs_.lock()->fsid();
+    fh.handle.resize(sizeof(FileId));
+    *reinterpret_cast<FileId*>(fh.handle.data()) = fileid_;
+}
+
 shared_ptr<Getattr> PfsFile::getattr()
 {
     return make_shared<PfsGetattr>(fileid_, ctime_);

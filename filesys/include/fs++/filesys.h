@@ -52,6 +52,9 @@ private:
     std::uint64_t id_;
 };
 
+/// A unique identifier for a filesystem
+typedef std::vector<std::uint8_t> FilesystemId;
+
 /// Possible file types
 enum class FileType {
     FILE,
@@ -73,6 +76,14 @@ struct OpenFlags
     static constexpr int CREATE = 4;
     static constexpr int TRUNCATE = 8;
     static constexpr int EXCLUSIVE = 16;
+};
+
+/// A structure which uniquely identifies a file
+struct FileHandle
+{
+    int version = 1;
+    FilesystemId fsid;          // filesystem which exported this handle
+    std::vector<std::uint8_t> handle; // filesystem-specific handle
 };
 
 /// Iterate over the contents of a directory
@@ -185,6 +196,9 @@ public:
     /// Return the file system that owns this file
     virtual std::shared_ptr<Filesystem> fs() = 0;
 
+    /// Get a file handle for this file
+    virtual void handle(FileHandle& fh) = 0;
+
     /// Return an object which can be used to access the file attributes
     virtual std::shared_ptr<Getattr> getattr() = 0;
 
@@ -263,6 +277,12 @@ public:
 
     /// Return the root directory of the filesystem
     virtual std::shared_ptr<File> root() = 0;
+
+    /// Return a filesystem id
+    virtual const FilesystemId& fsid() const = 0;
+
+    /// Find a file given a file haldne
+    virtual std::shared_ptr<File> find(const FileHandle& fh) = 0;
 };
 
 class FilesystemFactory
@@ -304,6 +324,8 @@ public:
             return nullptr;
         return i->second;
     }
+
+    std::shared_ptr<File> find(const FileHandle& fh);
 
     auto begin() { return filesystems_.begin(); }
     auto end() { return filesystems_.end(); }

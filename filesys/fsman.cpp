@@ -1,3 +1,5 @@
+#include <system_error>
+
 #include <fs++/filesys.h>
 
 namespace filesys {
@@ -13,4 +15,14 @@ FilesystemManager::FilesystemManager()
     nfs::init(this);
     posix::init(this);
     objfs::init(this);
+}
+
+std::shared_ptr<File> FilesystemManager::find(const FileHandle& fh)
+{
+    for (auto& entry: filesystems_) {
+        auto& fs = entry.second;
+        if (fs->fsid() == fh.fsid)
+            return fs->find(fh);
+    }
+    throw std::system_error(ESTALE, std::system_category());
 }

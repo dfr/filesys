@@ -23,6 +23,12 @@ NfsFile::fs()
     return fs_.lock();
 }
 
+void
+NfsFile::handle(FileHandle& fh)
+{
+    throw system_error(EOPNOTSUPP, system_category());
+}
+
 shared_ptr<Getattr>
 NfsFile::getattr()
 {

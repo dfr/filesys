@@ -41,6 +41,19 @@ NfsFilesystem::root()
     return root_;
 }
 
+const FilesystemId&
+NfsFilesystem::fsid() const
+{
+    static FilesystemId nullfsid;
+    return nullfsid;
+}
+
+shared_ptr<File>
+NfsFilesystem::find(const FileHandle& fh)
+{
+    throw system_error(ESTALE, system_category());
+}
+
 shared_ptr<NfsFile>
 NfsFilesystem::find(nfs_fh3&& fh)
 {
