@@ -7,6 +7,7 @@
 #include <rpc++/channel.h>
 #include <rpc++/client.h>
 #include <rpc++/errors.h>
+#include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <glog/stl_logging.h>
 
@@ -16,6 +17,8 @@
 using namespace filesys;
 using namespace filesys::nfs;
 using namespace std;
+
+DEFINE_int32(mount_port, 0, "port use for contacting mount service");
 
 NfsFilesystem::NfsFilesystem(
     shared_ptr<INfsProgram3> proto,
@@ -110,13 +113,22 @@ NfsFilesystem::find(nfs_fh3&& fh, fattr3&& attr)
 pair<shared_ptr<Filesystem>, string>
 NfsFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
 {
+    using namespace oncrpc;
+
     UrlParser p(url);
     LOG(INFO) << "Connecting to mount service on " << p.host;
-    Mountprog3<oncrpc::SysClient> mountprog(p.host);
+    shared_ptr<Channel> mchan;
+    if (FLAGS_mount_port) {
+        mchan = Channel::open(p.host, to_string(FLAGS_mount_port), "tcp");
+    }
+    else {
+        mchan = Channel::open(p.host, MOUNTPROG, MOUNTVERS, "tcp");
+    }
+    Mountprog3<SysClient> mountprog(mchan);
 
     auto pfs = fsman->mount<pfs::PfsFilesystem>(p.host + ":/");
-    auto chan = oncrpc::Channel::open(url, "tcp");
-    auto proto = make_shared<NfsProgram3<oncrpc::SysClient>>(chan);
+    auto chan = Channel::open(url, "tcp");
+    auto proto = make_shared<NfsProgram3<SysClient>>(chan);
     auto clock = make_shared<detail::SystemClock>();
 
     auto exports = mountprog.listexports();
