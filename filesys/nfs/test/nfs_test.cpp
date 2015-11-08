@@ -758,3 +758,73 @@ TEST_F(NfsTest, Readdir)
         }));
     EXPECT_THROW(dir->readdir(), system_error);
 }
+
+TEST_F(NfsTest, Readdir2)
+{
+    // Verify that readdir uses the returned file attributes - we should
+    // see exactly one call to getattr() for the root directory
+
+    EXPECT_CALL(*proto.get(), getattr(_))
+        .Times(1)
+        .WillOnce(InvokeWithoutArgs(
+            []() { return getattrOkResult(NF3DIR, 1); }));
+
+    EXPECT_CALL(*proto.get(), readdirplus(_))
+        .Times(2)
+        .WillRepeatedly(InvokeWithoutArgs([]() {
+            dirlistplus3 dirlist;
+            int id = 1;
+            for (auto name: {"foo", "bar", "baz"}) {
+                ++id;
+                auto p = make_unique<entryplus3>();
+                p->fileid = id;
+                p->name = name;
+                p->cookie = id;
+                p->name_attributes = post_op_attr(true, fakeAttrs(NF3REG, id)),
+                p->name_handle = post_op_fh3(
+                    true, nfs_fh3{{uint8_t(id), 0, 0, 0}}),
+                p->nextentry = move(dirlist.entries);
+                dirlist.entries = move(p);
+            }
+            dirlist.eof = true;
+            return READDIRPLUS3res(
+                NFS3_OK,
+                READDIRPLUS3resok{
+                    post_op_attr(false),
+                    {},
+                    move(dirlist)});
+        }));
+
+    auto dir = nfs->root();
+
+    // The first readdir will create the local file nodes with attributes
+    // and file handles returned by readdirplus
+    auto iter = dir->readdir();
+    EXPECT_EQ("baz", iter->name());
+    EXPECT_EQ(FileType::FILE, iter->file()->getattr()->type());
+    iter->next();
+    EXPECT_EQ("bar", iter->name());
+    EXPECT_EQ(FileType::FILE, iter->file()->getattr()->type());
+    iter->next();
+    EXPECT_EQ("foo", iter->name());
+    EXPECT_EQ(FileType::FILE, iter->file()->getattr()->type());
+    iter->next();
+    EXPECT_EQ(false, iter->valid());
+
+    // Advance the clock to invalidate the cached attributes
+    *clock += 2*ATTR_TIMEOUT;
+
+    // The second readdir should refresh the attributes - we should not see
+    // any subsequent calls to getattr
+    iter = dir->readdir();
+    EXPECT_EQ("baz", iter->name());
+    EXPECT_EQ(FileType::FILE, iter->file()->getattr()->type());
+    iter->next();
+    EXPECT_EQ("bar", iter->name());
+    EXPECT_EQ(FileType::FILE, iter->file()->getattr()->type());
+    iter->next();
+    EXPECT_EQ("foo", iter->name());
+    EXPECT_EQ(FileType::FILE, iter->file()->getattr()->type());
+    iter->next();
+    EXPECT_EQ(false, iter->valid());
+}

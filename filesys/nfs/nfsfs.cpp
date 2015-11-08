@@ -73,6 +73,7 @@ NfsFilesystem::find(nfs_fh3&& fh, fattr3&& attr)
         VLOG(2) << "cache hit for fileid: " << id;
         auto p = i->second;
         lru_.splice(lru_.begin(), lru_, p);
+        (*p)->update(move(attr));
         return *p;
     }
     else {

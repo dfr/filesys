@@ -378,7 +378,13 @@ void
 NfsFile::update(post_op_attr&& attr)
 {
     if (attr.attributes_follow) {
-        attrTime_ = fs_.lock()->clock()->now();
-        attr_ = move(attr.attributes());
+        update(move(attr.attributes()));
     }
+}
+
+void
+NfsFile::update(fattr3&& attr)
+{
+    attrTime_ = fs_.lock()->clock()->now();
+    attr_ = move(attr);
 }

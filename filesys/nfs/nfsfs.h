@@ -116,11 +116,12 @@ public:
     const nfs_fh3& fh() const { return fh_; }
     std::shared_ptr<NfsFilesystem> nfs() const { return fs_.lock(); }
 
-private:
     std::shared_ptr<File> find(
         const std::string& name, post_op_fh3& fh, post_op_attr& attr);
     void update(post_op_attr&& attr);
+    void update(fattr3&& attr);
 
+private:
     std::weak_ptr<NfsFilesystem> fs_;
     nfs_fh3 fh_;
     detail::Clock::time_point attrTime_;
