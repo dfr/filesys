@@ -34,7 +34,7 @@ FileType PosixGetattr::type() const
         return FileType::SOCKET;
     if (S_ISFIFO(stat_.st_mode))
         return FileType::FIFO;
-    return FileType::BAD;
+    return FileType::FILE;
 }
 
 int PosixGetattr::mode() const

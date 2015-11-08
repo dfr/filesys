@@ -24,8 +24,6 @@ static string formatType(FileType type)
         return "l";
     case FileType::SOCKET:
         return "s";
-    case FileType::BAD:
-        return "?";
     case FileType::FIFO:
         return "f";
     }

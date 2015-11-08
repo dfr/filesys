@@ -63,7 +63,6 @@ enum class FileType {
     CHARDEV,
     SYMLINK,
     SOCKET,
-    BAD,
     FIFO
 };
 
