@@ -124,7 +124,7 @@ void PfsFile::link(const std::string& name, std::shared_ptr<File> file)
     throw system_error(EROFS, system_category());
 }
 
-shared_ptr<DirectoryIterator> PfsFile::readdir()
+shared_ptr<DirectoryIterator> PfsFile::readdir(uint64_t seek)
 {
     return make_shared<PfsDirectoryIterator>(entries_);
 }

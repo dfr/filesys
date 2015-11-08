@@ -507,11 +507,12 @@ void ObjFile::link(const std::string& name, std::shared_ptr<File> file)
     fs->db()->commit(move(trans));
 }
 
-shared_ptr<DirectoryIterator> ObjFile::readdir()
+shared_ptr<DirectoryIterator> ObjFile::readdir(uint64_t seek)
 {
     if (meta_.attr.type != PT_DIR)
         throw system_error(ENOTDIR, system_category());
-    return make_shared<ObjDirectoryIterator>(fs_.lock(), FileId(meta_.fileid));
+    return make_shared<ObjDirectoryIterator>(
+        fs_.lock(), FileId(meta_.fileid), seek);
 }
 
 std::shared_ptr<Fsattr> ObjFile::fsstat()

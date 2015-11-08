@@ -271,7 +271,7 @@ void PosixFile::link(const string& name, shared_ptr<File> file)
         throw system_error(errno, system_category());
 }
 
-shared_ptr<DirectoryIterator> PosixFile::readdir()
+shared_ptr<DirectoryIterator> PosixFile::readdir(uint64_t seek)
 {
     return make_shared<PosixDirectoryIterator>(fs_.lock(), shared_from_this());
 }

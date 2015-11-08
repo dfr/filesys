@@ -334,9 +334,9 @@ void NfsFile::link(const std::string& name, std::shared_ptr<File> file)
 }
 
 shared_ptr<DirectoryIterator>
-NfsFile::readdir()
+NfsFile::readdir(uint64_t seek)
 {
-    return make_shared<NfsDirectoryIterator>(shared_from_this());
+    return make_shared<NfsDirectoryIterator>(shared_from_this(), seek);
 }
 
 std::shared_ptr<Fsattr>

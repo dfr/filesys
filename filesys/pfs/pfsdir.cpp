@@ -23,6 +23,11 @@ FileId PfsDirectoryIterator::fileid() const
     return p_->second.lock()->fileid();
 }
 
+uint64_t PfsDirectoryIterator::seek() const
+{
+    return 0;
+}
+
 std::string PfsDirectoryIterator::name() const
 {
     return p_->first;

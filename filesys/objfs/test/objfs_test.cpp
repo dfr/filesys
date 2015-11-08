@@ -246,3 +246,21 @@ TEST_F(ObjfsTest, RenameDir)
     EXPECT_EQ(dir2, dir->lookup("foo"));
     EXPECT_EQ(dir, dir2->lookup(".."));
 }
+
+TEST_F(ObjfsTest, Readdir)
+{
+    auto root = fs_->root();
+    root->mkdir("foo", [](auto){});
+    root->mkdir("bar", [](auto){});
+    root->mkdir("baz", [](auto){});
+    set<string> names;
+    for (auto iter = root->readdir(0); iter->valid(); iter->next()) {
+        names.insert(iter->name());
+    }
+    EXPECT_EQ(5, names.size());
+    EXPECT_NE(names.end(), names.find("."));
+    EXPECT_NE(names.end(), names.find(".."));
+    EXPECT_NE(names.end(), names.find("foo"));
+    EXPECT_NE(names.end(), names.find("bar"));
+    EXPECT_NE(names.end(), names.find("baz"));
+}

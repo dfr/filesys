@@ -216,7 +216,7 @@ public:
         std::shared_ptr<File> fromDir,
         const std::string& fromName) override;
     void link(const std::string& name, std::shared_ptr<File> file) override;
-    std::shared_ptr<DirectoryIterator> readdir() override;
+    std::shared_ptr<DirectoryIterator> readdir(std::uint64_t seek) override;
     std::shared_ptr<Fsattr> fsstat() override;
 
     FileId fileid() const { return FileId(meta_.fileid); }
@@ -239,12 +239,14 @@ private:
 class ObjDirectoryIterator: public DirectoryIterator
 {
 public:
-    ObjDirectoryIterator(std::shared_ptr<ObjFilesystem> fs, FileId fileid);
+    ObjDirectoryIterator(
+        std::shared_ptr<ObjFilesystem> fs, FileId fileid, std::uint64_t seek);
 
     bool valid() const override;
     FileId fileid() const override;
     std::string name() const override;
     std::shared_ptr<File> file() const override;
+    uint64_t seek() const override;
     void next() override;
 
 private:
@@ -252,6 +254,7 @@ private:
 
     std::shared_ptr<ObjFilesystem> fs_;
     std::unique_ptr<Iterator> iterator_;
+    uint64_t seek_;
     DirectoryKeyType start_;
     DirectoryKeyType end_;
     DirectoryEntry entry_;

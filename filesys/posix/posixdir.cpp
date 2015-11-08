@@ -56,6 +56,11 @@ shared_ptr<File> PosixDirectoryIterator::file() const
     return fs_->find(parent_, next_->d_name, FileId(next_->d_ino), fd);
 }
 
+uint64_t PosixDirectoryIterator::seek() const
+{
+    return 0;
+}
+
 void PosixDirectoryIterator::next()
 {
     if (dir_)

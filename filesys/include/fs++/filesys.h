@@ -115,6 +115,10 @@ public:
     /// Return a file object matching the current entry
     virtual std::shared_ptr<File> file() const = 0;
 
+    /// A seek cookie that can be used to start a new directory iteration
+    /// at the next entry following this one
+    virtual std::uint64_t seek() const = 0;
+
     /// Advance the iterator to the next directory entry (if any)
     virtual void next() = 0;
 };
@@ -276,8 +280,11 @@ public:
         const std::string& name, std::shared_ptr<File> file) = 0;
 
     /// Return an iterator object which can be used to read the contents of
-    /// a directory
-    virtual std::shared_ptr<DirectoryIterator> readdir() = 0;
+    /// a directory. The value of seek should be either zero to start the
+    /// iterator at the start of the directory or some value returned by
+    /// DirectoryIterator::seek in a previous iteration over this directory.
+    virtual std::shared_ptr<DirectoryIterator> readdir(
+        std::uint64_t seek) = 0;
 
     /// Return file system attributes
     virtual std::shared_ptr<Fsattr> fsstat() = 0;

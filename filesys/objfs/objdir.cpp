@@ -6,13 +6,19 @@ using namespace filesys::objfs;
 using namespace std;
 
 ObjDirectoryIterator::ObjDirectoryIterator(
-    std::shared_ptr<ObjFilesystem> fs, FileId fileid)
+    std::shared_ptr<ObjFilesystem> fs, FileId fileid, uint64_t seek)
     : fs_(fs),
       iterator_(fs->db()->iterator(fs->directoriesNS())),
+      seek_(seek + 1),
       start_(fileid, ""),
       end_(FileId(fileid + 1), "")
 {
+    // XXX: lame seek implementation
     iterator_->seek(start_);
+    while (seek > 0 && iterator_->valid(end_)) {
+        iterator_->next();
+        seek--;
+    }
     decodeEntry();
 }
 
@@ -41,8 +47,14 @@ std::shared_ptr<File> ObjDirectoryIterator::file() const
     return file_;
 }
 
+uint64_t ObjDirectoryIterator::seek() const
+{
+    return seek_;
+}
+
 void ObjDirectoryIterator::next()
 {
+    seek_++;
     file_.reset();
     iterator_->next();
     decodeEntry();

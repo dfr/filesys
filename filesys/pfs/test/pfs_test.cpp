@@ -53,7 +53,7 @@ TEST_F(PfsTest, Readdir)
     auto dir = lookup({"foo", "bar"});
     static const char* names[] = { "baz", "foobar", "qux" };
     int i = 0;
-    for (auto iter = dir->readdir(); iter->valid(); iter->next(), i++) {
+    for (auto iter = dir->readdir(0); iter->valid(); iter->next(), i++) {
         EXPECT_EQ(names[i], iter->name());
     }
 }

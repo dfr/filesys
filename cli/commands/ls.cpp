@@ -73,7 +73,7 @@ public:
             vector<entryT> files;
             auto dir = args.size() == 0 ? state.cwd() : state.lookup(args[0]);
             if (dir->getattr()->type() == FileType::DIRECTORY) {
-                for (auto iter = dir->readdir(); iter->valid(); iter->next()) {
+                for (auto iter = dir->readdir(0); iter->valid(); iter->next()) {
                     auto name = iter->name();
                     if (name == "." || name == "..")
                         continue;

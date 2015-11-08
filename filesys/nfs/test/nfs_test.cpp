@@ -743,7 +743,7 @@ TEST_F(NfsTest, Readdir)
                     {},
                     move(dirlist)});
         }));
-    auto iter = dir->readdir();
+    auto iter = dir->readdir(0);
     EXPECT_EQ("baz", iter->name()); iter->next();
     EXPECT_EQ("bar", iter->name()); iter->next();
     EXPECT_EQ("foo", iter->name()); iter->next();
@@ -756,7 +756,7 @@ TEST_F(NfsTest, Readdir)
                 NFS3ERR_INVAL,
                 READDIRPLUS3resfail{post_op_attr(false)});
         }));
-    EXPECT_THROW(dir->readdir(), system_error);
+    EXPECT_THROW(dir->readdir(0), system_error);
 }
 
 TEST_F(NfsTest, Readdir2)
@@ -799,7 +799,7 @@ TEST_F(NfsTest, Readdir2)
 
     // The first readdir will create the local file nodes with attributes
     // and file handles returned by readdirplus
-    auto iter = dir->readdir();
+    auto iter = dir->readdir(0);
     EXPECT_EQ("baz", iter->name());
     EXPECT_EQ(FileType::FILE, iter->file()->getattr()->type());
     iter->next();
@@ -816,7 +816,7 @@ TEST_F(NfsTest, Readdir2)
 
     // The second readdir should refresh the attributes - we should not see
     // any subsequent calls to getattr
-    iter = dir->readdir();
+    iter = dir->readdir(0);
     EXPECT_EQ("baz", iter->name());
     EXPECT_EQ(FileType::FILE, iter->file()->getattr()->type());
     iter->next();

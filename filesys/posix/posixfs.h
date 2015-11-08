@@ -133,7 +133,7 @@ public:
         std::shared_ptr<File> fromDir,
         const std::string& fromName) override;
     void link(const std::string& name, std::shared_ptr<File> file) override;
-    std::shared_ptr<DirectoryIterator> readdir() override;
+    std::shared_ptr<DirectoryIterator> readdir(std::uint64_t seek) override;
     std::shared_ptr<Fsattr> fsstat() override;
 
     FileId fileid() const { return id_; }
@@ -159,6 +159,7 @@ public:
     FileId fileid() const override;
     std::string name() const override;
     std::shared_ptr<File> file() const override;
+    uint64_t seek() const override;
     void next() override;
 
 private:

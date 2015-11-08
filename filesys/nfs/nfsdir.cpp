@@ -7,10 +7,11 @@
 using namespace filesys;
 using namespace filesys::nfs;
 
-NfsDirectoryIterator::NfsDirectoryIterator(std::shared_ptr<NfsFile> dir)
+NfsDirectoryIterator::NfsDirectoryIterator(
+    std::shared_ptr<NfsFile> dir, std::uint64_t seek)
     : dir_(dir)
 {
-    readdir(0);
+    readdir(seek);
 }
 
 bool NfsDirectoryIterator::valid() const
@@ -44,6 +45,11 @@ std::shared_ptr<File> NfsDirectoryIterator::file() const
     return file_;
 }
 
+uint64_t NfsDirectoryIterator::seek() const
+{
+    return entry_->cookie;
+}
+
 void NfsDirectoryIterator::next()
 {
     file_.reset();
@@ -57,6 +63,9 @@ void NfsDirectoryIterator::next()
 
 void NfsDirectoryIterator::readdir(cookie3 cookie)
 {
+    if (cookie == 0) {
+        std::fill_n(verf_.data(), verf_.size(), 0);
+    }
     auto res = dir_->nfs()->proto()->readdirplus(
         READDIRPLUS3args{dir_->fh(), cookie, verf_, 2048, 8192});
     if (res.status == NFS3_OK) {
@@ -66,7 +75,6 @@ void NfsDirectoryIterator::readdir(cookie3 cookie)
     }
     else {
         dir_.reset();
-        verf_ = {};
         eof_ = true;
         throw std::system_error(res.status, std::system_category());
     }
