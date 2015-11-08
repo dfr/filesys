@@ -13,6 +13,8 @@
 namespace filesys {
 namespace objfs {
 
+constexpr int OBJFS_NAME_MAX = 255;     // consistent with FreeBSD default
+
 class ObjFilesystem;
 
 /// Key type for our DB - we index by fileid, using fileid zero for filesystem
@@ -150,6 +152,14 @@ public:
     size_t tfiles() const override { return 0; }
     size_t ffiles() const override { return 0; }
     size_t afiles() const override { return 0; }
+    int linkMax() const override
+    {
+        return std::numeric_limits<int>::max();
+    }
+    int nameMax() const override
+    {
+        return OBJFS_NAME_MAX;
+    }
 };
 
 /// Subclass ObjFileMeta to add some helper methods

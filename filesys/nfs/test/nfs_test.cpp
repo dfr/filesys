@@ -62,7 +62,8 @@ public:
     {
         proto = make_shared<MockNfs>();
         clock = make_shared<MockClock>();
-        nfs = make_shared<NfsFilesystem>(proto, clock, nfs_fh3{{1, 2, 3, 4}});
+        nfs = make_shared<NfsFilesystem>(proto, clock, nfs_fh3{{1, 0, 0, 0}});
+        ignoreFsinfo();
     }
 
     static fattr3 fakeAttrs(ftype3 type, fileid3 fileid)
@@ -76,11 +77,36 @@ public:
         return GETATTR3res(NFS3_OK, GETATTR3resok{fakeAttrs(type, fileid)});
     }
 
+    static FSINFO3res fsinfoOkResult()
+    {
+        return FSINFO3res{
+            NFS3_OK,
+            FSINFO3resok{
+                post_op_attr(false),
+                65536,
+                65536,
+                512,
+                65536,
+                65536,
+                512,
+                65536,
+                ~0ull,
+                {0, 1},
+                FSF3_LINK+FSF3_SYMLINK+FSF3_HOMOGENEOUS+FSF3_CANSETTIME}};
+    }
+
     void ignoreGetattr()
     {
         ON_CALL(*proto.get(), getattr(_))
             .WillByDefault(
                 InvokeWithoutArgs([=](){ return getattrOkResult(NF3DIR, 1); }));
+    }
+
+    void ignoreFsinfo()
+    {
+        ON_CALL(*proto.get(), fsinfo(_))
+            .WillByDefault(
+                InvokeWithoutArgs([=](){ return fsinfoOkResult(); }));
     }
 
     shared_ptr<NfsFilesystem> nfs;
@@ -761,6 +787,8 @@ TEST_F(NfsTest, Readdir)
 
 TEST_F(NfsTest, Readdir2)
 {
+    ignoreFsinfo();
+
     // Verify that readdir uses the returned file attributes - we should
     // see exactly one call to getattr() for the root directory
 

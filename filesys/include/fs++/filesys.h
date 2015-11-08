@@ -202,6 +202,8 @@ public:
     virtual size_t tfiles() const = 0;
     virtual size_t ffiles() const = 0;
     virtual size_t afiles() const = 0;
+    virtual int linkMax() const = 0;
+    virtual int nameMax() const = 0;
 };
 
 /// A file, directory or other filesystem object
@@ -330,6 +332,11 @@ public:
         auto res = std::make_shared<FS>(std::forward<Args>(args)...);
         filesystems_[name] = res;
         return res;
+    }
+
+    void unmountAll()
+    {
+        filesystems_.clear();
     }
 
     void add(std::shared_ptr<FilesystemFactory> fsfac)

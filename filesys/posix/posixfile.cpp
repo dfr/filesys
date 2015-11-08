@@ -281,5 +281,7 @@ shared_ptr<Fsattr> PosixFile::fsstat()
     auto res = make_shared<PosixFsattr>();
     if (::fstatfs(fd_, &res->stat) < 0)
         throw system_error(errno, system_category());
+    res->linkMax_ = ::fpathconf(fd_, _PC_LINK_MAX);
+    res->nameMax_ = ::fpathconf(fd_, _PC_NAME_MAX);
     return res;
 }

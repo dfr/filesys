@@ -37,6 +37,20 @@ NfsFilesystem::root()
     if (!root_) {
         nfs_fh3 fh = rootfh_;
         root_ = find(move(fh));
+
+        auto res = proto_->fsinfo(FSINFO3args{rootfh_});
+        if (res.status != NFS3_OK)
+            throw system_error(res.status, system_category());
+        fsinfo_.rtmax = res.resok().rtmax;
+        fsinfo_.rtpref = res.resok().rtpref;
+        fsinfo_.rtmult = res.resok().rtmult;
+        fsinfo_.wtmax = res.resok().wtmax;
+        fsinfo_.wtpref = res.resok().wtpref;
+        fsinfo_.wtmult = res.resok().wtmult;
+        fsinfo_.dtpref = res.resok().dtpref;
+        fsinfo_.maxfilesize = res.resok().maxfilesize;
+        fsinfo_.timedelta = res.resok().time_delta;
+        fsinfo_.properties = res.resok().properties;
     }
     return root_;
 }

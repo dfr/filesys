@@ -343,15 +343,18 @@ std::shared_ptr<Fsattr>
 NfsFile::fsstat()
 {
     auto fs = fs_.lock();
-    auto res = fs->proto()->fsstat(FSSTAT3args{fh_});
-    if (res.status == NFS3_OK) {
-        update(move(res.resok().obj_attributes));
-        return make_shared<NfsFsattr>(res.resok());
+    auto statres = fs->proto()->fsstat(FSSTAT3args{fh_});
+    if (statres.status != NFS3_OK) {
+        update(move(statres.resfail().obj_attributes));
+        throw system_error(statres.status, system_category());
     }
-    else {
-        update(move(res.resfail().obj_attributes));
-        throw system_error(res.status, system_category());
+    auto pcres = fs->proto()->pathconf(PATHCONF3args{fh_});
+    if (pcres.status != NFS3_OK) {
+        update(move(pcres.resfail().obj_attributes));
+        throw system_error(pcres.status, system_category());
     }
+    update(move(statres.resok().obj_attributes));
+    return make_shared<NfsFsattr>(statres.resok(), pcres.resok());
 }
 
 shared_ptr<File>

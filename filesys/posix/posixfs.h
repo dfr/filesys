@@ -90,8 +90,18 @@ public:
     {
         return stat.f_ffree;
     }
+    int linkMax() const override
+    {
+        return linkMax_;
+    }
+    int nameMax() const override
+    {
+        return nameMax_;
+    }
 
     struct ::statfs stat;
+    int linkMax_;
+    int nameMax_;
 };
 
 class PosixFile: public File, public std::enable_shared_from_this<PosixFile>

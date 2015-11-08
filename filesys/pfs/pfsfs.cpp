@@ -76,6 +76,8 @@ PfsFilesystem::add(const std::string& path, shared_ptr<Filesystem> mount)
 
     auto dir = root_;
     for (auto& entry: entries) {
+        if (entry.size() > PFS_NAME_MAX)
+            throw system_error(ENAMETOOLONG, system_category());
         try {
             dir = dir->find(entry);
         }

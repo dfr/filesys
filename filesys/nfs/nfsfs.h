@@ -55,7 +55,7 @@ private:
 class NfsFsattr: public Fsattr
 {
 public:
-    NfsFsattr(const FSSTAT3resok& res);
+    NfsFsattr(const FSSTAT3resok& stat, const PATHCONF3resok& pc);
 
     size_t tbytes() const override { return tbytes_; }
     size_t fbytes() const override { return fbytes_; }
@@ -63,6 +63,14 @@ public:
     size_t tfiles() const override { return tfiles_; }
     size_t ffiles() const override { return ffiles_; }
     size_t afiles() const override { return afiles_; }
+    int linkMax() const override
+    {
+        return linkMax_;
+    }
+    int nameMax() const override
+    {
+        return nameMax_;
+    }
 
 private:
     size_t tbytes_;
@@ -71,6 +79,8 @@ private:
     size_t tfiles_;
     size_t ffiles_;
     size_t afiles_;
+    int linkMax_;
+    int nameMax_;
 };
 
 class NfsFile: public File, public std::enable_shared_from_this<NfsFile>
@@ -114,7 +124,6 @@ public:
     FileId fileid() const { return FileId(attr_.fileid); }
     const nfs_fh3& fh() const { return fh_; }
     std::shared_ptr<NfsFilesystem> nfs() const { return fs_.lock(); }
-
     std::shared_ptr<File> find(
         const std::string& name, post_op_fh3& fh, post_op_attr& attr);
     void update(post_op_attr&& attr);
@@ -149,6 +158,20 @@ private:
     bool eof_;
 };
 
+struct NfsFsinfo
+{
+    std::uint32_t rtmax;
+    std::uint32_t rtpref;
+    std::uint32_t rtmult;
+    std::uint32_t wtmax;
+    std::uint32_t wtpref;
+    std::uint32_t wtmult;
+    std::uint32_t dtpref;
+    std::uint64_t maxfilesize;
+    nfstime3 timedelta;
+    std::uint32_t properties;
+};
+
 class NfsFilesystem: public Filesystem,
                      public std::enable_shared_from_this<NfsFilesystem>
 {
@@ -166,12 +189,14 @@ public:
     auto clock() const { return clock_; }
     std::shared_ptr<NfsFile> find(nfs_fh3&& fh);
     std::shared_ptr<NfsFile> find(nfs_fh3&& fh, fattr3&& attrp);
+    const NfsFsinfo& fsinfo() const { return fsinfo_; }
 
 private:
     std::shared_ptr<INfsProgram3> proto_;
     std::shared_ptr<detail::Clock> clock_;
     nfs_fh3 rootfh_;
     std::shared_ptr<File> root_;
+    NfsFsinfo fsinfo_;
     typedef std::list<std::shared_ptr<NfsFile>> lruT;
     lruT lru_;
     std::unordered_map<std::uint64_t, lruT::iterator> cache_;

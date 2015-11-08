@@ -1091,9 +1091,9 @@ struct PATHCONF3resfail {
 
 union PATHCONF3res switch (nfsstat3 status) {
 case NFS3_OK:
-	FSINFO3resok	resok;
+	PATHCONF3resok	resok;
 default:
-	FSINFO3resfail	resfail;
+	PATHCONF3resfail	resfail;
 };
 
 /*

@@ -9,6 +9,8 @@
 namespace filesys {
 namespace pfs {
 
+constexpr int PFS_NAME_MAX = 128;
+
 class PfsFilesystem;
 
 class PfsGetattr: public Getattr
@@ -84,6 +86,14 @@ public:
     size_t tfiles() const override { return 0; }
     size_t ffiles() const override { return 0; }
     size_t afiles() const override { return 0; }
+    int linkMax() const override
+    {
+        return 0;
+    }
+    int nameMax() const override
+    {
+        return NAME_MAX;
+    }
 };
 
 class PfsFile: public File, public std::enable_shared_from_this<PfsFile>

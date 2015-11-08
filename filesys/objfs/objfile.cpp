@@ -110,6 +110,8 @@ void ObjFile::setattr(function<void(Setattr*)> cb)
 
 shared_ptr<File> ObjFile::lookup(const string& name)
 {
+    if (name.size() > OBJFS_NAME_MAX)
+        throw system_error(ENAMETOOLONG, system_category());
     auto fs = fs_.lock();
     DirectoryKeyType key(fileid(), name);
     auto val = fs->db()->get(fs->directoriesNS(), key);
@@ -425,7 +427,9 @@ void ObjFile::rename(
     try {
         tofile = lookup(toName);
     }
-    catch (system_error&) {
+    catch (system_error& e) {
+        if (e.code().value() == ENAMETOOLONG)
+            throw;
     }
 
     auto ofrom = dynamic_cast<ObjFile*>(fromDir.get());
@@ -484,13 +488,17 @@ void ObjFile::rename(
 
 void ObjFile::link(const std::string& name, std::shared_ptr<File> file)
 {
+    shared_ptr<File> old;
     try {
         // If the entry exists, throw an error
-        lookup(name);
+        old = lookup(name);
+    }
+    catch (system_error& e) {
+        if (e.code().value() == ENAMETOOLONG)
+            throw;
+    }
+    if (old)
         throw system_error(EEXIST, system_category());
-    }
-    catch (system_error&) {
-    }
 
     auto fs = fs_.lock();
     auto trans = fs->db()->beginTransaction();
@@ -559,13 +567,18 @@ std::shared_ptr<File> ObjFile::createNewFile(
     std::function<void(Setattr*)> attrCb,
     std::function<void(Transaction*, shared_ptr<ObjFile>)> writeCb)
 {
+    if (name.size() > OBJFS_NAME_MAX)
+        throw system_error(ENAMETOOLONG, system_category());
+
+    // If the entry exists, throw an error
+    shared_ptr<File> old;
     try {
-        // If the entry exists, throw an error
-        lookup(name);
-        throw system_error(EEXIST, system_category());
+        old = lookup(name);
     }
     catch (system_error&) {
     }
+    if (old)
+        throw system_error(EEXIST, system_category());
 
     auto now = getTime();
 

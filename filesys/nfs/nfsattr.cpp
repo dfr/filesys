@@ -149,12 +149,14 @@ void NfsSetattr::setAtime(std::chrono::system_clock::time_point atime)
     attr_.atime.atime() = toNfsTime(atime);
 }
 
-NfsFsattr::NfsFsattr(const FSSTAT3resok& res)
-    : tbytes_(res.tbytes),
-      fbytes_(res.fbytes),
-      abytes_(res.abytes),
-      tfiles_(res.tfiles),
-      ffiles_(res.ffiles),
-      afiles_(res.afiles)
+NfsFsattr::NfsFsattr(const FSSTAT3resok& stat, const PATHCONF3resok& pc)
+    : tbytes_(stat.tbytes),
+      fbytes_(stat.fbytes),
+      abytes_(stat.abytes),
+      tfiles_(stat.tfiles),
+      ffiles_(stat.ffiles),
+      afiles_(stat.afiles),
+      linkMax_(pc.linkmax),
+      nameMax_(pc.name_max)
 {
 }
