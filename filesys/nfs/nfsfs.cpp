@@ -54,6 +54,11 @@ NfsFilesystem::root()
         fsinfo_.maxfilesize = res.resok().maxfilesize;
         fsinfo_.timedelta = res.resok().time_delta;
         fsinfo_.properties = res.resok().properties;
+
+        // Set the buffer size for the largest read or write request we will
+        // make, allowing extra space for protocol overhead
+        proto_->setBufferSize(
+            512 + max(fsinfo_.rtpref, max(fsinfo_.wtpref, fsinfo_.dtpref)));
     }
     return root_;
 }

@@ -181,6 +181,8 @@ shared_ptr<oncrpc::Buffer>
 NfsFile::read(uint64_t offset, uint32_t size, bool& eof)
 {
     auto fs = fs_.lock();
+    if (size > fs->fsinfo().rtpref)
+        size = fs->fsinfo().rtpref;
     auto res = fs->proto()->read(READ3args{fh_, offset, size});
     if (res.status == NFS3_OK) {
         update(move(res.resok().file_attributes));
@@ -197,6 +199,9 @@ uint32_t
 NfsFile::write(uint64_t offset, shared_ptr<oncrpc::Buffer> data)
 {
     auto fs = fs_.lock();
+    if (data->size() > fs->fsinfo().wtpref) {
+        data = make_shared<oncrpc::Buffer>(data, 0, fs->fsinfo().wtpref);
+    }
     auto res = fs->proto()->write(
         WRITE3args{fh_, offset, count3(data->size()), UNSTABLE, data});
     if (res.status == NFS3_OK) {
