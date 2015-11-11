@@ -105,9 +105,46 @@ TEST_F(ObjfsTest, Mtime)
         [](auto attr){ attr->setMode(0666); });
     auto buf = make_shared<oncrpc::Buffer>(blockSize);
     fill_n(buf->data(), blockSize, 1);
-    auto mtime = file->getattr()->atime();
+    auto mtime = file->getattr()->mtime();
     file->write(0, buf);
     EXPECT_LT(mtime, file->getattr()->mtime());
+
+    // Test mtime for directory modifying operations
+    mtime = root->getattr()->mtime();
+    root->link("bar", file);
+    EXPECT_LT(mtime, root->getattr()->mtime());
+
+    mtime = root->getattr()->mtime();
+    root->remove("bar");
+    EXPECT_LT(mtime, root->getattr()->mtime());
+
+    mtime = root->getattr()->mtime();
+    root->mkdir("bar", [](auto){});
+    EXPECT_LT(mtime, root->getattr()->mtime());
+
+    mtime = root->getattr()->mtime();
+    root->rename("baz", root, "bar");
+    EXPECT_LT(mtime, root->getattr()->mtime());
+
+    mtime = root->getattr()->mtime();
+    root->rmdir("baz");
+    EXPECT_LT(mtime, root->getattr()->mtime());
+
+    // If moving between directories, both change. If the moving object is
+    // a directory then it also changes due to ".." rewriting
+    auto a = root->mkdir("a", [](auto){});
+    auto b = root->mkdir("b", [](auto){});
+    auto c = a->mkdir("c", [](auto){});
+
+    auto amtime = a->getattr()->mtime();
+    auto bmtime = b->getattr()->mtime();
+    auto cmtime = c->getattr()->mtime();
+
+    b->rename("c", a, "c");
+
+    EXPECT_LT(amtime, a->getattr()->mtime());
+    EXPECT_LT(bmtime, b->getattr()->mtime());
+    EXPECT_LT(cmtime, c->getattr()->mtime());
 }
 
 TEST_F(ObjfsTest, Atime)
@@ -124,6 +161,10 @@ TEST_F(ObjfsTest, Atime)
     bool eof;
     file->read(0, blockSize, eof);
     EXPECT_LT(atime, file->getattr()->atime());
+
+    atime = root->getattr()->atime();
+    root->readdir(0);
+    EXPECT_LT(atime, root->getattr()->atime());
 }
 
 TEST_F(ObjfsTest, Symlink)
@@ -135,6 +176,10 @@ TEST_F(ObjfsTest, Symlink)
     EXPECT_EQ(3, link->getattr()->size());
     EXPECT_EQ("bar", link->readlink());
     EXPECT_EQ(3, root->getattr()->size());
+
+    auto atime = link->getattr()->atime();
+    link->readlink();
+    EXPECT_LT(atime, link->getattr()->atime());
 }
 
 TEST_F(ObjfsTest, Mkfifo)

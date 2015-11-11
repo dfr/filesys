@@ -163,8 +163,10 @@ string ObjFile::readlink()
 {
     if (meta_.attr.type != PT_LNK)
         throw system_error(EINVAL, system_category());
-
     assert(meta_.location.type == LOC_EMBEDDED);
+
+    meta_.attr.ctime = meta_.attr.atime = getTime();
+    writeMeta();
     auto& val = meta_.location.embedded().data;
     return string(reinterpret_cast<const char*>(val.data()), val.size());
 }
@@ -366,6 +368,7 @@ void ObjFile::remove(const string& name)
     auto trans = fs->db()->beginTransaction();
     trans->remove(fs->directoriesNS(), DirectoryKeyType(fileid(), name));
     meta_.attr.size--;
+    meta_.attr.ctime = meta_.attr.mtime = getTime();
     assert(meta_.attr.size >= 2);
     ofile->meta_.attr.nlink--;
     if (ofile->meta_.attr.nlink > 0) {
@@ -415,6 +418,7 @@ void ObjFile::rmdir(const string& name)
     assert(meta_.attr.nlink > 0);
     meta_.attr.size--;
     assert(meta_.attr.size >= 2);
+    meta_.attr.ctime = meta_.attr.mtime = getTime();
     writeMeta(trans.get());
     trans->remove(fs->defaultNS(), KeyType(ofile->fileid()));
     fs->db()->commit(move(trans));
@@ -471,13 +475,16 @@ void ObjFile::rename(
     trans->remove(h, DirectoryKeyType(ofrom->fileid(), fromName));
     writeDirectoryEntry(trans.get(), toName, ofile->fileid());
     ofrom->meta_.attr.size--;
+    ofrom->meta_.attr.ctime = ofrom->meta_.attr.mtime = getTime();
     meta_.attr.size++;
+    meta_.attr.ctime = meta_.attr.mtime = getTime();
 
     // Adjust ".." links if necessary
     if (ofile->meta_.attr.type == PT_DIR && ofrom != this) {
         ofrom->meta_.attr.nlink--;
         meta_.attr.nlink++;
         ofile->writeDirectoryEntry(trans.get(), "..", fileid());
+        ofile->meta_.attr.ctime = ofile->meta_.attr.mtime = getTime();
     }
 
     ofrom->writeMeta(trans.get());
@@ -503,7 +510,6 @@ void ObjFile::link(const std::string& name, std::shared_ptr<File> file)
     auto fs = fs_.lock();
     auto trans = fs->db()->beginTransaction();
 
-    // XXX set mtime, atime
     auto from = dynamic_cast<ObjFile*>(file.get());
     if (from->meta_.attr.type == PT_DIR)
         throw system_error(EISDIR, system_category());
@@ -512,6 +518,9 @@ void ObjFile::link(const std::string& name, std::shared_ptr<File> file)
     from->meta_.attr.nlink++;
     from->writeMeta(trans.get());
 
+    meta_.attr.ctime = meta_.attr.mtime = getTime();
+    writeMeta(trans.get());
+
     fs->db()->commit(move(trans));
 }
 
@@ -519,6 +528,8 @@ shared_ptr<DirectoryIterator> ObjFile::readdir(uint64_t seek)
 {
     if (meta_.attr.type != PT_DIR)
         throw system_error(ENOTDIR, system_category());
+    meta_.attr.ctime = meta_.attr.atime = getTime();
+    writeMeta();
     return make_shared<ObjDirectoryIterator>(
         fs_.lock(), FileId(meta_.fileid), seek);
 }
