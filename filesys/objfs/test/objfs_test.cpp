@@ -247,6 +247,16 @@ TEST_F(ObjfsTest, RenameDir)
     EXPECT_EQ(dir, dir2->lookup(".."));
 }
 
+TEST_F(ObjfsTest, Link)
+{
+    auto root = fs_->root();
+    auto a = root->mkdir("a", [](auto){});
+    auto b = root->mkfifo("b", [](auto){});
+    EXPECT_THROW(root->link("aa", a), system_error);
+    root->link("bb", b);
+    EXPECT_EQ(b, root->lookup("bb"));
+}
+
 TEST_F(ObjfsTest, Readdir)
 {
     auto root = fs_->root();
