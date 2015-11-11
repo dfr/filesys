@@ -26,7 +26,7 @@ NfsFilesystem::NfsFilesystem(
     nfs_fh3&& rootfh)
     : proto_(proto),
       clock_(clock),
-      rootfh_(move(rootfh))
+      rootfh_(rootfh)
 {
 }
 
@@ -38,8 +38,7 @@ shared_ptr<File>
 NfsFilesystem::root()
 {
     if (!root_) {
-        nfs_fh3 fh = rootfh_;
-        root_ = find(move(fh));
+        root_ = find(rootfh_);
 
         auto res = proto_->fsinfo(FSINFO3args{rootfh_});
         if (res.status != NFS3_OK)
@@ -77,42 +76,27 @@ NfsFilesystem::find(const FileHandle& fh)
 }
 
 shared_ptr<NfsFile>
-NfsFilesystem::find(nfs_fh3&& fh)
+NfsFilesystem::find(const nfs_fh3& fh)
 {
     auto res = proto_->getattr(GETATTR3args{fh});
     if (res.status == NFS3_OK)
-        return find(move(fh), move(res.resok().obj_attributes));
+        return find(fh, res.resok().obj_attributes);
     else
         throw system_error(res.status, system_category());
 }
 
 shared_ptr<NfsFile>
-NfsFilesystem::find(nfs_fh3&& fh, fattr3&& attr)
+NfsFilesystem::find(const nfs_fh3& fh, const fattr3& attr)
 {
-    auto id = attr.fileid;
-    auto i = cache_.find(id);
-    if (i != cache_.end()) {
-        VLOG(2) << "cache hit for fileid: " << id;
-        auto p = i->second;
-        lru_.splice(lru_.begin(), lru_, p);
-        (*p)->update(move(attr));
-        return *p;
-    }
-    else {
-        // Expire old entries if the cache is full
-        if (cache_.size() == maxCache_) {
-            auto oldest = lru_.back();
-            VLOG(2) << "expiring fileid: " << oldest->fileid();
-            cache_.erase(oldest->fileid());
-            lru_.pop_back();
-        }
-        VLOG(2) << "adding fileid: " << id;
-        auto file = make_shared<NfsFile>(
-            shared_from_this(), move(fh), move(attr));
-        auto p = lru_.insert(lru_.begin(), file);
-        cache_[id] = p;
-        return file;
-    }
+    return cache_.find(
+        fh,
+        [&](auto file) {
+            file->update(attr);
+        },
+        [&](auto id) {
+            return make_shared<NfsFile>(
+                shared_from_this(), fh, attr);
+        });
 }
 
 pair<shared_ptr<Filesystem>, string>

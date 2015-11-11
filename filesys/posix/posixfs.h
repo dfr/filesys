@@ -1,13 +1,12 @@
 #pragma once
 
-#include <list>
-#include <unordered_map>
 #include <dirent.h>
 
 #include <sys/types.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
 
+#include <fs++/filecache.h>
 #include <fs++/filesys.h>
 
 namespace filesys {
@@ -199,11 +198,7 @@ private:
     int rootfd_;
     FileId rootid_;
     FilesystemId fsid_;
-
-    typedef std::list<std::shared_ptr<PosixFile>> lruT;
-    lruT lru_;
-    std::unordered_map<std::uint64_t, lruT::iterator> cache_;
-    int maxCache_ = 1024;
+    detail::FileCache<std::uint64_t, PosixFile> cache_;
 };
 
 class PosixFilesystemFactory: public FilesystemFactory

@@ -1,11 +1,6 @@
 #pragma once
 
-#include <string>
-#include <list>
-#include <map>
-#include <unordered_map>
-#include <vector>
-
+#include <fs++/filecache.h>
 #include <fs++/filesys.h>
 #include "filesys/objfs/objfsproto.h"
 #include "filesys/objfs/dbi.h"
@@ -314,10 +309,7 @@ private:
     ObjFilesystemMeta meta_;
     FilesystemId fsid_;
     std::shared_ptr<ObjFile> root_;
-    typedef std::list<std::shared_ptr<ObjFile>> lruT;
-    lruT lru_;
-    std::unordered_map<std::uint64_t, lruT::iterator> cache_;
-    static constexpr int maxCache_ = 1024;
+    detail::FileCache<std::uint64_t, ObjFile> cache_;
 };
 
 class ObjFilesystemFactory: public FilesystemFactory

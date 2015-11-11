@@ -1,7 +1,6 @@
 #pragma once
 
-#include <list>
-
+#include <fs++/filecache.h>
 #include <fs++/filesys.h>
 #include <fs++/proto/nfs_prot.h>
 
@@ -86,7 +85,9 @@ private:
 class NfsFile: public File, public std::enable_shared_from_this<NfsFile>
 {
 public:
-    NfsFile(std::shared_ptr<NfsFilesystem> fs, nfs_fh3&& fh, fattr3&& attr);
+    NfsFile(
+        std::shared_ptr<NfsFilesystem> fs,
+        const nfs_fh3& fh, const fattr3& attr);
 
     // File overrides
     std::shared_ptr<Filesystem> fs() override;
@@ -121,13 +122,14 @@ public:
     std::shared_ptr<DirectoryIterator> readdir(std::uint64_t seek) override;
     std::shared_ptr<Fsattr> fsstat() override;
 
-    FileId fileid() const { return FileId(attr_.fileid); }
+    const FileId fileid() const { return FileId(attr_.fileid); }
     const nfs_fh3& fh() const { return fh_; }
     std::shared_ptr<NfsFilesystem> nfs() const { return fs_.lock(); }
     std::shared_ptr<File> find(
-        const std::string& name, post_op_fh3& fh, post_op_attr& attr);
-    void update(post_op_attr&& attr);
-    void update(fattr3&& attr);
+        const std::string& name,
+        const post_op_fh3& fh, const post_op_attr& attr);
+    void update(const post_op_attr& attr);
+    void update(const fattr3& attr);
 
 private:
     std::weak_ptr<NfsFilesystem> fs_;
@@ -172,6 +174,23 @@ struct NfsFsinfo
     std::uint32_t properties;
 };
 
+struct NfsFhHash
+{
+    size_t operator()(const filesys::nfs::nfs_fh3& fh) const
+    {
+        // This uses the djb2 hash
+        size_t hash = 5381;
+        for (auto c: fh.data)
+            hash = (hash << 5) + hash + c; /* hash * 33 + c */
+        return hash;
+    }
+};
+
+static inline int operator==(const nfs_fh3& fh1, const nfs_fh3& fh2)
+{
+    return fh1.data == fh2.data;
+}
+
 class NfsFilesystem: public Filesystem,
                      public std::enable_shared_from_this<NfsFilesystem>
 {
@@ -187,8 +206,8 @@ public:
 
     auto proto() const { return proto_; }
     auto clock() const { return clock_; }
-    std::shared_ptr<NfsFile> find(nfs_fh3&& fh);
-    std::shared_ptr<NfsFile> find(nfs_fh3&& fh, fattr3&& attrp);
+    std::shared_ptr<NfsFile> find(const nfs_fh3& fh);
+    std::shared_ptr<NfsFile> find(const nfs_fh3& fh, const fattr3& attrp);
     const NfsFsinfo& fsinfo() const { return fsinfo_; }
 
 private:
@@ -197,10 +216,7 @@ private:
     nfs_fh3 rootfh_;
     std::shared_ptr<File> root_;
     NfsFsinfo fsinfo_;
-    typedef std::list<std::shared_ptr<NfsFile>> lruT;
-    lruT lru_;
-    std::unordered_map<std::uint64_t, lruT::iterator> cache_;
-    static constexpr int maxCache_ = 1024;
+    detail::FileCache<nfs_fh3, NfsFile, NfsFhHash> cache_;
 };
 
 class NfsFilesystemFactory: public FilesystemFactory

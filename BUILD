@@ -5,6 +5,7 @@ test_suite(
     ],
     tests = [
         "//cli:small",
+        "//filesys:small",
         "//filesys/pfs:small",
         "//filesys/nfs:small",
         "//filesys/objfs:small",

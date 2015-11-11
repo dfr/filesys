@@ -9,11 +9,11 @@ using namespace filesys::nfs;
 using namespace std;
 
 NfsFile::NfsFile(
-    shared_ptr<NfsFilesystem> fs, nfs_fh3&& fh, fattr3&& attr)
+    shared_ptr<NfsFilesystem> fs, const nfs_fh3& fh, const fattr3& attr)
     : fs_(fs),
-      fh_(move(fh)),
+      fh_(fh),
       attrTime_(fs->clock()->now()),
-      attr_(move(attr))
+      attr_(attr)
 {
 }
 
@@ -82,12 +82,12 @@ void NfsFile::setattr(function<void(Setattr*)> cb)
 
     args.guard.set_check(false);
     auto fs = fs_.lock();
-    auto res = fs->proto()->setattr(move(args));
+    auto res = fs->proto()->setattr(args);
     if (res.status == NFS3_OK) {
-        update(move(res.resok().obj_wcc.after));
+        update(res.resok().obj_wcc.after);
     }
     else {
-        update(move(res.resfail().obj_wcc.after));
+        update(res.resfail().obj_wcc.after);
         throw system_error(res.status, system_category());
     }
 }
@@ -99,16 +99,16 @@ NfsFile::lookup(const string& name)
     auto res = fs->proto()->lookup(LOOKUP3args{{fh_, name}});
     if (res.status == NFS3_OK) {
         auto& resok = res.resok();
-        update(move(resok.dir_attributes));
+        update(resok.dir_attributes);
         if (resok.obj_attributes.attributes_follow)
             return fs->find(
-                move(resok.object),
-                move(resok.obj_attributes.attributes()));
+                resok.object,
+                resok.obj_attributes.attributes());
         else
-            return fs->find(move(resok.object));
+            return fs->find(resok.object);
     }
     else {
-        update(move(res.resfail().dir_attributes));
+        update(res.resfail().dir_attributes);
         throw system_error(res.status, system_category());
     }
 }
@@ -125,10 +125,10 @@ NfsFile::open(
         NfsSetattr sattr(args.how.obj_attributes());
         cb(&sattr);
         auto fs = fs_.lock();
-        auto res = fs->proto()->create(move(args));
+        auto res = fs->proto()->create(args);
         if (res.status == NFS3_OK) {
             auto& resok = res.resok();
-            update(move(resok.dir_wcc.after));
+            update(resok.dir_wcc.after);
             auto f = find(name, resok.obj, resok.obj_attributes);
             if (flags & OpenFlags::TRUNCATE) {
                 f->setattr([](auto attr) { attr->setSize(0); });
@@ -136,7 +136,7 @@ NfsFile::open(
             return f;
         }
         else {
-            update(move(res.resfail().dir_wcc.after));
+            update(res.resfail().dir_wcc.after);
             throw system_error(res.status, system_category());
         }
     }
@@ -156,10 +156,10 @@ NfsFile::commit()
     auto fs = fs_.lock();
     auto res = fs->proto()->commit(COMMIT3args{fh_, 0, 0});
     if (res.status == NFS3_OK) {
-        update(move(res.resok().file_wcc.after));
+        update(res.resok().file_wcc.after);
     }
     else {
-        update(move(res.resfail().file_wcc.after));
+        update(res.resfail().file_wcc.after);
         throw system_error(res.status, system_category());
     }
 }
@@ -185,12 +185,12 @@ NfsFile::read(uint64_t offset, uint32_t size, bool& eof)
         size = fs->fsinfo().rtpref;
     auto res = fs->proto()->read(READ3args{fh_, offset, size});
     if (res.status == NFS3_OK) {
-        update(move(res.resok().file_attributes));
+        update(res.resok().file_attributes);
         eof = res.resok().eof;
         return move(res.resok().data);
     }
     else {
-        update(move(res.resfail().file_attributes));
+        update(res.resfail().file_attributes);
         throw system_error(res.status, system_category());
     }
 }
@@ -206,7 +206,7 @@ NfsFile::write(uint64_t offset, shared_ptr<oncrpc::Buffer> data)
         WRITE3args{fh_, offset, count3(data->size()), UNSTABLE, data});
     if (res.status == NFS3_OK) {
         // We ignore file_wcc.before since we aren't caching (yet)
-        update(move(res.resok().file_wcc.after));
+        update(res.resok().file_wcc.after);
         return res.resok().count;
     }
     else {
@@ -222,14 +222,14 @@ NfsFile::mkdir(const string& name, function<void(Setattr*)> cb)
     NfsSetattr sattr(args.attributes);
     cb(&sattr);
     auto fs = fs_.lock();
-    auto res = fs->proto()->mkdir(move(args));
+    auto res = fs->proto()->mkdir(args);
     if (res.status == NFS3_OK) {
         auto& resok = res.resok();
-        update(move(resok.dir_wcc.after));
+        update(resok.dir_wcc.after);
         return find(name, resok.obj, resok.obj_attributes);
     }
     else {
-        update(move(res.resfail().dir_wcc.after));
+        update(res.resfail().dir_wcc.after);
         throw system_error(res.status, system_category());
     }
 }
@@ -244,14 +244,14 @@ shared_ptr<File> NfsFile::symlink(
     NfsSetattr sattr(args.symlink.symlink_attributes);
     cb(&sattr);
     auto fs = fs_.lock();
-    auto res = fs->proto()->symlink(move(args));
+    auto res = fs->proto()->symlink(args);
     if (res.status == NFS3_OK) {
         auto& resok = res.resok();
-        update(move(resok.dir_wcc.after));
+        update(resok.dir_wcc.after);
         return find(name, resok.obj, resok.obj_attributes);
     }
     else {
-        update(move(res.resfail().dir_wcc.after));
+        update(res.resfail().dir_wcc.after);
         throw system_error(res.status, system_category());
     }
 }
@@ -265,14 +265,14 @@ std::shared_ptr<File> NfsFile::mkfifo(
     NfsSetattr attr(args.what.pipe_attributes());
     cb(&attr);
     auto fs = fs_.lock();
-    auto res = fs->proto()->mknod(move(args));
+    auto res = fs->proto()->mknod(args);
     if (res.status == NFS3_OK) {
         auto& resok = res.resok();
-        update(move(resok.dir_wcc.after));
+        update(resok.dir_wcc.after);
         return find(name, resok.obj, resok.obj_attributes);
     }
     else {
-        update(move(res.resfail().dir_wcc.after));
+        update(res.resfail().dir_wcc.after);
         throw system_error(res.status, system_category());
     }
 }
@@ -283,10 +283,10 @@ NfsFile::remove(const string& name)
     auto fs = fs_.lock();
     auto res = fs->proto()->remove(REMOVE3args{{fh_, name}});
     if (res.status == NFS3_OK) {
-        update(move(res.resok().dir_wcc.after));
+        update(res.resok().dir_wcc.after);
     }
     else {
-        update(move(res.resfail().dir_wcc.after));
+        update(res.resfail().dir_wcc.after);
         throw system_error(res.status, system_category());
     }
 }
@@ -297,10 +297,10 @@ NfsFile::rmdir(const string& name)
     auto fs = fs_.lock();
     auto res = fs->proto()->rmdir(RMDIR3args{{fh_, name}});
     if (res.status == NFS3_OK) {
-        update(move(res.resok().dir_wcc.after));
+        update(res.resok().dir_wcc.after);
     }
     else {
-        update(move(res.resfail().dir_wcc.after));
+        update(res.resfail().dir_wcc.after);
         throw system_error(res.status, system_category());
     }
 }
@@ -312,12 +312,12 @@ void NfsFile::rename(
     auto from = dynamic_cast<NfsFile*>(fromDir.get());
     auto res = fs->proto()->rename(RENAME3args{{from->fh_, fromName}, {fh_, toName}});
     if (res.status == NFS3_OK) {
-        from->update(move(res.resok().fromdir_wcc.after));
-        update(move(res.resok().todir_wcc.after));
+        from->update(res.resok().fromdir_wcc.after);
+        update(res.resok().todir_wcc.after);
     }
     else {
-        from->update(move(res.resfail().fromdir_wcc.after));
-        update(move(res.resfail().todir_wcc.after));
+        from->update(res.resfail().fromdir_wcc.after);
+        update(res.resfail().todir_wcc.after);
         throw system_error(res.status, system_category());
     }
 }
@@ -328,12 +328,12 @@ void NfsFile::link(const std::string& name, std::shared_ptr<File> file)
     auto from = dynamic_cast<NfsFile*>(file.get());
     auto res = fs->proto()->link(LINK3args{from->fh_, {fh_, name}});
     if (res.status == NFS3_OK) {
-        from->update(move(res.resok().file_attributes));
-        update(move(res.resok().linkdir_wcc.after));
+        from->update(res.resok().file_attributes);
+        update(res.resok().linkdir_wcc.after);
     }
     else {
-        from->update(move(res.resfail().file_attributes));
-        update(move(res.resfail().linkdir_wcc.after));
+        from->update(res.resfail().file_attributes);
+        update(res.resfail().linkdir_wcc.after);
         throw system_error(res.status, system_category());
     }
 }
@@ -350,20 +350,21 @@ NfsFile::fsstat()
     auto fs = fs_.lock();
     auto statres = fs->proto()->fsstat(FSSTAT3args{fh_});
     if (statres.status != NFS3_OK) {
-        update(move(statres.resfail().obj_attributes));
+        update(statres.resfail().obj_attributes);
         throw system_error(statres.status, system_category());
     }
     auto pcres = fs->proto()->pathconf(PATHCONF3args{fh_});
     if (pcres.status != NFS3_OK) {
-        update(move(pcres.resfail().obj_attributes));
+        update(pcres.resfail().obj_attributes);
         throw system_error(pcres.status, system_category());
     }
-    update(move(statres.resok().obj_attributes));
+    update(statres.resok().obj_attributes);
     return make_shared<NfsFsattr>(statres.resok(), pcres.resok());
 }
 
 shared_ptr<File>
-NfsFile::find(const string& name, post_op_fh3& fh, post_op_attr& attr)
+NfsFile::find(
+    const string& name, const post_op_fh3& fh, const post_op_attr& attr)
 {
     shared_ptr<File> f;
     if (!fh.handle_follows) {
@@ -373,26 +374,24 @@ NfsFile::find(const string& name, post_op_fh3& fh, post_op_attr& attr)
     else {
         auto fs = fs_.lock();
         if (attr.attributes_follow)
-            f = fs->find(
-                move(fh.handle()),
-                move(attr.attributes()));
+            f = fs->find(fh.handle(), attr.attributes());
         else
-            f = fs->find(move(fh.handle()));
+            f = fs->find(fh.handle());
     }
     return move(f);
 }
 
 void
-NfsFile::update(post_op_attr&& attr)
+NfsFile::update(const post_op_attr& attr)
 {
     if (attr.attributes_follow) {
-        update(move(attr.attributes()));
+        update(attr.attributes());
     }
 }
 
 void
-NfsFile::update(fattr3&& attr)
+NfsFile::update(const fattr3& attr)
 {
     attrTime_ = fs_.lock()->clock()->now();
-    attr_ = move(attr);
+    attr_ = attr;
 }

@@ -63,31 +63,15 @@ PosixFilesystem::find(
 shared_ptr<PosixFile>
 PosixFilesystem::find(
     std::shared_ptr<PosixFile> parent, const std::string& name,
-    FileId id, int fd)
+    FileId fileid, int fd)
 {
-    auto i = cache_.find(id);
-    if (i != cache_.end()) {
-        VLOG(2) << "cache hit for fileid: " << id << ", closing fd: " << fd;
-        ::close(fd);
-        auto p = i->second;
-        lru_.splice(lru_.begin(), lru_, p);
-        return *p;
-    }
-    else {
-        // Expire old entries if the cache is full
-        if (cache_.size() == maxCache_) {
-            auto oldest = lru_.back();
-            VLOG(2) << "expiring fileid: " << oldest->fileid();
-            cache_.erase(oldest->fileid());
-            lru_.pop_back();
-        }
-        VLOG(2) << "adding fileid: " << id << ", fd: " << fd;
-        auto file = make_shared<PosixFile>(
-            shared_from_this(), parent, name, id, fd);
-        auto p = lru_.insert(lru_.begin(), file);
-        cache_[id] = p;
-        return file;
-    }
+    return cache_.find(
+        fileid,
+        [](auto) {},
+        [&](auto id) {
+            return make_shared<PosixFile>(
+                shared_from_this(), parent, name, id, fd);
+        });
 }
 
 pair<shared_ptr<Filesystem>, string>

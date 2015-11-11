@@ -112,33 +112,18 @@ ObjFilesystem::find(const FileHandle& fh)
 shared_ptr<ObjFile>
 ObjFilesystem::find(FileId fileid)
 {
-    auto i = cache_.find(fileid);
-    if (i != cache_.end()) {
-        VLOG(2) << "cache hit for fileid: " << fileid;
-        auto p = i->second;
-        lru_.splice(lru_.begin(), lru_, p);
-        return *p;
-    }
-    else {
-        auto file = make_shared<ObjFile>(shared_from_this(), fileid);
-        add(file);
-        return file;
-    }
+    return cache_.find(
+        fileid,
+        [](auto) {},
+        [this](auto id) {
+            return make_shared<ObjFile>(shared_from_this(), FileId(id));
+        });
 }
 
 void
 ObjFilesystem::add(std::shared_ptr<ObjFile> file)
 {
-    // Expire old entries if the cache is full
-    if (cache_.size() == maxCache_) {
-        auto oldest = lru_.back();
-        VLOG(2) << "expiring fileid: " << oldest->fileid();
-        cache_.erase(oldest->fileid());
-        lru_.pop_back();
-    }
-    VLOG(2) << "adding fileid: " << file->fileid();
-    auto p = lru_.insert(lru_.begin(), file);
-    cache_[file->fileid()] = p;
+    cache_.add(file->fileid(), file);
 }
 
 void

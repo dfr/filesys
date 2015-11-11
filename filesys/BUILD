@@ -19,6 +19,22 @@ cc_library(
     visibility = ["//visibility:public"]
 )
 
+test_suite(
+    name = "small",
+    tags = ["small"]
+)
+
+cc_test(
+    name = "filesys_test",
+    size = "small",
+    copts = ["-std=c++14"],
+    srcs = glob(["test/*.cpp"]),
+    deps = [
+        ":hdrs",
+        "//third_party/gmock:gmock_main",
+    ]
+)
+
 genrule(
     name = "mount_prot",
     srcs = ["include/fs++/proto/mount.x"],
