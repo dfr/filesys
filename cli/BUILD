@@ -1,7 +1,7 @@
 cc_binary(
     name = "fscli",
     copts = ["-std=c++14"],
-    srcs = glob(["*.cpp", "commands/*.cpp"]),
+    srcs = glob(["*.cpp", "*.h", "commands/*.cpp"]),
     deps = [
         "//filesys",
         "//third_party/glog",

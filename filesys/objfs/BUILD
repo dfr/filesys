@@ -1,7 +1,7 @@
 cc_library(
     name = "objfs",
     copts = ["-std=c++14"],
-    srcs = glob(["*.cpp"]) + [":proto"],
+    srcs = glob(["*.cpp", "*.h"]) + [":proto"],
     hdrs = ["objfs.h"],
     deps = [
         "//rpcxx",

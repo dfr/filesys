@@ -14,6 +14,7 @@ cc_library(
     copts = ["-std=c++14"],
     srcs = glob([
         "nfs3/*.cpp",
+        "nfs3/*.h",
     ]) + [
         "//filesys:mount_prot",
         "//filesys:nfs_prot"

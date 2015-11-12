@@ -1,7 +1,7 @@
 cc_library(
     name = "nfs",
     copts = ["-std=c++14"],
-    srcs = glob(["*.cpp"]) + [
+    srcs = glob(["*.cpp", "*.h"]) + [
         "//filesys:mount_prot",
         "//filesys:nfs_prot"
     ],

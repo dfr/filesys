@@ -1,7 +1,7 @@
 cc_library(
     name = "posix",
     copts = ["-std=c++14"],
-    srcs = glob(["*.cpp"]),
+    srcs = glob(["*.cpp", "*.h"]),
     deps = [
         "//filesys:hdrs",
         "//third_party/glog:glog"

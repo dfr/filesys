@@ -1,7 +1,7 @@
 cc_library(
     name = "pfs",
     copts = ["-std=c++14"],
-    srcs = glob(["*.cpp"]),
+    srcs = glob(["*.cpp", "*.h"]),
     hdrs = ["pfsfs.h"],
     deps = [
         "//filesys:hdrs",
