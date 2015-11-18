@@ -25,6 +25,8 @@ public:
 
     void run(CommandState& state, vector<string>& args) override
     {
+        auto& cred = state.cred();
+
         bool symlink = false;
         if (args.size() > 0 && args[0] == "-s") {
             symlink = true;
@@ -47,7 +49,7 @@ public:
             shared_ptr<File> fromFile;
             try {
                 from = state.resolvepath(args[0]);
-                fromFile = from.first->lookup(from.second);
+                fromFile = from.first->lookup(cred, from.second);
             }
             catch (system_error& e) {
                 cout << args[0] << ": " << e.what() << endl;
@@ -64,7 +66,7 @@ public:
             // If the target exists, we assume its a directory and that
             // the desired name is the same as the source
             try {
-                auto f = to.first->lookup(to.second);
+                auto f = to.first->lookup(cred, to.second);
                 to.first = f;
                 to.second = leafEntry(args[0]);
             }
@@ -75,7 +77,7 @@ public:
             try {
                 if (to.first->fs() != fromFile->fs())
                     throw system_error(EXDEV, system_category());
-                to.first->link(to.second, fromFile);
+                to.first->link(cred, to.second, fromFile);
             }
             catch (system_error& e) {
                 cout << args[0] << ", " << args[1] << ": "<< e.what() << endl;

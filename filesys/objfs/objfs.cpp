@@ -70,8 +70,8 @@ ObjFilesystem::root()
             meta.fileid = FileId(1);
             meta.attr.type = PT_DIR;
             meta.attr.mode = 0755;
-            meta.attr.nlink = 2;
-            meta.attr.size = 2;
+            meta.attr.nlink = 0;
+            meta.attr.size = 0;
             meta.attr.atime = time.count();
             meta.attr.mtime = time.count();
             meta.attr.ctime = time.count();
@@ -82,9 +82,9 @@ ObjFilesystem::root()
             // Write the root directory metadata and directory entries for
             // "." and ".."
             auto trans = db_->beginTransaction();
+            root_->link(trans.get(), ".", root_.get(), false);
+            root_->link(trans.get(), "..", root_.get(), false);
             root_->writeMeta(trans.get());
-            root_->writeDirectoryEntry(trans.get(), ".", FileId(1));
-            root_->writeDirectoryEntry(trans.get(), "..", FileId(1));
             db_->commit(move(trans));
         }
     }

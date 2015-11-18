@@ -47,7 +47,7 @@ public:
             cout << args[0] << ": " << e.what() << endl;
         }
         for (auto& mnt: mntlist) {
-            auto stat = mnt.second->fsstat();
+            auto stat = mnt.second->fsstat(state.cred());
             tf(mnt.first,
                humanizeNumber(stat->tbytes()),
                humanizeNumber(stat->fbytes()),

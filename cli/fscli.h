@@ -65,7 +65,10 @@ public:
     std::pair<std::shared_ptr<File>, std::string> resolvepath(
         const std::string& path, bool follow = true);
 
+    auto& cred() const { return cred_; }
+
 private:
+    Credential cred_;
     std::shared_ptr<File> root_;
     std::shared_ptr<File> cwd_;
 };

@@ -1,8 +1,10 @@
 #include <chrono>
 #include <iostream>
+#include <sstream>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
+#include <rpc++/cred.h>
 #include <rpc++/server.h>
 #include <fs++/filesys.h>
 #include <fs++/urlparser.h>
@@ -19,6 +21,32 @@ using namespace std;
 DEFINE_int32(port, 2049, "port to listen for connections");
 DEFINE_int32(iosize, 65536, "maximum size for read or write requests");
 DEFINE_int32(idle_timeout, 30, "idle timeout in seconds");
+DEFINE_string(sec, "sys", "Acceptable authentication flavors");
+DEFINE_string(realm, "", "Local krb5 realm name");
+
+static map<string, int> flavors {
+    { "sys", AUTH_SYS },
+    { "krb5", RPCSEC_GSS_KRB5 },
+    { "krb5i", RPCSEC_GSS_KRB5I },
+    { "krb5p", RPCSEC_GSS_KRB5P },
+};
+
+static vector<int> parseSec()
+{
+    stringstream ss(FLAGS_sec);
+    string flavor;
+    vector<int> res;
+
+    while (getline(ss, flavor, ',')) {
+        auto i = flavors.find(flavor);
+        if (i == flavors.end()) {
+            cerr << "nfsd: unknown authentication flavor: " << flavor << endl;
+            exit(1);
+        }
+        res.push_back(i->second);
+    }
+    return res;
+}
 
 int main(int argc, char** argv)
 {
@@ -29,6 +57,8 @@ int main(int argc, char** argv)
         return 1;
     }
     google::InitGoogleLogging(argv[0]);
+
+    auto sec = parseSec();
 
     auto& fsman = FilesystemManager::instance();
 
@@ -41,7 +71,9 @@ int main(int argc, char** argv)
     auto mnt = fac->mount(&fsman, argv[1]);
 
     auto svcreg = make_shared<ServiceRegistry>();
-    nfs3::init(svcreg);
+    if (FLAGS_realm.size() > 0)
+        svcreg->mapCredentials(FLAGS_realm, make_shared<LocalCredMapper>());
+    nfs3::init(svcreg, sec);
 
     auto sockman = make_shared<SocketManager>();
     sockman->setIdleTimeout(std::chrono::seconds(FLAGS_idle_timeout));

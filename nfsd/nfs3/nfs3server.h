@@ -8,9 +8,10 @@ namespace nfs3 {
 class NfsServer: public filesys::nfs::NfsProgram3Service
 {
 public:
-    NfsServer();
+    NfsServer(const std::vector<int>& sec);
 
     // INfsProgram3 overrides
+    void dispatch(oncrpc::CallContext&& ctx) override;
     void null() override;
     filesys::nfs::GETATTR3res getattr(const filesys::nfs::GETATTR3args& args) override;
     filesys::nfs::SETATTR3res setattr(const filesys::nfs::SETATTR3args& args) override;
@@ -35,6 +36,7 @@ public:
     filesys::nfs::COMMIT3res commit(const filesys::nfs::COMMIT3args& args) override;
 
 private:
+    std::vector<int> sec_;
 };
 
 }

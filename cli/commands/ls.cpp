@@ -34,7 +34,21 @@ static string formatMode(uint32_t mode)
     static string modes[] = {
         "---", "--x", "-w-", "-wx", "r--", "r-x", "rw-", "rwx"
     };
-    return modes[(mode >> 6) & 7] + modes[(mode >> 3) & 7] + modes[mode & 7];
+    auto res =
+        modes[(mode >> 6) & 7] + modes[(mode >> 3) & 7] + modes[mode & 7];
+    if (mode & ModeFlags::SETUID) {
+        if (res[2] == 'x')
+            res[2] = 's';
+        else
+            res[2] = 'S';
+    }
+    if (mode & ModeFlags::SETGID) {
+        if (res[5] == 'x')
+            res[5] = 's';
+        else
+            res[5] = 'S';
+    }
+    return res;
 }
 
 static string formatTime(chrono::system_clock::time_point time)
@@ -63,17 +77,20 @@ public:
 
     void run(CommandState& state, vector<string>& args) override
     {
+        auto& cred = state.cred();
+
         if (args.size() > 1) {
             usage();
             return;
         }
-        TableFormatter<11, 4, 5, 5, -5, 1, 17, 1> tf(cout);
+        TableFormatter<11, 4, 6, 6, -5, 1, 17, 1> tf(cout);
         try {
             typedef pair<string, shared_ptr<File>> entryT;
             vector<entryT> files;
             auto dir = args.size() == 0 ? state.cwd() : state.lookup(args[0]);
             if (dir->getattr()->type() == FileType::DIRECTORY) {
-                for (auto iter = dir->readdir(0); iter->valid(); iter->next()) {
+                for (auto iter = dir->readdir(cred, 0);
+                    iter->valid(); iter->next()) {
                     auto name = iter->name();
                     if (name == "." || name == "..")
                         continue;
@@ -95,7 +112,7 @@ public:
                 auto attr = f->getattr();
                 if (attr->type() == FileType::SYMLINK) {
                     name += " -> ";
-                    name += f->readlink();
+                    name += f->readlink(cred);
                 }
                 tf(formatType(attr->type()) + formatMode(attr->mode()),
                    attr->nlink(),

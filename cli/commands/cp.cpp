@@ -25,6 +25,8 @@ public:
 
     void run(CommandState& state, vector<string>& args) override
     {
+        auto& cred = state.cred();
+
         if (args.size() != 2) {
             usage();
             return;
@@ -32,7 +34,7 @@ public:
         pair<shared_ptr<File>, string> from, to;
         try {
             from = state.resolvepath(args[0]);
-            from.first->lookup(from.second);
+            from.first->lookup(cred, from.second);
         }
         catch (system_error& e) {
             cout << args[0] << ": " << e.what() << endl;
@@ -49,7 +51,7 @@ public:
         // If the target exists, and it is a directory, we copy to a
         // destination in that directory with the same name as the source
         try {
-            auto f = to.first->lookup(to.second);
+            auto f = to.first->lookup(cred, to.second);
             if (f->getattr()->type() == FileType::DIRECTORY) {
                 to.first = f;
                 to.second = leafEntry(args[0]);
@@ -62,7 +64,8 @@ public:
         shared_ptr<File> in, out;
         try {
             in = from.first->open(
-                from.second, OpenFlags::READ, [](Setattr* sattr){});
+                cred, from.second, OpenFlags::READ,
+                [](Setattr* sattr){});
         }
         catch (system_error& e) {
             cout << args[0] << ": " << e.what() << endl;
@@ -70,7 +73,7 @@ public:
         }
         try {
             out = to.first->open(
-                to.second,
+                cred, to.second,
                 OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE,
                 [](Setattr* sattr){ sattr->setMode(0666); });
         }
@@ -94,14 +97,14 @@ public:
             bool eof = false;
             while (!eof) {
                 // XXX: fix rpc buffer sizes
-                auto data = in->read(offset, 1024, eof);
+                auto data = in->read(cred, offset, 1024, eof);
                 // XXX: handle short writes
-                out->write(offset, data);
+                out->write(cred, offset, data);
                 offset += data->size();
             }
-            in->close();
-            out->commit();
-            out->close();
+            in->close(cred);
+            out->commit(cred);
+            out->close(cred);
         }
         catch (system_error& e) {
             cout << e.what() << endl;

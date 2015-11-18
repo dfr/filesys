@@ -29,6 +29,31 @@ NfsFile::handle(FileHandle& fh)
     throw system_error(EOPNOTSUPP, system_category());
 }
 
+bool NfsFile::access(const Credential& cred, int accmode)
+{
+    uint32_t flags = 0;
+    if (accmode & AccessFlags::READ)
+        flags |= ACCESS3_READ;
+    if (accmode & AccessFlags::WRITE)
+        flags |= ACCESS3_MODIFY;
+    if (accmode & AccessFlags::EXECUTE) {
+        if (attr_.type == NF3DIR)
+            flags |= ACCESS3_LOOKUP;
+        else
+            flags |= ACCESS3_EXECUTE;
+    }
+    auto fs = fs_.lock();
+    auto res = fs->proto()->access(ACCESS3args{fh_, flags});
+    if (res.status == NFS3_OK) {
+        update(res.resok().obj_attributes);
+        return res.resok().access == flags;
+    }
+    else {
+        update(res.resfail().obj_attributes);
+        throw system_error(res.status, system_category());
+    }
+}
+
 shared_ptr<Getattr>
 NfsFile::getattr()
 {
@@ -52,7 +77,7 @@ static inline int operator!=(const nfstime3& a, const nfstime3& b)
     return a.seconds != b.seconds || a.nseconds != b.nseconds;
 }
 
-void NfsFile::setattr(function<void(Setattr*)> cb)
+void NfsFile::setattr(const Credential&, function<void(Setattr*)> cb)
 {
     SETATTR3args args;
     args.object = fh_;
@@ -93,7 +118,7 @@ void NfsFile::setattr(function<void(Setattr*)> cb)
 }
 
 shared_ptr<File>
-NfsFile::lookup(const string& name)
+NfsFile::lookup(const Credential&, const string& name)
 {
     auto fs = fs_.lock();
     auto res = fs->proto()->lookup(LOOKUP3args{{fh_, name}});
@@ -115,7 +140,8 @@ NfsFile::lookup(const string& name)
 
 shared_ptr<File>
 NfsFile::open(
-    const string& name, int flags, function<void(Setattr*)> cb)
+    const Credential& cred, const string& name, int flags,
+    function<void(Setattr*)> cb)
 {
     if (flags & OpenFlags::CREATE) {
         CREATE3args args;
@@ -131,7 +157,7 @@ NfsFile::open(
             update(resok.dir_wcc.after);
             auto f = find(name, resok.obj, resok.obj_attributes);
             if (flags & OpenFlags::TRUNCATE) {
-                f->setattr([](auto attr) { attr->setSize(0); });
+                f->setattr(cred, [](auto attr) { attr->setSize(0); });
             }
             return f;
         }
@@ -141,17 +167,17 @@ NfsFile::open(
         }
     }
     else {
-        return lookup(name);
+        return lookup(cred, name);
     }
 }
 
 void
-NfsFile::close()
+NfsFile::close(const Credential&)
 {
 }
 
 void
-NfsFile::commit()
+NfsFile::commit(const Credential&)
 {
     auto fs = fs_.lock();
     auto res = fs->proto()->commit(COMMIT3args{fh_, 0, 0});
@@ -165,20 +191,23 @@ NfsFile::commit()
 }
 
 string
-NfsFile::readlink()
+NfsFile::readlink(const Credential&)
 {
     auto fs = fs_.lock();
     auto res = fs->proto()->readlink(READLINK3args{fh_});
     if (res.status == NFS3_OK) {
+        update(res.resok().symlink_attributes);
         return res.resok().data;
     }
     else {
+        update(res.resfail().symlink_attributes);
         throw system_error(res.status, system_category());
     }
 }
 
 shared_ptr<oncrpc::Buffer>
-NfsFile::read(uint64_t offset, uint32_t size, bool& eof)
+NfsFile::read(
+    const Credential&, uint64_t offset, uint32_t size, bool& eof)
 {
     auto fs = fs_.lock();
     if (size > fs->fsinfo().rtpref)
@@ -196,7 +225,8 @@ NfsFile::read(uint64_t offset, uint32_t size, bool& eof)
 }
 
 uint32_t
-NfsFile::write(uint64_t offset, shared_ptr<oncrpc::Buffer> data)
+NfsFile::write(
+    const Credential&, uint64_t offset, shared_ptr<oncrpc::Buffer> data)
 {
     auto fs = fs_.lock();
     if (data->size() > fs->fsinfo().wtpref) {
@@ -215,7 +245,8 @@ NfsFile::write(uint64_t offset, shared_ptr<oncrpc::Buffer> data)
 }
 
 shared_ptr<File>
-NfsFile::mkdir(const string& name, function<void(Setattr*)> cb)
+NfsFile::mkdir(
+    const Credential&, const string& name, function<void(Setattr*)> cb)
 {
     MKDIR3args args;
     args.where = {fh_, name};
@@ -235,7 +266,7 @@ NfsFile::mkdir(const string& name, function<void(Setattr*)> cb)
 }
 
 shared_ptr<File> NfsFile::symlink(
-    const string& name, const string& data,
+    const Credential&, const string& name, const string& data,
     function<void(Setattr*)> cb)
 {
     SYMLINK3args args;
@@ -257,7 +288,8 @@ shared_ptr<File> NfsFile::symlink(
 }
 
 std::shared_ptr<File> NfsFile::mkfifo(
-    const std::string& name, std::function<void(Setattr*)> cb)
+    const Credential&, const std::string& name,
+    std::function<void(Setattr*)> cb)
 {
     MKNOD3args args;
     args.where = {fh_, name};
@@ -278,7 +310,7 @@ std::shared_ptr<File> NfsFile::mkfifo(
 }
 
 void
-NfsFile::remove(const string& name)
+NfsFile::remove(const Credential&, const string& name)
 {
     auto fs = fs_.lock();
     auto res = fs->proto()->remove(REMOVE3args{{fh_, name}});
@@ -292,7 +324,7 @@ NfsFile::remove(const string& name)
 }
 
 void
-NfsFile::rmdir(const string& name)
+NfsFile::rmdir(const Credential&, const string& name)
 {
     auto fs = fs_.lock();
     auto res = fs->proto()->rmdir(RMDIR3args{{fh_, name}});
@@ -306,7 +338,8 @@ NfsFile::rmdir(const string& name)
 }
 
 void NfsFile::rename(
-    const string& toName, shared_ptr<File> fromDir, const string& fromName)
+    const Credential&, const string& toName,
+    shared_ptr<File> fromDir, const string& fromName)
 {
     auto fs = fs_.lock();
     auto from = dynamic_cast<NfsFile*>(fromDir.get());
@@ -322,7 +355,8 @@ void NfsFile::rename(
     }
 }
 
-void NfsFile::link(const std::string& name, std::shared_ptr<File> file)
+void NfsFile::link(
+    const Credential&, const std::string& name, std::shared_ptr<File> file)
 {
     auto fs = fs_.lock();
     auto from = dynamic_cast<NfsFile*>(file.get());
@@ -339,13 +373,13 @@ void NfsFile::link(const std::string& name, std::shared_ptr<File> file)
 }
 
 shared_ptr<DirectoryIterator>
-NfsFile::readdir(uint64_t seek)
+NfsFile::readdir(const Credential& cred, uint64_t seek)
 {
-    return make_shared<NfsDirectoryIterator>(shared_from_this(), seek);
+    return make_shared<NfsDirectoryIterator>(cred, shared_from_this(), seek);
 }
 
 std::shared_ptr<Fsattr>
-NfsFile::fsstat()
+NfsFile::fsstat(const Credential&)
 {
     auto fs = fs_.lock();
     auto statres = fs->proto()->fsstat(FSSTAT3args{fh_});
@@ -369,7 +403,7 @@ NfsFile::find(
     shared_ptr<File> f;
     if (!fh.handle_follows) {
         LOG(WARNING) << "no filehande returned from create-type RPC";
-        f = lookup(name);
+        f = lookup(Credential(), name);
     }
     else {
         auto fs = fs_.lock();

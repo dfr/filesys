@@ -109,6 +109,7 @@ public:
                 InvokeWithoutArgs([=](){ return fsinfoOkResult(); }));
     }
 
+    Credential cred;
     shared_ptr<NfsFilesystem> nfs;
     shared_ptr<MockNfs> proto;
     shared_ptr<MockClock> clock;
@@ -182,7 +183,7 @@ TEST_F(NfsTest, Setattr)
                     post_op_attr(true, move(attr))}});
         }));
 
-    nfs->root()->setattr([this](auto attrs) {
+    nfs->root()->setattr(cred, [this](auto attrs) {
         attrs->setMode(0777);
         attrs->setUid(123);
         attrs->setGid(456);
@@ -192,9 +193,28 @@ TEST_F(NfsTest, Setattr)
     });
 
     // We should not make an RPC if the attribute isn't changed
-    nfs->root()->setattr([this](auto attrs) {
+    nfs->root()->setattr(cred, [this](auto attrs) {
         attrs->setSize(99);
     });
+}
+
+TEST_F(NfsTest, Access)
+{
+    ignoreGetattr();
+
+    uint32_t access = ACCESS3_READ+ACCESS3_LOOKUP+ACCESS3_MODIFY;
+    EXPECT_CALL(*proto.get(), access(_))
+        .Times(1)
+        .WillOnce(InvokeWithoutArgs(
+            [=]() {
+                return ACCESS3res{
+                    NFS3_OK,
+                    ACCESS3resok{
+                        post_op_attr(true, fakeAttrs(NF3DIR, 1)),
+                        access}};
+            }));
+    EXPECT_EQ(true, nfs->root()->access(
+        cred, AccessFlags::READ+AccessFlags::WRITE+AccessFlags::EXECUTE));
 }
 
 TEST_F(NfsTest, Lookup1)
@@ -216,7 +236,7 @@ TEST_F(NfsTest, Lookup1)
                     post_op_attr(false)});
         }));
 
-    nfs->root()->lookup("foo");
+    nfs->root()->lookup(cred, "foo");
 }
 
 TEST_F(NfsTest, Lookup2)
@@ -237,7 +257,7 @@ TEST_F(NfsTest, Lookup2)
                 LOOKUP3resok{{}, post_op_attr(false), post_op_attr(false)});
         }));
 
-    nfs->root()->lookup("foo");
+    nfs->root()->lookup(cred, "foo");
 }
 
 TEST_F(NfsTest, Lookup3)
@@ -256,7 +276,7 @@ TEST_F(NfsTest, Lookup3)
                 LOOKUP3resfail{post_op_attr(false)});
         }));
 
-    EXPECT_THROW(nfs->root()->lookup("foo"), system_error);
+    EXPECT_THROW(nfs->root()->lookup(cred, "foo"), system_error);
 }
 
 TEST_F(NfsTest, Open)
@@ -275,7 +295,7 @@ TEST_F(NfsTest, Open)
                     post_op_attr(false)});
         }));
 
-    nfs->root()->open("foo", 0, [](auto){});
+    nfs->root()->open(cred, "foo", 0, [](auto){});
 }
 
 MATCHER(matchUnchecked, "") {
@@ -298,7 +318,7 @@ TEST_F(NfsTest, Create)
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
 
-    nfs->root()->open("foo", OpenFlags::CREATE, [](auto){});
+    nfs->root()->open(cred, "foo", OpenFlags::CREATE, [](auto){});
 
     // Check an exception is raised on failure
     EXPECT_CALL(*proto.get(), create(matchUnchecked()))
@@ -311,7 +331,7 @@ TEST_F(NfsTest, Create)
         }));
 
     EXPECT_THROW(
-        nfs->root()->open("foo", OpenFlags::CREATE, [](auto){}),
+        nfs->root()->open(cred, "foo", OpenFlags::CREATE, [](auto){}),
         system_error);
 
 }
@@ -338,7 +358,7 @@ TEST_F(NfsTest, CreateExclusive)
         }));
 
     nfs->root()->open(
-        "foo", OpenFlags::CREATE+OpenFlags::EXCLUSIVE, [](auto){});
+        cred, "foo", OpenFlags::CREATE+OpenFlags::EXCLUSIVE, [](auto){});
 }
 
 TEST_F(NfsTest, CreateTruncate)
@@ -371,7 +391,7 @@ TEST_F(NfsTest, CreateTruncate)
         }));
 
     auto f = nfs->root()->open(
-        "foo", OpenFlags::CREATE+OpenFlags::TRUNCATE, [](auto){});
+        cred, "foo", OpenFlags::CREATE+OpenFlags::TRUNCATE, [](auto){});
     EXPECT_EQ(0, f->getattr()->size());
 
     // Make sure an exception is raised if the setattr fails
@@ -395,7 +415,7 @@ TEST_F(NfsTest, CreateTruncate)
 
     EXPECT_THROW(
         nfs->root()->open(
-            "foo", OpenFlags::CREATE+OpenFlags::TRUNCATE, [](auto){}),
+            cred, "foo", OpenFlags::CREATE+OpenFlags::TRUNCATE, [](auto){}),
         system_error);
 }
 
@@ -437,7 +457,7 @@ TEST_F(NfsTest, CreateTruncate2)
         }));
 
     auto f = nfs->root()->open(
-        "foo", OpenFlags::CREATE+OpenFlags::TRUNCATE, [](auto){});
+        cred, "foo", OpenFlags::CREATE+OpenFlags::TRUNCATE, [](auto){});
     EXPECT_EQ(0, f->getattr()->size());
 }
 
@@ -453,7 +473,7 @@ TEST_F(NfsTest, Commit)
                 COMMIT3resok{
                     {pre_op_attr(false), post_op_attr(false)}, {}});
         }));
-    nfs->root()->commit();
+    nfs->root()->commit(cred);
 
     EXPECT_CALL(*proto.get(), commit(_))
         .Times(1)
@@ -463,7 +483,7 @@ TEST_F(NfsTest, Commit)
                 COMMIT3resfail{
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    EXPECT_THROW(nfs->root()->commit(), system_error);
+    EXPECT_THROW(nfs->root()->commit(cred), system_error);
 }
 
 TEST_F(NfsTest, Readlink)
@@ -478,7 +498,7 @@ TEST_F(NfsTest, Readlink)
                 READLINK3resok{
                     post_op_attr(false), "link value"});
         }));
-    EXPECT_EQ("link value", nfs->root()->readlink());
+    EXPECT_EQ("link value", nfs->root()->readlink(cred));
 
     EXPECT_CALL(*proto.get(), readlink(_))
         .Times(1)
@@ -487,7 +507,7 @@ TEST_F(NfsTest, Readlink)
                 NFS3ERR_INVAL,
                 READLINK3resfail{post_op_attr(false)});
         }));
-    EXPECT_THROW(nfs->root()->readlink(), system_error);
+    EXPECT_THROW(nfs->root()->readlink(cred), system_error);
 }
 
 TEST_F(NfsTest, Read)
@@ -510,7 +530,7 @@ TEST_F(NfsTest, Read)
                     buf});
         }));
 
-    auto buf = nfs->root()->read(0, 1024, atEof);
+    auto buf = nfs->root()->read(cred, 0, 1024, atEof);
     EXPECT_EQ(1024, buf->size());
     for (auto v: *buf)
         EXPECT_EQ(99, v);
@@ -522,7 +542,7 @@ TEST_F(NfsTest, Read)
                 NFS3ERR_INVAL,
                 READ3resfail{post_op_attr(false)});
         }));
-    EXPECT_THROW(nfs->root()->read(1024, 1024, atEof), system_error);
+    EXPECT_THROW(nfs->root()->read(cred, 1024, 1024, atEof), system_error);
 }
 
 TEST_F(NfsTest, Write)
@@ -540,7 +560,7 @@ TEST_F(NfsTest, Write)
         }));
     auto buf = make_shared<oncrpc::Buffer>(1024);
     fill_n(buf->data(), 1024, 99);
-    EXPECT_EQ(123, nfs->root()->write(0, buf));
+    EXPECT_EQ(123, nfs->root()->write(cred, 0, buf));
 
     EXPECT_CALL(*proto.get(), write(_))
         .Times(1)
@@ -550,7 +570,7 @@ TEST_F(NfsTest, Write)
                 WRITE3resfail{
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    EXPECT_THROW(nfs->root()->write(1024, buf), system_error);
+    EXPECT_THROW(nfs->root()->write(cred, 1024, buf), system_error);
 }
 
 TEST_F(NfsTest, Mkdir)
@@ -567,7 +587,7 @@ TEST_F(NfsTest, Mkdir)
                     post_op_attr(true, fakeAttrs(NF3DIR, 2)),
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    nfs->root()->mkdir("foo", [](auto){});
+    nfs->root()->mkdir(cred, "foo", [](auto){});
 
     EXPECT_CALL(*proto.get(), mkdir(_))
         .Times(1)
@@ -577,7 +597,7 @@ TEST_F(NfsTest, Mkdir)
                 MKDIR3resfail{
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    EXPECT_THROW(nfs->root()->mkdir("bar", [](auto){}), system_error);
+    EXPECT_THROW(nfs->root()->mkdir(cred, "bar", [](auto){}), system_error);
 }
 
 TEST_F(NfsTest, Symlink)
@@ -594,7 +614,7 @@ TEST_F(NfsTest, Symlink)
                     post_op_attr(true, fakeAttrs(NF3LNK, 2)),
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    nfs->root()->symlink("foo", "data", [](auto){});
+    nfs->root()->symlink(cred, "foo", "data", [](auto){});
 
     EXPECT_CALL(*proto.get(), symlink(_))
         .Times(1)
@@ -604,7 +624,8 @@ TEST_F(NfsTest, Symlink)
                 SYMLINK3resfail{
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    EXPECT_THROW(nfs->root()->symlink("bar", "data", [](auto){}), system_error);
+    EXPECT_THROW(nfs->root()->symlink(
+        cred, "bar", "data", [](auto){}), system_error);
 }
 
 TEST_F(NfsTest, Mkfifo)
@@ -621,7 +642,7 @@ TEST_F(NfsTest, Mkfifo)
                     post_op_attr(true, fakeAttrs(NF3LNK, 2)),
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    nfs->root()->mkfifo("foo", [](auto){});
+    nfs->root()->mkfifo(cred, "foo", [](auto){});
 
     EXPECT_CALL(*proto.get(), mknod(_))
         .Times(1)
@@ -631,7 +652,7 @@ TEST_F(NfsTest, Mkfifo)
                 MKNOD3resfail{
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    EXPECT_THROW(nfs->root()->mkfifo("bar", [](auto){}), system_error);
+    EXPECT_THROW(nfs->root()->mkfifo(cred, "bar", [](auto){}), system_error);
 }
 
 TEST_F(NfsTest, Remove)
@@ -646,7 +667,7 @@ TEST_F(NfsTest, Remove)
                 REMOVE3resok{
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    nfs->root()->remove("foo");
+    nfs->root()->remove(cred, "foo");
 
     EXPECT_CALL(*proto.get(), remove(_))
         .Times(1)
@@ -656,7 +677,7 @@ TEST_F(NfsTest, Remove)
                 REMOVE3resfail{
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    EXPECT_THROW(nfs->root()->remove("bar"), system_error);
+    EXPECT_THROW(nfs->root()->remove(cred, "bar"), system_error);
 }
 
 TEST_F(NfsTest, Rmdir)
@@ -671,7 +692,7 @@ TEST_F(NfsTest, Rmdir)
                 RMDIR3resok{
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    nfs->root()->rmdir("foo");
+    nfs->root()->rmdir(cred, "foo");
 
     EXPECT_CALL(*proto.get(), rmdir(_))
         .Times(1)
@@ -681,7 +702,7 @@ TEST_F(NfsTest, Rmdir)
                 RMDIR3resfail{
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    EXPECT_THROW(nfs->root()->rmdir("bar"), system_error);
+    EXPECT_THROW(nfs->root()->rmdir(cred, "bar"), system_error);
 }
 
 TEST_F(NfsTest, Rename)
@@ -698,7 +719,7 @@ TEST_F(NfsTest, Rename)
                     {pre_op_attr(false), post_op_attr(false)},
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    dir->rename("foo", dir, "bar");
+    dir->rename(cred, "foo", dir, "bar");
 
     EXPECT_CALL(*proto.get(), rename(_))
         .Times(1)
@@ -709,7 +730,7 @@ TEST_F(NfsTest, Rename)
                     {pre_op_attr(false), post_op_attr(false)},
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    EXPECT_THROW(dir->rename("bar", dir, "foo"), system_error);
+    EXPECT_THROW(dir->rename(cred, "bar", dir, "foo"), system_error);
 }
 
 TEST_F(NfsTest, Link)
@@ -726,7 +747,7 @@ TEST_F(NfsTest, Link)
                     post_op_attr(false),
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    dir->link("foo", dir);
+    dir->link(cred, "foo", dir);
 
     EXPECT_CALL(*proto.get(), link(_))
         .Times(1)
@@ -737,7 +758,7 @@ TEST_F(NfsTest, Link)
                     post_op_attr(false),
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    EXPECT_THROW(dir->link("bar", dir), system_error);
+    EXPECT_THROW(dir->link(cred, "bar", dir), system_error);
 }
 
 TEST_F(NfsTest, Readdir)
@@ -769,7 +790,7 @@ TEST_F(NfsTest, Readdir)
                     {},
                     move(dirlist)});
         }));
-    auto iter = dir->readdir(0);
+    auto iter = dir->readdir(cred, 0);
     EXPECT_EQ("baz", iter->name()); iter->next();
     EXPECT_EQ("bar", iter->name()); iter->next();
     EXPECT_EQ("foo", iter->name()); iter->next();
@@ -782,7 +803,7 @@ TEST_F(NfsTest, Readdir)
                 NFS3ERR_INVAL,
                 READDIRPLUS3resfail{post_op_attr(false)});
         }));
-    EXPECT_THROW(dir->readdir(0), system_error);
+    EXPECT_THROW(dir->readdir(cred, 0), system_error);
 }
 
 TEST_F(NfsTest, Readdir2)
@@ -827,7 +848,7 @@ TEST_F(NfsTest, Readdir2)
 
     // The first readdir will create the local file nodes with attributes
     // and file handles returned by readdirplus
-    auto iter = dir->readdir(0);
+    auto iter = dir->readdir(cred, 0);
     EXPECT_EQ("baz", iter->name());
     EXPECT_EQ(FileType::FILE, iter->file()->getattr()->type());
     iter->next();
@@ -844,7 +865,7 @@ TEST_F(NfsTest, Readdir2)
 
     // The second readdir should refresh the attributes - we should not see
     // any subsequent calls to getattr
-    iter = dir->readdir(0);
+    iter = dir->readdir(cred, 0);
     EXPECT_EQ("baz", iter->name());
     EXPECT_EQ(FileType::FILE, iter->file()->getattr()->type());
     iter->next();

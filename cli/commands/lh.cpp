@@ -34,6 +34,8 @@ public:
 
     void run(CommandState& state, vector<string>& args) override
     {
+        auto& cred = state.cred();
+
         if (args.size() > 1) {
             usage();
             return;
@@ -43,7 +45,8 @@ public:
             vector<entryT> files;
             auto dir = args.size() == 0 ? state.cwd() : state.lookup(args[0]);
             if (dir->getattr()->type() == FileType::DIRECTORY) {
-                for (auto iter = dir->readdir(0); iter->valid(); iter->next()) {
+                for (auto iter = dir->readdir(cred, 0);
+                    iter->valid(); iter->next()) {
                     files.push_back(make_pair(iter->name(), iter->file()));
                 }
             }

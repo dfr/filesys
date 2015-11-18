@@ -10,6 +10,7 @@ test_suite(
         "//filesys/nfs:small",
         "//filesys/objfs:small",
         "//nfsd:small",
+        "//rpcxx:small",
     ]
 )
 

@@ -8,7 +8,7 @@ namespace nfs3 {
 class MountServer: public filesys::nfs::Mountprog3Service
 {
 public:
-    MountServer();
+    MountServer(const std::vector<int>& sec);
 
     // IMountprog3 overrides
     void null() override;
@@ -19,6 +19,7 @@ public:
     filesys::nfs::exports listexports() override;
 
 private:
+    std::vector<int> sec_;
 };
 
 }

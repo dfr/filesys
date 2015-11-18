@@ -8,19 +8,19 @@ using namespace std;
 
 namespace filesys {
 
-class ChmodCommand: public Command
+class ChownCommand: public Command
 {
 public:
-    const char* name() const override { return "chmod"; }
+    const char* name() const override { return "chown"; }
 
     const char* help() const override
     {
-        return "change file mode";
+        return "change file owner";
     }
 
     void usage() override
     {
-        cout << "usage: chmod <mode> <file>" << endl;
+        cout << "usage: chown <uid> <file>" << endl;
     }
 
     void run(CommandState& state, vector<string>& args) override
@@ -32,14 +32,14 @@ public:
             return;
         }
         size_t sz;
-        auto mode = stoi(args[0], &sz, 8);
+        auto uid = stoi(args[0], &sz, 10);
         if (sz != args[0].size()) {
             usage();
             return;
         }
         try {
             auto f = state.lookup(args[1]);
-            f->setattr(cred, [mode](Setattr* attr){ attr->setMode(mode); });
+            f->setattr(cred, [uid](Setattr* attr){ attr->setUid(uid); });
         }
         catch (system_error& e) {
             cout << args[0] << ": " << e.what() << endl;
@@ -47,6 +47,6 @@ public:
     }
 };
 
-static CommandReg<ChmodCommand> reg;
+static CommandReg<ChownCommand> reg;
 
 }

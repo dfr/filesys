@@ -91,32 +91,57 @@ std::chrono::system_clock::time_point ObjGetattr::birthtime() const
 
 void ObjSetattr::setMode(int mode)
 {
+    if (cred_.uid() != meta_.attr.uid && !cred_.privileged())
+        throw system_error(EPERM, system_category());
     meta_.attr.mode = mode;
 }
 
 void ObjSetattr::setUid(int uid)
 {
+    if (uid != meta_.attr.uid && !cred_.privileged())
+        throw system_error(EPERM, system_category());
     meta_.attr.uid = uid;
 }
 
 void ObjSetattr::setGid(int gid)
 {
-    meta_.attr.gid = gid;
+    // If the cred matches the file owner and contains the requested group,
+    // or the cred is privileged, we can change the file group
+    if ((cred_.uid() == meta_.attr.uid && cred_.hasgroup(gid))
+        || cred_.privileged())
+        meta_.attr.gid = gid;
+    else
+        throw system_error(EPERM, system_category());
 }
 
 void ObjSetattr::setSize(std::uint64_t size)
 {
+    CheckAccess(
+        meta_.attr.uid, meta_.attr.gid, meta_.attr.mode,
+        cred_, AccessFlags::WRITE);
     meta_.attr.size = size;
 }
 
 void ObjSetattr::setMtime(std::chrono::system_clock::time_point mtime)
 {
+    // The file owner can change the times unconditionally
+    if (meta_.attr.uid != cred_.uid()) {
+        CheckAccess(
+            meta_.attr.uid, meta_.attr.gid, meta_.attr.mode,
+            cred_, AccessFlags::WRITE);
+    }
     meta_.attr.mtime =
         duration_cast<nanoseconds>(mtime.time_since_epoch()).count();
 }
 
 void ObjSetattr::setAtime(std::chrono::system_clock::time_point atime)
 {
+    // The file owner can change the times unconditionally
+    if (meta_.attr.uid != cred_.uid()) {
+        CheckAccess(
+            meta_.attr.uid, meta_.attr.gid, meta_.attr.mode,
+            cred_, AccessFlags::WRITE);
+    }
     meta_.attr.atime =
         duration_cast<nanoseconds>(atime.time_since_epoch()).count();
 }

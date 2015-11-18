@@ -12,10 +12,12 @@ using namespace std;
 static shared_ptr<MountServer> mountService;
 static shared_ptr<NfsServer> nfsService;
 
-void nfsd::nfs3::init(shared_ptr<ServiceRegistry> svcreg)
+void nfsd::nfs3::init(
+    shared_ptr<ServiceRegistry> svcreg,
+    const vector<int>& sec)
 {
-    mountService = make_shared<MountServer>();
-    nfsService = make_shared<NfsServer>();
+    mountService = make_shared<MountServer>(sec);
+    nfsService = make_shared<NfsServer>(sec);
 
     mountService->bind(svcreg);
     nfsService->bind(svcreg);

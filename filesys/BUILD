@@ -4,9 +4,20 @@ cc_library(
     srcs = ["fsman.cpp"],
     deps = [
         ":hdrs",
+        ":access",
         "//filesys/nfs",
         "//filesys/posix",
         "//filesys/objfs",
+    ],
+    visibility = ["//visibility:public"]
+)
+
+cc_library(
+    name = "access",
+    copts = ["-std=c++14"],
+    srcs = ["checkaccess.cpp"],
+    deps = [
+        ":hdrs",
     ],
     visibility = ["//visibility:public"]
 )
@@ -30,9 +41,10 @@ cc_test(
     copts = ["-std=c++14"],
     srcs = glob(["test/*.cpp"]),
     deps = [
-        ":hdrs",
+        ":filesys",
         "//third_party/gmock:gmock_main",
-    ]
+    ],
+    linkstatic = 1,
 )
 
 genrule(

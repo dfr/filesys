@@ -124,7 +124,8 @@ private:
 class ObjSetattr: public Setattr
 {
 public:
-    ObjSetattr(ObjFileMeta& meta) : meta_(meta) {}
+    ObjSetattr(const Credential& cred, ObjFileMeta& meta)
+        : cred_(cred), meta_(meta) {}
 
     // Setattr overrides
     void setMode(int mode) override;
@@ -135,6 +136,7 @@ public:
     void setAtime(std::chrono::system_clock::time_point atime) override;
 
 private:
+    const Credential& cred_;
     ObjFileMeta& meta_;
 };
 
@@ -194,46 +196,63 @@ public:
     // File overrides
     std::shared_ptr<Filesystem> fs() override;
     void handle(FileHandle& fh) override;
+    bool access(const Credential& cred, int accmode) override;
     std::shared_ptr<Getattr> getattr() override;
-    void setattr(std::function<void(Setattr*)> cb) override;
-    std::shared_ptr<File> lookup(const std::string& name) override;
+    void setattr(const Credential& cred, std::function<void(Setattr*)> cb) override;
+    std::shared_ptr<File> lookup(const Credential& cred, const std::string& name) override;
     std::shared_ptr<File> open(
-        const std::string& name, int flags,
+        const Credential& cred, const std::string& name, int flags,
         std::function<void(Setattr*)> cb) override;
-    void close() override;
-    void commit() override;
-    std::string readlink() override;
+    void close(const Credential& cred) override;
+    void commit(const Credential& cred) override;
+    std::string readlink(const Credential& cred) override;
     std::shared_ptr<oncrpc::Buffer> read(
-        std::uint64_t offset, std::uint32_t size, bool& eof) override;
+        const Credential& cred, std::uint64_t offset, std::uint32_t size,
+        bool& eof) override;
     std::uint32_t write(
-        std::uint64_t offset, std::shared_ptr<oncrpc::Buffer> data) override;
+        const Credential& cred, std::uint64_t offset,
+        std::shared_ptr<oncrpc::Buffer> data) override;
     std::shared_ptr<File> mkdir(
-        const std::string& name, std::function<void(Setattr*)> cb) override;
-    std::shared_ptr<File> symlink(
-        const std::string& name, const std::string& data,
+        const Credential& cred, const std::string& name,
         std::function<void(Setattr*)> cb) override;
+    std::shared_ptr<File> symlink(
+        const Credential& cred, const std::string& name,
+        const std::string& data, std::function<void(Setattr*)> cb) override;
     std::shared_ptr<File> mkfifo(
-        const std::string& name, std::function<void(Setattr*)> cb) override;
-    void remove(const std::string& name) override;
-    void rmdir(const std::string& name) override;
+        const Credential& cred, const std::string& name,
+        std::function<void(Setattr*)> cb) override;
+    void remove(const Credential& cred, const std::string& name) override;
+    void rmdir(const Credential& cred, const std::string& name) override;
     void rename(
-        const std::string& toName,
+        const Credential& cred, const std::string& toName,
         std::shared_ptr<File> fromDir,
         const std::string& fromName) override;
-    void link(const std::string& name, std::shared_ptr<File> file) override;
-    std::shared_ptr<DirectoryIterator> readdir(std::uint64_t seek) override;
-    std::shared_ptr<Fsattr> fsstat() override;
+    void link(
+        const Credential& cred, const std::string& name,
+        std::shared_ptr<File> file) override;
+    std::shared_ptr<DirectoryIterator> readdir(
+        const Credential& cred, std::uint64_t seek) override;
+    std::shared_ptr<Fsattr> fsstat(const Credential& cred) override;
 
     FileId fileid() const { return FileId(meta_.fileid); }
+    std::shared_ptr<ObjFile> lookupInternal(
+        const Credential& cred, const std::string& name);
     void writeMeta();
     void writeMeta(Transaction* trans);
     void writeDirectoryEntry(
-        Transaction* trans, const std::string& name, FileId fileid);
+        Transaction* trans, const std::string& name, FileId id);
+    void link(Transaction* trans, const std::string& name, ObjFile* file,
+        bool saveMeta);
+    void unlink(Transaction* trans, const std::string& name, ObjFile* file,
+        bool saveMeta);
     std::shared_ptr<File> createNewFile(
+        const Credential& cred,
         PosixType type,
         const std::string& name,
         std::function<void(Setattr*)> attrCb,
         std::function<void(Transaction*, std::shared_ptr<ObjFile>)> writeCb);
+    void checkAccess(const Credential& cred, int accmode);
+    void checkSticky(const Credential& cred, ObjFile* file);
 
 private:
     std::weak_ptr<ObjFilesystem> fs_;

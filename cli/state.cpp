@@ -12,6 +12,7 @@ CommandState::CommandState(shared_ptr<File> root)
     : root_(root),
       cwd_(root)
 {
+    cred_.setToLocal();
 }
 
 static int parseHexDigit(char ch)
@@ -62,47 +63,48 @@ shared_ptr<File> CommandState::lookup(const string& name)
         return lookupfh(name);
     }
     auto p = resolvepath(name);
-    return p.first->lookup(p.second);
+    return p.first->lookup(cred_, p.second);
 }
 
 shared_ptr<File> CommandState::open(const string& name, int flags, int mode)
 {
     auto p = resolvepath(name);
     return p.first->open(
-        p.second, flags, [mode](Setattr* sattr){ sattr->setMode(mode); });
+        cred_, p.second, flags,
+        [mode](Setattr* sattr){ sattr->setMode(mode); });
 }
 
 shared_ptr<File> CommandState::mkdir(const string& name, int mode)
 {
     auto p = resolvepath(name);
     return p.first->mkdir(
-        p.second, [mode](Setattr* sattr){ sattr->setMode(mode); });
+        cred_, p.second, [mode](Setattr* sattr){ sattr->setMode(mode); });
 }
 
 shared_ptr<File> CommandState::symlink(const string& name, const string& path)
 {
     auto p = resolvepath(name);
     return p.first->symlink(
-        p.second, path, [](Setattr* sattr){ sattr->setMode(0777); });
+        cred_, p.second, path, [](Setattr* sattr){ sattr->setMode(0777); });
 }
 
 std::shared_ptr<File> CommandState::mkfifo(const std::string& name)
 {
     auto p = resolvepath(name);
     return p.first->mkfifo(
-        p.second, [](Setattr* sattr){ sattr->setMode(0666); });
+        cred_, p.second, [](Setattr* sattr){ sattr->setMode(0666); });
 }
 
 void CommandState::remove(const std::string& name)
 {
     auto p = resolvepath(name, false);
-    p.first->remove(p.second);
+    p.first->remove(cred_, p.second);
 }
 
 void CommandState::rmdir(const std::string& name)
 {
     auto p = resolvepath(name);
-    p.first->rmdir(p.second);
+    p.first->rmdir(cred_, p.second);
 }
 
 void CommandState::chdir(shared_ptr<File> dir)
@@ -130,9 +132,9 @@ restart:
     while (path.size() > 0) {
         auto entry = path.front();
         path.pop_front();
-        f = f->lookup(entry);
+        f = f->lookup(cred_, entry);
         if (f->getattr()->type() == FileType::SYMLINK) {
-            auto dest = f->readlink();
+            auto dest = f->readlink(cred_);
             auto newpath = parsePath(dest);
             if (dest[0] == '/')
                 f = root_;
@@ -143,9 +145,9 @@ restart:
     }
     try {
         // If the leaf exists, check for symbolic links
-        auto leaf = f->lookup(leafEntry);
+        auto leaf = f->lookup(cred_, leafEntry);
         if (follow && leaf->getattr()->type() == FileType::SYMLINK) {
-            auto dest = leaf->readlink();
+            auto dest = leaf->readlink(cred_);
             if (dest[0] == '/')
                 f = root_;
             path = parsePath(dest);

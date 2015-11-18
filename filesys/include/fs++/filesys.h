@@ -7,9 +7,12 @@
 #include <string>
 #include <vector>
 
+#include <rpc++/cred.h>
 #include <rpc++/xdr.h>
 
 namespace filesys {
+
+using oncrpc::Credential;
 
 namespace detail {
 
@@ -75,6 +78,35 @@ struct OpenFlags
     static constexpr int CREATE = 4;
     static constexpr int TRUNCATE = 8;
     static constexpr int EXCLUSIVE = 16;
+};
+
+/// File modes
+struct ModeFlags
+{
+    static constexpr int SETUID = 04000;
+    static constexpr int SETGID = 02000;
+    static constexpr int STICKY = 01000;
+
+    static constexpr int RUSER = 0400;
+    static constexpr int WUSER = 0200;
+    static constexpr int XUSER = 0100;
+
+    static constexpr int RGROUP = 0040;
+    static constexpr int WGROUP = 0020;
+    static constexpr int XGROUP = 0010;
+
+    static constexpr int ROTHER = 0004;
+    static constexpr int WOTHER = 0002;
+    static constexpr int XOTHER = 0001;
+};
+
+/// Flags for File::access and CheckAccess
+struct AccessFlags
+{
+    static constexpr int READ = 1;
+    static constexpr int WRITE = 2;
+    static constexpr int EXECUTE = 4;
+    static constexpr int ALL = 7;
 };
 
 /// A structure which uniquely identifies a file
@@ -218,78 +250,86 @@ public:
     /// Get a file handle for this file
     virtual void handle(FileHandle& fh) = 0;
 
+    /// Return true if the file permissions will allow the requested.
+    /// The value of accmode should be a logical-or of AccessFlags values.
+    virtual bool access(const Credential& cred, int accmode) = 0;
+
     /// Return an object which can be used to access the file attributes
     virtual std::shared_ptr<Getattr> getattr() = 0;
 
     /// Set the file attributes
-    virtual void setattr(std::function<void(Setattr*)> cb) = 0;
+    virtual void setattr(
+        const Credential& cred, std::function<void(Setattr*)> cb) = 0;
 
     /// Look up a name in a directory
-    virtual std::shared_ptr<File> lookup(const std::string& name) = 0;
+    virtual std::shared_ptr<File> lookup(
+        const Credential& cred, const std::string& name) = 0;
 
     /// Open or create a file using a combination of OpenFlags
     virtual std::shared_ptr<File> open(
-        const std::string& name, int flags,
+        const Credential& cred, const std::string& name, int flags,
         std::function<void(Setattr*)> cb) = 0;
 
     /// Close a file previously opened with open
-    virtual void close() = 0;
+    virtual void close(const Credential& cred) = 0;
 
     /// Commit cached data to stable storage
-    virtual void commit() = 0;
+    virtual void commit(const Credential& cred) = 0;
 
     /// Read the contents of a symbolic links
-    virtual std::string readlink() = 0;
+    virtual std::string readlink(const Credential& cred) = 0;
 
     /// Read data from a file
     virtual std::shared_ptr<oncrpc::Buffer> read(
-        std::uint64_t offset, std::uint32_t size, bool& eof) = 0;
+        const Credential& cred, std::uint64_t offset, std::uint32_t size,
+        bool& eof) = 0;
 
     /// Write data to a file
     virtual std::uint32_t write(
-        std::uint64_t offset, std::shared_ptr<oncrpc::Buffer> data) = 0;
+        const Credential& cred, std::uint64_t offset,
+        std::shared_ptr<oncrpc::Buffer> data) = 0;
 
     /// Create a new directory
     virtual std::shared_ptr<File> mkdir(
-        const std::string& name,
+        const Credential& cred, const std::string& name,
         std::function<void(Setattr*)> cb) = 0;
 
     /// Create a new directory
     virtual std::shared_ptr<File> symlink(
-        const std::string& name,
-        const std::string& data,
-        std::function<void(Setattr*)> cb) = 0;
+        const Credential& cred, const std::string& name,
+        const std::string& data, std::function<void(Setattr*)> cb) = 0;
 
     /// Create a new directory
     virtual std::shared_ptr<File> mkfifo(
-        const std::string& name,
+        const Credential& cred, const std::string& name,
         std::function<void(Setattr*)> cb) = 0;
 
     /// Remove a file
-    virtual void remove(const std::string& name) = 0;
+    virtual void remove(const Credential& cred, const std::string& name) = 0;
 
     /// Remove a directory
-    virtual void rmdir(const std::string& name) = 0;
+    virtual void rmdir(const Credential& cred, const std::string& name) = 0;
 
     /// Rename a file or directory
     virtual void rename(
-        const std::string& toName,
+        const Credential& cred, const std::string& toName,
         std::shared_ptr<File> fromDir,
         const std::string& fromName) = 0;
 
     /// Link an existing file to this directory
     virtual void link(
-        const std::string& name, std::shared_ptr<File> file) = 0;
+        const Credential& cred, const std::string& name,
+        std::shared_ptr<File> file) = 0;
 
     /// Return an iterator object which can be used to read the contents of
     /// a directory. The value of seek should be either zero to start the
     /// iterator at the start of the directory or some value returned by
     /// DirectoryIterator::seek in a previous iteration over this directory.
     virtual std::shared_ptr<DirectoryIterator> readdir(
-        std::uint64_t seek) = 0;
+        const Credential& cred, std::uint64_t seek) = 0;
 
     /// Return file system attributes
-    virtual std::shared_ptr<Fsattr> fsstat() = 0;
+    virtual std::shared_ptr<Fsattr> fsstat(const Credential& cred) = 0;
 };
 
 class Filesystem
@@ -361,5 +401,12 @@ private:
     std::map<std::string, std::shared_ptr<FilesystemFactory>> factories_;
     std::map<std::string, std::shared_ptr<Filesystem>> filesystems_;
 };
+
+
+/// Check access permissions for the object with the given attributes. If
+/// access is denied, a std;:system_error with appropriate error code is
+/// thrown.
+void CheckAccess(
+    int uid, int gid, int mode,const Credential& cred, int accmode);
 
 }

@@ -25,6 +25,8 @@ public:
 
     void run(CommandState& state, vector<string>& args) override
     {
+        auto& cred = state.cred();
+
         if (args.size() != 1) {
             usage();
             return;
@@ -36,7 +38,7 @@ public:
             uint64_t offset = 0;
             bool eof = false;
             while (!eof) {
-                auto data = f->read(offset, 8192, eof);
+                auto data = f->read(cred, offset, 8192, eof);
                 cout.write(reinterpret_cast<char*>(data->data()), data->size());
                 offset += data->size();
             }

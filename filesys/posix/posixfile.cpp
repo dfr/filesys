@@ -53,6 +53,18 @@ PosixFile::handle(FileHandle& fh)
     *reinterpret_cast<FileId*>(fh.handle.data()) = id_;
 }
 
+bool PosixFile::access(const Credential& cred, int accmode)
+{
+    auto attr = getattr();
+    try {
+        CheckAccess(attr->uid(), attr->gid(), attr->mode(), cred, accmode);
+        return true;
+    }
+    catch (system_error&) {
+        return false;
+    }
+}
+
 shared_ptr<Getattr> PosixFile::getattr()
 {
     struct ::stat st;
@@ -73,7 +85,7 @@ shared_ptr<Getattr> PosixFile::getattr()
     return make_shared<PosixGetattr>(st);
 }
 
-void PosixFile::setattr(function<void(Setattr*)> cb)
+void PosixFile::setattr(const Credential&, function<void(Setattr*)> cb)
 {
     PosixSetattr attr;
     cb(&attr);
@@ -87,7 +99,7 @@ void PosixFile::setattr(function<void(Setattr*)> cb)
     }
 }
 
-shared_ptr<File> PosixFile::lookup(const string& name)
+shared_ptr<File> PosixFile::lookup(const Credential&, const string& name)
 {
     // Don't allow the user to escape the root directory
     if (name == "..") {
@@ -116,7 +128,7 @@ shared_ptr<File> PosixFile::lookup(const string& name)
 }
 
 shared_ptr<File> PosixFile::open(
-    const string& name, int flags, function<void(Setattr*)> cb)
+    const Credential&, const string& name, int flags, function<void(Setattr*)> cb)
 {
     // Don't allow the user to escape the root directory
     if (name == "..") {
@@ -149,15 +161,15 @@ shared_ptr<File> PosixFile::open(
     throw system_error(EISDIR, system_category());
 }
 
-void PosixFile::close()
+void PosixFile::close(const Credential&)
 {
 }
 
-void PosixFile::commit()
+void PosixFile::commit(const Credential&)
 {
 }
 
-string PosixFile::readlink()
+string PosixFile::readlink(const Credential&)
 {
     // XXX: really want freadlink here
     char buf[PATH_MAX];
@@ -169,7 +181,8 @@ string PosixFile::readlink()
 }
 
 shared_ptr<oncrpc::Buffer>
-PosixFile::read(uint64_t offset, uint32_t count, bool& eof)
+PosixFile::read(
+    const Credential&, uint64_t offset, uint32_t count, bool& eof)
 {
     auto buf = make_shared<oncrpc::Buffer>(count);
     auto n = ::pread(fd_, buf->data(), count, offset);
@@ -183,7 +196,8 @@ PosixFile::read(uint64_t offset, uint32_t count, bool& eof)
     return buf;
 }
 
-uint32_t PosixFile::write(uint64_t offset, shared_ptr<oncrpc::Buffer> data)
+uint32_t PosixFile::write(
+    const Credential&, uint64_t offset, shared_ptr<oncrpc::Buffer> data)
 {
     auto p = data->data();
     auto len = data->size();
@@ -199,7 +213,7 @@ uint32_t PosixFile::write(uint64_t offset, shared_ptr<oncrpc::Buffer> data)
 }
 
 shared_ptr<File> PosixFile::mkdir(
-    const string& name, function<void(Setattr*)> cb)
+    const Credential& cred, const string& name, function<void(Setattr*)> cb)
 {
     if (name[0] == '/')
         throw system_error(EACCES, system_category());
@@ -207,23 +221,23 @@ shared_ptr<File> PosixFile::mkdir(
     cb(&attr);
     int mode = attr.hasMode_ ? attr.mode_ : 0;
     if (::mkdirat(fd_, name.c_str(), mode) >= 0)
-        return lookup(name);
+        return lookup(cred, name);
     throw system_error(errno, system_category());
 }
 
 shared_ptr<File> PosixFile::symlink(
-    const string& name, const string& data,
+    const Credential& cred, const string& name, const string& data,
     function<void(Setattr*)> cb)
 {
     if (name[0] == '/')
         throw system_error(EACCES, system_category());
     if (::symlinkat(data.c_str(), fd_, name.c_str()) >= 0)
-        return lookup(name);
+        return lookup(cred, name);
     throw system_error(errno, system_category());
 }
 
 shared_ptr<File> PosixFile::mkfifo(
-    const string& name, function<void(Setattr*)> cb)
+    const Credential& cred, const string& name, function<void(Setattr*)> cb)
 {
     if (name[0] == '/')
         throw system_error(EACCES, system_category());
@@ -231,11 +245,11 @@ shared_ptr<File> PosixFile::mkfifo(
     cb(&attr);
     int mode = attr.hasMode_ ? attr.mode_ : 0;
     if (::mkfifoat(fd_, name.c_str(), mode) >= 0)
-        return lookup(name);
+        return lookup(cred, name);
     throw system_error(errno, system_category());
 }
 
-void PosixFile::remove(const string& name)
+void PosixFile::remove(const Credential&, const string& name)
 {
     if (name[0] == '/')
         throw system_error(EACCES, system_category());
@@ -243,7 +257,7 @@ void PosixFile::remove(const string& name)
         throw system_error(errno, system_category());
 }
 
-void PosixFile::rmdir(const string& name)
+void PosixFile::rmdir(const Credential&, const string& name)
 {
     if (name[0] == '/')
         throw system_error(EACCES, system_category());
@@ -252,7 +266,8 @@ void PosixFile::rmdir(const string& name)
 }
 
 void PosixFile::rename(
-    const string& toName, shared_ptr<File> fromDir, const string& fromName)
+    const Credential&, const string& toName,
+    shared_ptr<File> fromDir, const string& fromName)
 {
     if (fromName[0] == '/' || toName[0] == '/')
         throw system_error(EACCES, system_category());
@@ -261,7 +276,8 @@ void PosixFile::rename(
         throw system_error(errno, system_category());
 }
 
-void PosixFile::link(const string& name, shared_ptr<File> file)
+void PosixFile::link(
+    const Credential&, const string& name, shared_ptr<File> file)
 {
     if (name[0] == '/')
         throw system_error(EACCES, system_category());
@@ -271,12 +287,13 @@ void PosixFile::link(const string& name, shared_ptr<File> file)
         throw system_error(errno, system_category());
 }
 
-shared_ptr<DirectoryIterator> PosixFile::readdir(uint64_t seek)
+shared_ptr<DirectoryIterator> PosixFile::readdir(
+    const Credential&, uint64_t seek)
 {
     return make_shared<PosixDirectoryIterator>(fs_.lock(), shared_from_this());
 }
 
-shared_ptr<Fsattr> PosixFile::fsstat()
+shared_ptr<Fsattr> PosixFile::fsstat(const Credential&)
 {
     auto res = make_shared<PosixFsattr>();
     if (::fstatfs(fd_, &res->stat) < 0)

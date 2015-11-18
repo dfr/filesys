@@ -2,6 +2,7 @@
 #include <sstream>
 
 #include <fs++/filesys.h>
+#include <rpc++/cred.h>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
@@ -89,7 +90,7 @@ static auto importAttr(const sattr3& attr)
             sattr->setUid(attr.uid.uid());
         }
         if (attr.gid.set_it) {
-            sattr->setUid(attr.gid.gid());
+            sattr->setGid(attr.gid.gid());
         }
         if (attr.size.set_it) {
             sattr->setSize(attr.size.size());
@@ -168,11 +169,36 @@ static wcc_attr exportWcc(shared_ptr<File> file)
         exportTime(attr->ctime())};
 }
 
-NfsServer::NfsServer()
+NfsServer::NfsServer(const vector<int>& sec)
+    : sec_(sec)
 {
 }
 
-// INfsProgram3 overrides
+void NfsServer::dispatch(oncrpc::CallContext&& ctx)
+{
+    static map<int, string> flavors {
+        { AUTH_NONE, "none" },
+        { AUTH_SYS, "sys" },
+        { RPCSEC_GSS_KRB5, "krb5" },
+        { RPCSEC_GSS_KRB5I, "krb5i" },
+        { RPCSEC_GSS_KRB5P, "krb5p" },
+    };
+
+    // Check the auth flavor is allowed
+    auto flavor = ctx.flavor();
+    for (auto sec: sec_) {
+        if (sec == flavor) {
+            NfsProgram3Service::dispatch(move(ctx));
+            return;
+        }
+    }
+    auto p = flavors.find(flavor);
+    string s = p == flavors.end() ? to_string(flavor) : p->second;
+    LOG(ERROR) << "NfsServer: auth too weak: " << s;
+    ctx.authError(AUTH_TOOWEAK);
+    throw NoReply();
+}
+
 void NfsServer::null()
 {
 }
@@ -195,6 +221,7 @@ GETATTR3res NfsServer::getattr(const GETATTR3args& args)
 
 SETATTR3res NfsServer::setattr(const SETATTR3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::setattr("
                 << formatFileHandle(args.object) << ", ...)";
@@ -203,7 +230,7 @@ SETATTR3res NfsServer::setattr(const SETATTR3args& args)
     try {
         obj = importFileHandle(args.object);
         wcc = exportWcc(obj);
-        obj->setattr(importAttr(args.new_attributes));
+        obj->setattr(cred, importAttr(args.new_attributes));
         return SETATTR3res{
             NFS3_OK,
             SETATTR3resok{
@@ -231,6 +258,7 @@ SETATTR3res NfsServer::setattr(const SETATTR3args& args)
 
 LOOKUP3res NfsServer::lookup(const LOOKUP3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::lookup("
                 << formatFileHandle(args.what.dir)
@@ -238,7 +266,7 @@ LOOKUP3res NfsServer::lookup(const LOOKUP3args& args)
     shared_ptr<File> dir;
     try {
         dir = importFileHandle(args.what.dir);
-        auto obj = dir->lookup(args.what.name);
+        auto obj = dir->lookup(cred, args.what.name);
         return LOOKUP3res{
             NFS3_OK,
             LOOKUP3resok{
@@ -262,13 +290,80 @@ LOOKUP3res NfsServer::lookup(const LOOKUP3args& args)
 
 ACCESS3res NfsServer::access(const ACCESS3args& args)
 {
-    return ACCESS3res{
-        NFS3ERR_NOTSUPP,
-        ACCESS3resfail{post_op_attr(false)}};
+    auto& cred = CallContext::current().cred();
+    if (VLOG_IS_ON(1))
+        VLOG(1) << "NfsServer::access("
+                << formatFileHandle(args.object)
+                << ", " << args.access << ")";
+
+    shared_ptr<File> obj;
+    try {
+        static unordered_map<uint32_t, int> accmap = {
+            {ACCESS3_READ, int(AccessFlags::READ)},
+            {ACCESS3_LOOKUP, int(AccessFlags::EXECUTE)},
+            {ACCESS3_MODIFY, int(AccessFlags::WRITE)},
+            {ACCESS3_EXTEND, int(AccessFlags::WRITE)},
+            {ACCESS3_EXECUTE, int(AccessFlags::EXECUTE)},
+        };
+
+        obj = importFileHandle(args.object);
+
+        // We don't support ACCESS3_DELETE - delete permission is granted
+        // by the directory containing the file.
+        uint32_t requested = args.access;
+        requested &= ~ACCESS3_DELETE;
+
+        // First try checking all the flags - if this succeeds, we are done
+        uint32_t access = requested;
+        int accmode = 0;
+        while (access) {
+            uint32_t abit = access & ~(access - 1);
+            access &= ~abit;
+            auto i = accmap.find(abit);
+            if (i != accmap.end())
+                accmode |= i->second;
+        }
+        if (obj->access(cred, accmode)) {
+            return ACCESS3res{
+                NFS3_OK,
+                ACCESS3resok{
+                    post_op_attr{true, exportAttr(obj)},
+                    args.access}};
+        }
+
+        // Otherwise, we need to check each bit separately
+        ACCESS3res res{
+            NFS3_OK,
+            ACCESS3resok{
+                post_op_attr{true, exportAttr(obj)},
+                0}};
+        access = requested;
+        while (access) {
+            uint32_t abit = access & ~(access - 1);
+            access &= ~abit;
+            auto i = accmap.find(abit);
+            if (i != accmap.end() && obj->access(cred, i->second))
+                res.resok().access |= abit;
+        }
+        return res;
+    }
+    catch (system_error& e) {
+        if (obj) {
+            return ACCESS3res{
+                exportStatus(e),
+                ACCESS3resfail{post_op_attr(true, exportAttr(obj))}};
+        }
+        else {
+            return ACCESS3res{
+                exportStatus(e),
+                ACCESS3resfail{post_op_attr(false)}};
+        }
+    }
 }
 
 READLINK3res NfsServer::readlink(const READLINK3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::readlink("
                 << formatFileHandle(args.symlink) << ")";
@@ -279,7 +374,7 @@ READLINK3res NfsServer::readlink(const READLINK3args& args)
             NFS3_OK,
             READLINK3resok{
                 post_op_attr(true, exportAttr(obj)),
-                obj->readlink()}};
+                obj->readlink(cred)}};
     }
     catch (system_error& e) {
         if (obj) {
@@ -297,6 +392,7 @@ READLINK3res NfsServer::readlink(const READLINK3args& args)
 
 READ3res NfsServer::read(const READ3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::read("
                 << formatFileHandle(args.file)
@@ -306,7 +402,7 @@ READ3res NfsServer::read(const READ3args& args)
     try {
         obj = importFileHandle(args.file);
         bool eof;
-        auto data = obj->read(args.offset, args.count, eof);
+        auto data = obj->read(cred, args.offset, args.count, eof);
         return READ3res{
             NFS3_OK,
             READ3resok{
@@ -331,6 +427,7 @@ READ3res NfsServer::read(const READ3args& args)
 
 WRITE3res NfsServer::write(const WRITE3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::write("
                 << formatFileHandle(args.file)
@@ -339,7 +436,7 @@ WRITE3res NfsServer::write(const WRITE3args& args)
     shared_ptr<File> obj;
     try {
         obj = importFileHandle(args.file);
-        auto n = obj->write(args.offset, args.data);
+        auto n = obj->write(cred, args.offset, args.data);
         // XXX: args.Settable
         return WRITE3res{
             NFS3_OK,
@@ -371,6 +468,7 @@ WRITE3res NfsServer::write(const WRITE3args& args)
 
 CREATE3res NfsServer::create(const CREATE3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::create("
                 << formatFileHandle(args.where.dir)
@@ -391,7 +489,7 @@ CREATE3res NfsServer::create(const CREATE3args& args)
             throw system_error(EOPNOTSUPP, system_category());
         }
         auto obj = dir->open(
-            args.where.name, flags, importAttr(args.how.obj_attributes()));
+            cred, args.where.name, flags, importAttr(args.how.obj_attributes()));
         return CREATE3res{
             NFS3_OK,
             CREATE3resok{
@@ -421,6 +519,7 @@ CREATE3res NfsServer::create(const CREATE3args& args)
 
 MKDIR3res NfsServer::mkdir(const MKDIR3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::mkdir("
                 << formatFileHandle(args.where.dir)
@@ -431,7 +530,7 @@ MKDIR3res NfsServer::mkdir(const MKDIR3args& args)
         dir = importFileHandle(args.where.dir);
         wcc = exportWcc(dir);
         auto obj = dir->mkdir(
-            args.where.name, importAttr(args.attributes));
+            cred, args.where.name, importAttr(args.attributes));
         return MKDIR3res{
             NFS3_OK,
             MKDIR3resok{
@@ -461,6 +560,7 @@ MKDIR3res NfsServer::mkdir(const MKDIR3args& args)
 
 SYMLINK3res NfsServer::symlink(const SYMLINK3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::symlink("
                 << formatFileHandle(args.where.dir)
@@ -472,8 +572,7 @@ SYMLINK3res NfsServer::symlink(const SYMLINK3args& args)
         dir = importFileHandle(args.where.dir);
         wcc = exportWcc(dir);
         auto obj = dir->symlink(
-            args.where.name,
-            args.symlink.symlink_data,
+            cred, args.where.name, args.symlink.symlink_data,
             importAttr(args.symlink.symlink_attributes));
         return SYMLINK3res{
             NFS3_OK,
@@ -504,6 +603,7 @@ SYMLINK3res NfsServer::symlink(const SYMLINK3args& args)
 
 MKNOD3res NfsServer::mknod(const MKNOD3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::mknod("
                 << formatFileHandle(args.where.dir)
@@ -518,7 +618,7 @@ MKNOD3res NfsServer::mknod(const MKNOD3args& args)
             throw system_error(EINVAL, system_category());
         }
         auto obj = dir->mkfifo(
-            args.where.name,
+            cred, args.where.name,
             importAttr(args.what.pipe_attributes()));
         return MKNOD3res{
             NFS3_OK,
@@ -549,6 +649,7 @@ MKNOD3res NfsServer::mknod(const MKNOD3args& args)
 
 REMOVE3res NfsServer::remove(const REMOVE3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::remove("
                 << formatFileHandle(args.object.dir)
@@ -558,7 +659,7 @@ REMOVE3res NfsServer::remove(const REMOVE3args& args)
     try {
         dir = importFileHandle(args.object.dir);
         wcc = exportWcc(dir);
-        dir->remove(args.object.name);
+        dir->remove(cred, args.object.name);
         return REMOVE3res{
             NFS3_OK,
             REMOVE3resok{
@@ -586,6 +687,7 @@ REMOVE3res NfsServer::remove(const REMOVE3args& args)
 
 RMDIR3res NfsServer::rmdir(const RMDIR3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::rmdir("
                 << formatFileHandle(args.object.dir)
@@ -595,7 +697,7 @@ RMDIR3res NfsServer::rmdir(const RMDIR3args& args)
     try {
         dir = importFileHandle(args.object.dir);
         wcc = exportWcc(dir);
-        dir->rmdir(args.object.name);
+        dir->rmdir(cred, args.object.name);
         return RMDIR3res{
             NFS3_OK,
             RMDIR3resok{
@@ -623,6 +725,7 @@ RMDIR3res NfsServer::rmdir(const RMDIR3args& args)
 
 RENAME3res NfsServer::rename(const RENAME3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::rename("
                 << formatFileHandle(args.from.dir)
@@ -636,7 +739,7 @@ RENAME3res NfsServer::rename(const RENAME3args& args)
         fromwcc = exportWcc(fromdir);
         todir = importFileHandle(args.to.dir);
         towcc = exportWcc(todir);
-        todir->rename(args.to.name, fromdir, args.from.name);
+        todir->rename(cred, args.to.name, fromdir, args.from.name);
         return RENAME3res{
             NFS3_OK,
             RENAME3resok{
@@ -671,6 +774,7 @@ RENAME3res NfsServer::rename(const RENAME3args& args)
 
 LINK3res NfsServer::link(const LINK3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::link("
                 << formatFileHandle(args.file)
@@ -682,7 +786,7 @@ LINK3res NfsServer::link(const LINK3args& args)
         obj = importFileHandle(args.file);
         dir = importFileHandle(args.link.dir);
         wcc = exportWcc(dir);
-        dir->link(args.link.name, obj);
+        dir->link(cred, args.link.name, obj);
         return LINK3res{
             NFS3_OK,
             LINK3resok{
@@ -713,6 +817,7 @@ LINK3res NfsServer::link(const LINK3args& args)
 
 READDIR3res NfsServer::readdir(const READDIR3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::readdir("
                 << formatFileHandle(args.dir)
@@ -728,7 +833,7 @@ READDIR3res NfsServer::readdir(const READDIR3args& args)
         res.resok().reply.eof = true;
         auto replySize = XdrSizeof(res);
         unique_ptr<entry3>* entryp = &res.resok().reply.entries;
-        for (auto iter = dir->readdir(args.cookie);
+        for (auto iter = dir->readdir(cred, args.cookie);
             iter->valid(); iter->next()) {
             auto entry = make_unique<entry3>();
             entry->fileid = iter->fileid();
@@ -763,6 +868,7 @@ READDIR3res NfsServer::readdir(const READDIR3args& args)
 
 READDIRPLUS3res NfsServer::readdirplus(const READDIRPLUS3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::readdirplus("
                 << formatFileHandle(args.dir)
@@ -773,14 +879,13 @@ READDIRPLUS3res NfsServer::readdirplus(const READDIRPLUS3args& args)
         // XXX: cookieverf
         READDIRPLUS3res res;
         res.set_status(NFS3_OK);
-        res.resok().dir_attributes = post_op_attr(true, exportAttr(dir));
         res.resok().cookieverf = args.cookieverf;
         res.resok().reply.eof = true;
         count3 replySize = XdrSizeof(res);
         count3 dirSize = 0;
         unique_ptr<entryplus3>* entryp = &res.resok().reply.entries;
         res.resok().reply.eof = true;
-        for (auto iter = dir->readdir(args.cookie);
+        for (auto iter = dir->readdir(cred, args.cookie);
             iter->valid(); iter->next()) {
             auto entry = make_unique<entryplus3>();
             entry->fileid = iter->fileid();
@@ -809,6 +914,7 @@ READDIRPLUS3res NfsServer::readdirplus(const READDIRPLUS3args& args)
                 break;
             }
         }
+        res.resok().dir_attributes = post_op_attr(true, exportAttr(dir));
         return res;
     }
     catch (system_error& e) {
@@ -827,13 +933,14 @@ READDIRPLUS3res NfsServer::readdirplus(const READDIRPLUS3args& args)
 
 FSSTAT3res NfsServer::fsstat(const FSSTAT3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::fsstat("
                 << formatFileHandle(args.fsroot) << ")";
     shared_ptr<File> obj;
     try {
         obj = importFileHandle(args.fsroot);
-        auto stat = obj->fsstat();
+        auto stat = obj->fsstat(cred);
         return FSSTAT3res{
             NFS3_OK,
             FSSTAT3resok{
@@ -862,13 +969,14 @@ FSSTAT3res NfsServer::fsstat(const FSSTAT3args& args)
 
 FSINFO3res NfsServer::fsinfo(const FSINFO3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::fsinfo("
                 << formatFileHandle(args.fsroot) << ")";
     shared_ptr<File> obj;
     try {
         obj = importFileHandle(args.fsroot);
-        auto stat = obj->fsstat();
+        auto stat = obj->fsstat(cred);
         std::uint32_t sz = FLAGS_iosize;
         std::uint32_t properties =
             FSF3_LINK + FSF3_SYMLINK + FSF3_HOMOGENEOUS + FSF3_CANSETTIME;
@@ -903,13 +1011,14 @@ FSINFO3res NfsServer::fsinfo(const FSINFO3args& args)
 
 PATHCONF3res NfsServer::pathconf(const PATHCONF3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::pathconf("
                 << formatFileHandle(args.object) << ")";
     shared_ptr<File> obj;
     try {
         obj = importFileHandle(args.object);
-        auto stat = obj->fsstat();
+        auto stat = obj->fsstat(cred);
         return PATHCONF3res{
             NFS3_OK,
             PATHCONF3resok{
@@ -937,6 +1046,7 @@ PATHCONF3res NfsServer::pathconf(const PATHCONF3args& args)
 
 COMMIT3res NfsServer::commit(const COMMIT3args& args)
 {
+    auto& cred = CallContext::current().cred();
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::commit("
                 << formatFileHandle(args.file)
@@ -948,7 +1058,7 @@ COMMIT3res NfsServer::commit(const COMMIT3args& args)
         obj = importFileHandle(args.file);
         wcc = exportWcc(obj);
         // XXX: offset, count
-        obj->commit();
+        obj->commit(cred);
         // XXX: writeverf
         return COMMIT3res{
             NFS3_OK,

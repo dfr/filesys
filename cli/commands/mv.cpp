@@ -25,6 +25,8 @@ public:
 
     void run(CommandState& state, vector<string>& args) override
     {
+        auto& cred = state.cred();
+
         if (args.size() != 2) {
             usage();
             return;
@@ -33,7 +35,7 @@ public:
         pair<shared_ptr<File>, string> from, to;
         try {
             from = state.resolvepath(args[0]);
-            from.first->lookup(from.second);
+            from.first->lookup(cred, from.second);
         }
         catch (system_error& e) {
             cout << args[0] << ": " << e.what() << endl;
@@ -50,7 +52,7 @@ public:
         // If the target exists, and its a directory set the target to that
         // directory with the same name as the source
         try {
-            auto f = to.first->lookup(to.second);
+            auto f = to.first->lookup(cred, to.second);
             if (f->getattr()->type() == FileType::DIRECTORY) {
                 to.first = f;
                 to.second = leafEntry(args[0]);
@@ -63,7 +65,7 @@ public:
         try {
             if (to.first->fs() != from.first->fs())
                 throw system_error(EXDEV, system_category());
-            to.first->rename(to.second, from.first, from.second);
+            to.first->rename(cred, to.second, from.first, from.second);
         }
         catch (system_error& e) {
             cout << args[0] << ", " << args[1] << ": "<< e.what() << endl;

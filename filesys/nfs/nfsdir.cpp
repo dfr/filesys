@@ -8,8 +8,9 @@ using namespace filesys;
 using namespace filesys::nfs;
 
 NfsDirectoryIterator::NfsDirectoryIterator(
-    std::shared_ptr<NfsFile> dir, std::uint64_t seek)
-    : dir_(dir)
+    const Credential& cred, std::shared_ptr<NfsFile> dir, std::uint64_t seek)
+    : cred_(cred),
+      dir_(dir)
 {
     readdir(seek);
 }
@@ -40,7 +41,7 @@ std::shared_ptr<File> NfsDirectoryIterator::file() const
             std::move(entry_->name_attributes.attributes()));
     }
     else {
-        file_ = dir_->lookup(entry_->name);
+        file_ = dir_->lookup(cred_, entry_->name);
     }
     return file_;
 }
@@ -72,11 +73,13 @@ void NfsDirectoryIterator::readdir(cookie3 cookie)
             dir_->nfs()->fsinfo().dtpref,
             dir_->nfs()->fsinfo().dtpref});
     if (res.status == NFS3_OK) {
+        dir_->update(res.resok().dir_attributes);
         verf_ = std::move(res.resok().cookieverf);
         entry_ = std::move(res.resok().reply.entries);
         eof_ = res.resok().reply.eof;
     }
     else {
+        dir_->update(res.resfail().dir_attributes);
         dir_.reset();
         eof_ = true;
         throw std::system_error(res.status, std::system_category());

@@ -6,6 +6,7 @@ cc_library(
     deps = [
         "//rpcxx",
         "//filesys:hdrs",
+        "//filesys:access",
         "//third_party/glog",
         "//third_party/rocksdb",
     ],
