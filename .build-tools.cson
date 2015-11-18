@@ -1,0 +1,56 @@
+providers: [
+  {
+    key: "bt"
+    config:
+      commands: [
+        {
+          project: "/Users/dfr/src/filesys"
+          source: "/Users/dfr/src/filesys/.build-tools.cson"
+          name: "Build"
+          command: "/usr/local/bin/bazel build -c dbg //cli:fscli //nfsd:nfsd"
+          wd: "."
+          env: {}
+          modifier:
+            save_all: {}
+          stdout:
+            pty: false
+            highlighting: "ht"
+          stderr:
+            highlighting: "ht"
+          output:
+            console:
+              close_success: false
+              queue_in_buffer: true
+              stdin: false
+            linter:
+              no_trace: false
+          version: 1
+        }
+        {
+          project: "/Users/dfr/src/filesys"
+          source: "/Users/dfr/src/filesys/.build-tools.cson"
+          name: "Test"
+          command: "/usr/local/bin/bazel test -c dbg :small"
+          wd: "."
+          env: {}
+          modifier:
+            save_all: {}
+          stdout:
+            pty: false
+            highlighting: "hc"
+            profile: "gcc_clang"
+          stderr:
+            highlighting: "hc"
+            profile: "gcc_clang"
+          output:
+            console:
+              close_success: true
+              queue_in_buffer: true
+              stdin: false
+            linter:
+              no_trace: false
+          version: 1
+        }
+      ]
+  }
+]
