@@ -96,8 +96,9 @@ private:
 class ObjGetattr: public Getattr
 {
 public:
-    ObjGetattr(const ObjFileMeta& meta, std::uint64_t used)
-        : meta_(meta),
+    ObjGetattr(FileId fileid, const PosixAttr& attr, std::uint64_t used)
+        : fileid_(fileid),
+          attr_(attr),
           used_(used)
     {
     }
@@ -117,15 +118,16 @@ public:
     std::chrono::system_clock::time_point birthtime() const override;
 
 private:
-    const ObjFileMeta& meta_;
+    FileId fileid_;
+    PosixAttr attr_;
     std::uint64_t used_;
 };
 
 class ObjSetattr: public Setattr
 {
 public:
-    ObjSetattr(const Credential& cred, ObjFileMeta& meta)
-        : cred_(cred), meta_(meta) {}
+    ObjSetattr(const Credential& cred, PosixAttr& attr)
+        : cred_(cred), attr_(attr) {}
 
     // Setattr overrides
     void setMode(int mode) override;
@@ -137,7 +139,7 @@ public:
 
 private:
     const Credential& cred_;
-    ObjFileMeta& meta_;
+    PosixAttr& attr_;
 };
 
 class ObjFsattr: public Fsattr
@@ -236,6 +238,7 @@ public:
 
     FileId fileid() const { return FileId(meta_.fileid); }
     std::shared_ptr<ObjFile> lookupInternal(
+        std::unique_lock<std::mutex>& lock,
         const Credential& cred, const std::string& name);
     void writeMeta();
     void writeMeta(Transaction* trans);
@@ -246,6 +249,7 @@ public:
     void unlink(Transaction* trans, const std::string& name, ObjFile* file,
         bool saveMeta);
     std::shared_ptr<File> createNewFile(
+        std::unique_lock<std::mutex>& lock,
         const Credential& cred,
         PosixType type,
         const std::string& name,
@@ -255,6 +259,7 @@ public:
     void checkSticky(const Credential& cred, ObjFile* file);
 
 private:
+    std::mutex mutex_;
     std::weak_ptr<ObjFilesystem> fs_;
     ObjFileMetaImpl meta_;
     int fd_ = -1;
@@ -312,7 +317,7 @@ public:
 
     FileId nextId()
     {
-        return FileId(meta_.nextId++);
+        return FileId(nextId_++);
     }
 
     std::shared_ptr<ObjFile> find(FileId fileid);
@@ -321,11 +326,13 @@ public:
     void setFsid();
 
 private:
+    std::mutex mutex_;
     std::unique_ptr<Database> db_;
     Namespace* defaultNS_;
     Namespace* directoriesNS_;
     Namespace* dataNS_;
     ObjFilesystemMeta meta_;
+    std::atomic<std::uint64_t> nextId_;
     FilesystemId fsid_;
     std::shared_ptr<ObjFile> root_;
     detail::FileCache<std::uint64_t, ObjFile> cache_;

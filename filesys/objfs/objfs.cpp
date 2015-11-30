@@ -33,7 +33,7 @@ ObjFilesystem::ObjFilesystem(const std::string& filename)
                 << meta_.vers << ", expected: " << 1;
             throw system_error(EACCES, system_category());
         }
-        setFsid();
+        nextId_ = meta_.nextId;
     }
     catch (oncrpc::XdrError&) {
         LOG(ERROR) << "error decoding filesystem metadata";
@@ -45,10 +45,12 @@ ObjFilesystem::ObjFilesystem(const std::string& filename)
             v = rnd();
         meta_.blockSize = 4096;
         meta_.nextId = 2;
+        nextId_ = meta_.nextId;
         auto trans = db_->beginTransaction();
         writeMeta(trans.get());
         db_->commit(move(trans));
     }
+    setFsid();
 }
 
 ObjFilesystem::~ObjFilesystem()
@@ -60,10 +62,18 @@ ObjFilesystem::root()
 {
     using namespace std::chrono;
     if (!root_) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (root_) {
+            // Someone else may have created the root object while we were
+            // waiting for the lock
+            return root_;
+        }
         try {
             root_ = make_shared<ObjFile>(shared_from_this(), FileId(1));
         }
         catch (system_error& e) {
+            // It would be nice to move this to the constructor but
+            // shared_from_this() doesn't work there.
             ObjFileMetaImpl meta;
             auto time = duration_cast<nanoseconds>(
                 system_clock::now().time_since_epoch());
@@ -75,7 +85,6 @@ ObjFilesystem::root()
             meta.attr.atime = time.count();
             meta.attr.mtime = time.count();
             meta.attr.ctime = time.count();
-            setFsid();
             root_ = make_shared<ObjFile>(shared_from_this(), move(meta));
             add(root_);
 
@@ -129,7 +138,10 @@ ObjFilesystem::add(std::shared_ptr<ObjFile> file)
 void
 ObjFilesystem::writeMeta(Transaction* trans)
 {
+    std::unique_lock<std::mutex> lock(mutex_);
     oncrpc::XdrMemory xm(512);
+    assert(nextId_ >= meta_.nextId);
+    meta_.nextId = nextId_;
     xdr(meta_, static_cast<oncrpc::XdrSink*>(&xm));
     trans->put(
         defaultNS(),

@@ -11,7 +11,7 @@ using namespace std::chrono;
 
 FileType ObjGetattr::type() const
 {
-    switch (meta_.attr.type) {
+    switch (attr_.type) {
     case PT_REG:
         return FileType::FILE;
     case PT_DIR:
@@ -31,27 +31,27 @@ FileType ObjGetattr::type() const
 
 int ObjGetattr::mode() const
 {
-    return meta_.attr.mode;
+    return attr_.mode;
 }
 
 int ObjGetattr::nlink() const
 {
-    return meta_.attr.nlink;
+    return attr_.nlink;
 }
 
 int ObjGetattr::uid() const
 {
-    return meta_.attr.uid;
+    return attr_.uid;
 }
 
 int ObjGetattr::gid() const
 {
-    return meta_.attr.gid;
+    return attr_.gid;
 }
 
 std::uint64_t ObjGetattr::size() const
 {
-    return meta_.attr.size;
+    return attr_.size;
 }
 
 std::uint64_t ObjGetattr::used() const
@@ -61,55 +61,55 @@ std::uint64_t ObjGetattr::used() const
 
 FileId ObjGetattr::fileid() const
 {
-    return FileId(meta_.fileid);
+    return fileid_;
 }
 
 std::chrono::system_clock::time_point ObjGetattr::mtime() const
 {
     return system_clock::time_point(
-        duration_cast<system_clock::duration>(nanoseconds(meta_.attr.mtime)));
+        duration_cast<system_clock::duration>(nanoseconds(attr_.mtime)));
 }
 
 std::chrono::system_clock::time_point ObjGetattr::atime() const
 {
     return system_clock::time_point(
-        duration_cast<system_clock::duration>(nanoseconds(meta_.attr.atime)));
+        duration_cast<system_clock::duration>(nanoseconds(attr_.atime)));
 }
 
 std::chrono::system_clock::time_point ObjGetattr::ctime() const
 {
     return system_clock::time_point(
-        duration_cast<system_clock::duration>(nanoseconds(meta_.attr.ctime)));
+        duration_cast<system_clock::duration>(nanoseconds(attr_.ctime)));
 }
 
 std::chrono::system_clock::time_point ObjGetattr::birthtime() const
 {
     return system_clock::time_point(
         duration_cast<system_clock::duration>(
-            nanoseconds(meta_.attr.birthtime)));
+            nanoseconds(attr_.birthtime)));
 }
 
 void ObjSetattr::setMode(int mode)
 {
-    if (cred_.uid() != meta_.attr.uid && !cred_.privileged())
+    if (cred_.uid() != attr_.uid && !cred_.privileged())
         throw system_error(EPERM, system_category());
-    meta_.attr.mode = mode;
+    attr_.mode = mode;
 }
 
 void ObjSetattr::setUid(int uid)
 {
-    if (uid != meta_.attr.uid && !cred_.privileged())
+    if (uid != attr_.uid && !cred_.privileged())
         throw system_error(EPERM, system_category());
-    meta_.attr.uid = uid;
+    attr_.uid = uid;
 }
 
 void ObjSetattr::setGid(int gid)
 {
     // If the cred matches the file owner and contains the requested group,
     // or the cred is privileged, we can change the file group
-    if ((cred_.uid() == meta_.attr.uid && cred_.hasgroup(gid))
+    if ((cred_.uid() == attr_.uid && cred_.hasgroup(gid))
         || cred_.privileged())
-        meta_.attr.gid = gid;
+        attr_.gid = gid;
     else
         throw system_error(EPERM, system_category());
 }
@@ -117,31 +117,31 @@ void ObjSetattr::setGid(int gid)
 void ObjSetattr::setSize(std::uint64_t size)
 {
     CheckAccess(
-        meta_.attr.uid, meta_.attr.gid, meta_.attr.mode,
+        attr_.uid, attr_.gid, attr_.mode,
         cred_, AccessFlags::WRITE);
-    meta_.attr.size = size;
+    attr_.size = size;
 }
 
 void ObjSetattr::setMtime(std::chrono::system_clock::time_point mtime)
 {
     // The file owner can change the times unconditionally
-    if (meta_.attr.uid != cred_.uid()) {
+    if (attr_.uid != cred_.uid()) {
         CheckAccess(
-            meta_.attr.uid, meta_.attr.gid, meta_.attr.mode,
+            attr_.uid, attr_.gid, attr_.mode,
             cred_, AccessFlags::WRITE);
     }
-    meta_.attr.mtime =
+    attr_.mtime =
         duration_cast<nanoseconds>(mtime.time_since_epoch()).count();
 }
 
 void ObjSetattr::setAtime(std::chrono::system_clock::time_point atime)
 {
     // The file owner can change the times unconditionally
-    if (meta_.attr.uid != cred_.uid()) {
+    if (attr_.uid != cred_.uid()) {
         CheckAccess(
-            meta_.attr.uid, meta_.attr.gid, meta_.attr.mode,
+            attr_.uid, attr_.gid, attr_.mode,
             cred_, AccessFlags::WRITE);
     }
-    meta_.attr.atime =
+    attr_.atime =
         duration_cast<nanoseconds>(atime.time_since_epoch()).count();
 }

@@ -9,7 +9,7 @@
 using namespace filesys;
 using namespace filesys::objfs;
 using namespace std;
-using namespace std::chrono;
+using namespace chrono;
 
 static uint64_t getTime()
 {
@@ -76,18 +76,20 @@ bool ObjFile::access(const Credential& cred, int accmode)
 
 shared_ptr<Getattr> ObjFile::getattr()
 {
+    unique_lock<mutex> lock(mutex_);
     // XXX: defer the call to spaceUsed until Getattr::used is called?
     auto fs = fs_.lock();
     DataKeyType start(fileid(), 0);
     DataKeyType end(fileid(), ~0ull);
     auto used = fs->db()->spaceUsed(fs->dataNS(), start, end);
-    return make_shared<ObjGetattr>(meta_, used);
+    return make_shared<ObjGetattr>(fileid(), meta_.attr, used);
 }
 
 void ObjFile::setattr(const Credential& cred, function<void(Setattr*)> cb)
 {
+    unique_lock<mutex> lock(mutex_);
     auto oldSize = meta_.attr.size;
-    ObjSetattr sattr(cred, meta_);
+    ObjSetattr sattr(cred, meta_.attr);
     cb(&sattr);
     meta_.attr.ctime = getTime();
     if (meta_.attr.size < oldSize) {
@@ -122,22 +124,24 @@ void ObjFile::setattr(const Credential& cred, function<void(Setattr*)> cb)
 
 shared_ptr<File> ObjFile::lookup(const Credential& cred, const string& name)
 {
-    return lookupInternal(cred, name);
+    unique_lock<mutex> lock(mutex_);
+    return lookupInternal(lock, cred, name);
 }
 
 shared_ptr<File> ObjFile::open(
     const Credential& cred, const string& name, int flags, function<void(Setattr*)> cb)
 {
+    unique_lock<mutex> lock(mutex_);
     if (flags & OpenFlags::CREATE) {
         shared_ptr<ObjFile> file;
         try {
-            file = lookupInternal(cred, name);
+            file = lookupInternal(lock, cred, name);
         }
         catch (system_error& e) {
             if (e.code().value() != ENOENT)
                 throw;
             return createNewFile(
-                cred, PT_REG, name, cb, [this](auto, auto newFile) {
+                lock, cred, PT_REG, name, cb, [this](auto, auto newFile) {
                 auto& loc =  newFile->meta_.location;
                 loc.set_type(LOC_DB);
                 loc.db().blockSize = fs_.lock()->blockSize();
@@ -148,12 +152,13 @@ shared_ptr<File> ObjFile::open(
         return file;
     }
     else {
-        return lookupInternal(cred, name);
+        return lookupInternal(lock, cred, name);
     }
 }
 
 void ObjFile::close(const Credential& cred)
 {
+    unique_lock<mutex> lock(mutex_);
     if (fd_ >= 0) {
         ::close(fd_);
         fd_ = -1;
@@ -168,6 +173,7 @@ void ObjFile::commit(const Credential& cred)
 
 string ObjFile::readlink(const Credential& cred)
 {
+    unique_lock<mutex> lock(mutex_);
     if (meta_.attr.type != PT_LNK)
         throw system_error(EINVAL, system_category());
     checkAccess(cred, AccessFlags::READ);
@@ -179,9 +185,11 @@ string ObjFile::readlink(const Credential& cred)
     return string(reinterpret_cast<const char*>(val.data()), val.size());
 }
 
-std::shared_ptr<oncrpc::Buffer> ObjFile::read(
+shared_ptr<oncrpc::Buffer> ObjFile::read(
     const Credential& cred, uint64_t offset, uint32_t len, bool& eof)
 {
+    unique_lock<mutex> lock(mutex_);
+
     checkAccess(cred, AccessFlags::READ);
 
     meta_.attr.ctime = meta_.attr.atime = getTime();
@@ -270,8 +278,10 @@ std::shared_ptr<oncrpc::Buffer> ObjFile::read(
 
 uint32_t ObjFile::write(
     const Credential& cred, uint64_t offset,
-    std::shared_ptr<oncrpc::Buffer> data)
+    shared_ptr<oncrpc::Buffer> data)
 {
+    unique_lock<mutex> lock(mutex_);
+
     checkAccess(cred, AccessFlags::WRITE);
 
     switch (meta_.location.type) {
@@ -340,8 +350,9 @@ uint32_t ObjFile::write(
 shared_ptr<File> ObjFile::mkdir(
     const Credential& cred, const string& name, function<void(Setattr*)> cb)
 {
+    unique_lock<mutex> lock(mutex_);
     return createNewFile(
-        cred, PT_DIR, name, cb, [this](auto trans, auto newFile) {
+        lock, cred, PT_DIR, name, cb, [this](auto trans, auto newFile) {
         // Add initial directory entries and adjust link counts
         newFile->link(trans, ".", newFile.get(), false);
         newFile->link(trans, "..", this, false);
@@ -352,7 +363,8 @@ shared_ptr<File> ObjFile::symlink(
     const Credential& cred, const string& name, const string& data,
     function<void(Setattr*)> cb)
 {
-    return createNewFile(cred, PT_LNK, name, cb,
+    unique_lock<mutex> lock(mutex_);
+    return createNewFile(lock, cred, PT_LNK, name, cb,
         [this, data](auto trans, auto newFile) {
             newFile->meta_.attr.size = data.size();
             auto& val = newFile->meta_.location.embedded().data;
@@ -363,19 +375,22 @@ shared_ptr<File> ObjFile::symlink(
         });
 }
 
-std::shared_ptr<File> ObjFile::mkfifo(
-    const Credential& cred, const std::string& name,
-    std::function<void(Setattr*)> cb)
+shared_ptr<File> ObjFile::mkfifo(
+    const Credential& cred, const string& name,
+    function<void(Setattr*)> cb)
 {
+    unique_lock<mutex> lock(mutex_);
     return createNewFile(
-        cred, PT_FIFO, name, cb, [](auto trans, auto newFile) {});
+        lock, cred, PT_FIFO, name, cb, [](auto trans, auto newFile) {});
 }
 
 void ObjFile::remove(const Credential& cred, const string& name)
 {
-    auto file = lookupInternal(cred, name);
+    unique_lock<mutex> lock(mutex_);
+    auto file = lookupInternal(lock, cred, name);
     if (file->meta_.attr.type == PT_DIR)
         throw system_error(EISDIR, system_category());
+
     checkAccess(cred, AccessFlags::WRITE);
     checkSticky(cred, file.get());
 
@@ -387,9 +402,11 @@ void ObjFile::remove(const Credential& cred, const string& name)
 
 void ObjFile::rmdir(const Credential& cred, const string& name)
 {
-    auto file = lookupInternal(cred, name);
+    unique_lock<mutex> lock(mutex_);
+    auto file = lookupInternal(lock, cred, name);
     if (file->meta_.attr.type != PT_DIR)
         throw system_error(ENOTDIR, system_category());
+
     checkAccess(cred, AccessFlags::WRITE);
     checkSticky(cred, file.get());
 
@@ -403,9 +420,11 @@ void ObjFile::rename(
     const Credential& cred, const string& toName,
     shared_ptr<File> fromDir, const string& fromName)
 {
+    unique_lock<mutex> lock(mutex_);
+
     shared_ptr<ObjFile> tofile;
     try {
-        tofile = lookupInternal(cred, toName);
+        tofile = lookupInternal(lock, cred, toName);
     }
     catch (system_error& e) {
         if (e.code().value() != ENOENT)
@@ -416,11 +435,17 @@ void ObjFile::rename(
     if (ofrom == this && fromName == toName)
         return;
 
+    unique_ptr<unique_lock<mutex>> fromlock;
+    if (ofrom != this) {
+        fromlock = make_unique<unique_lock<mutex>>(ofrom->mutex_);
+    }
+
     // We need write permission for both directories
     checkAccess(cred, AccessFlags::WRITE);
     ofrom->checkAccess(cred, AccessFlags::WRITE);
 
-    auto file = ofrom->lookupInternal(cred, fromName);
+    auto file = ofrom->lookupInternal(
+        ofrom == this ? lock : *fromlock.get(), cred, fromName);
     ofrom->checkSticky(cred, file.get());
     auto fs = fs_.lock();
     auto trans = fs->db()->beginTransaction();
@@ -457,12 +482,13 @@ void ObjFile::rename(
 }
 
 void ObjFile::link(
-    const Credential& cred, const std::string& name, std::shared_ptr<File> file)
+    const Credential& cred, const string& name, shared_ptr<File> file)
 {
+    unique_lock<mutex> lock(mutex_);
     shared_ptr<File> old;
     try {
         // If the entry exists, throw an error
-        old = lookupInternal(cred, name);
+        old = lookupInternal(lock, cred, name);
     }
     catch (system_error& e) {
         if (e.code().value() != ENOENT)
@@ -486,6 +512,7 @@ void ObjFile::link(
 shared_ptr<DirectoryIterator> ObjFile::readdir(
     const Credential& cred, uint64_t seek)
 {
+    unique_lock<mutex> lock(mutex_);
     if (meta_.attr.type != PT_DIR)
         throw system_error(ENOTDIR, system_category());
     checkAccess(cred, AccessFlags::READ);
@@ -495,14 +522,15 @@ shared_ptr<DirectoryIterator> ObjFile::readdir(
         fs_.lock(), FileId(meta_.fileid), seek);
 }
 
-std::shared_ptr<Fsattr> ObjFile::fsstat(const Credential& cred)
+shared_ptr<Fsattr> ObjFile::fsstat(const Credential& cred)
 {
+    unique_lock<mutex> lock(mutex_);
     checkAccess(cred, AccessFlags::WRITE);
     return make_shared<ObjFsattr>();
 }
 
 shared_ptr<ObjFile> ObjFile::lookupInternal(
-    const Credential& cred, const string& name)
+    unique_lock<mutex>& lock, const Credential& cred, const string& name)
 {
     if (name.size() > OBJFS_NAME_MAX)
         throw system_error(ENAMETOOLONG, system_category());
@@ -617,12 +645,13 @@ void ObjFile::unlink(
     }
 }
 
-std::shared_ptr<File> ObjFile::createNewFile(
+shared_ptr<File> ObjFile::createNewFile(
+    unique_lock<mutex>& lock,
     const Credential& cred,
     PosixType type,
-    const std::string& name,
-    std::function<void(Setattr*)> attrCb,
-    std::function<void(Transaction*, shared_ptr<ObjFile>)> writeCb)
+    const string& name,
+    function<void(Setattr*)> attrCb,
+    function<void(Transaction*, shared_ptr<ObjFile>)> writeCb)
 {
     if (name.size() > OBJFS_NAME_MAX)
         throw system_error(ENAMETOOLONG, system_category());
@@ -630,7 +659,7 @@ std::shared_ptr<File> ObjFile::createNewFile(
     // If the entry exists, throw an error
     shared_ptr<File> old;
     try {
-        old = lookupInternal(cred, name);
+        old = lookupInternal(lock, cred, name);
     }
     catch (system_error&) {
     }
@@ -660,7 +689,7 @@ std::shared_ptr<File> ObjFile::createNewFile(
     meta.attr.ctime = now;
     meta.attr.birthtime = now;
 
-    ObjSetattr sattr(cred, meta);
+    ObjSetattr sattr(cred, meta.attr);
     attrCb(&sattr);
 
     // Create the new file and add to our cache

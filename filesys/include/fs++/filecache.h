@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cassert>
 #include <list>
 #include <memory>
+#include <shared_mutex>
 #include <unordered_map>
 
 namespace filesys {
@@ -19,6 +21,7 @@ public:
     template <typename UPDATE, typename CTOR>
     std::shared_ptr<FILE> find(const ID& fileid, UPDATE update, CTOR ctor)
     {
+        std::unique_lock<std::mutex> lock(mutex_);
         auto i = cache_.find(fileid);
         if (i != cache_.end()) {
             //VLOG(2) << "cache hit for fileid: " << fileid;
@@ -30,7 +33,7 @@ public:
         }
         else {
             auto file = ctor(fileid);
-            add(fileid, file);
+            add(std::move(lock), fileid, file);
             return file;
         }
     }
@@ -38,11 +41,7 @@ public:
     /// Add an entry to the cache
     void add(const ID& fileid, std::shared_ptr<FILE> file)
     {
-        assert(cache_.find(fileid) == cache_.end());
-        //VLOG(2) << "adding fileid: " << file->fileid();
-        auto p = lru_.insert(lru_.begin(), std::make_pair(fileid, file));
-        cache_[fileid] = p;
-        expire();
+        add(std::unique_lock<std::mutex>(mutex_), fileid, file);
     }
 
     /// Return the number of entries in the cache
@@ -54,8 +53,9 @@ public:
     /// Set the cache size limit
     void setSizeLimit(int sz)
     {
+        std::unique_lock<std::mutex> lock(mutex_);
         sizeLimit_ = sz;
-        expire();
+        expire(std::move(lock));
     }
 
     /// Return true if the cache contains this id
@@ -65,8 +65,21 @@ public:
     }
 
 private:
-    void expire()
+
+    void add(std::unique_lock<std::mutex>&& lock,
+        const ID& fileid, std::shared_ptr<FILE> file)
     {
+        assert(lock);
+        assert(cache_.find(fileid) == cache_.end());
+        //VLOG(2) << "adding fileid: " << file->fileid();
+        auto p = lru_.insert(lru_.begin(), std::make_pair(fileid, file));
+        cache_[fileid] = p;
+        expire(std::move(lock));
+    }
+
+    void expire(std::unique_lock<std::mutex>&& lock)
+    {
+        assert(lock);
         // Expire old entries if the cache is full
         while (cache_.size() > sizeLimit_) {
             const auto& oldest = lru_.back();
@@ -77,8 +90,10 @@ private:
     }
 
     static constexpr int DEFAULT_SIZE_LIMIT = 1024;
-
     typedef std::list<std::pair<ID, std::shared_ptr<FILE>>> lruT;
+
+    // should be shared_timed_mutex but its missing on OS X
+    std::mutex mutex_;
     lruT lru_;
     std::unordered_map<ID, typename lruT::iterator, HASH> cache_;
     int sizeLimit_ = DEFAULT_SIZE_LIMIT;

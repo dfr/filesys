@@ -1,5 +1,6 @@
 #include <cassert>
 #include <memory>
+#include <thread>
 
 #include <fs++/filecache.h>
 #include <gmock/gmock.h>
@@ -40,6 +41,8 @@ TEST_F(FileCacheTest, Basic)
     EXPECT_CALL(cb, ctor(1))
         .Times(1)
         .WillOnce(Invoke(newFile));
+    EXPECT_CALL(cb, update(_))
+        .Times(1);
     auto f = cache.find(1, update, ctor);
     EXPECT_EQ(1, cache.size());
     EXPECT_EQ(f, cache.find(1, update, ctor));
@@ -70,4 +73,23 @@ TEST_F(FileCacheTest, LRU)
     cache.find(1, update, ctor);
     EXPECT_EQ(true, cache.contains(2));
     EXPECT_EQ(false, cache.contains(3));
+}
+
+TEST_F(FileCacheTest, Multithread)
+{
+    EXPECT_CALL(cb, ctor(_))
+        .Times(100*100)
+        .WillRepeatedly(Invoke(newFile));
+
+    vector<thread> threads;
+    atomic<int> counter(0);
+    for (int i = 0; i < 100; i++) {
+        threads.emplace_back([i, this, &counter]() {
+            for (int j = 0; j < 100; j++)
+                cache.find(counter++, update, ctor);
+        });
+    }
+    for (auto& t: threads)
+        t.join();
+    EXPECT_EQ(100*100, counter);
 }
