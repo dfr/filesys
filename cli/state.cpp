@@ -48,12 +48,8 @@ static vector<uint8_t> parseByteArray(const string& s)
 
 static shared_ptr<File> lookupfh(const string& s)
 {
-    auto i = s.find('/');
-    if (i == string::npos || s.find('/', i + 1) != string::npos)
-        throw system_error(ENOENT, system_category());
-    auto fsid = parseByteArray(s.substr(3, i - 3));
-    auto handle = parseByteArray(s.substr(i + 1));
-    FileHandle fh{1, fsid, handle};
+    auto handle = parseByteArray(s.substr(3));
+    FileHandle fh{1, handle};
     return FilesystemManager::instance().find(fh);
 }
 

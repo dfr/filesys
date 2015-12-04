@@ -14,9 +14,11 @@ providers: [
             save_all: {}
           stdout:
             pty: false
-            highlighting: "ht"
+            highlighting: "hc"
+            profile: "gcc_clang"
           stderr:
-            highlighting: "ht"
+            highlighting: "hc"
+            profile: "gcc_clang"
           output:
             console:
               close_success: false

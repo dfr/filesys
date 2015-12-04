@@ -113,12 +113,10 @@ struct AccessFlags
 struct FileHandle
 {
     int version = 1;
-    FilesystemId fsid;          // filesystem which exported this handle
     std::vector<std::uint8_t> handle; // filesystem-specific handle
     int operator==(const FileHandle& other) const
     {
         return version == other.version &&
-            fsid == other.fsid &&
             handle == other.handle;
     }
 };
@@ -127,7 +125,6 @@ template <typename XDR>
 static inline void xdr(oncrpc::RefType<FileHandle, XDR> v, XDR* xdrs)
 {
     xdr(v.version, xdrs);
-    xdr(v.fsid, xdrs);
     xdr(v.handle, xdrs);
 }
 

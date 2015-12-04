@@ -48,9 +48,12 @@ shared_ptr<Filesystem> PosixFile::fs()
 void
 PosixFile::handle(FileHandle& fh)
 {
-    fh.fsid = fs_.lock()->fsid();
-    fh.handle.resize(sizeof(FileId));
-    *reinterpret_cast<FileId*>(fh.handle.data()) = id_;
+    auto& fsid = fs_.lock()->fsid();
+    fh.handle.resize(fsid.size() + sizeof(FileId));
+    copy(fsid.begin(), fsid.end(), fh.handle.begin());
+    oncrpc::XdrMemory xm(
+        fh.handle.data() + fsid.size(), sizeof(std::uint64_t));
+    xdr(id_, static_cast<oncrpc::XdrSink*>(&xm));
 }
 
 bool PosixFile::access(const Credential& cred, int accmode)

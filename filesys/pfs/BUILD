@@ -5,6 +5,7 @@ cc_library(
     hdrs = ["pfsfs.h"],
     deps = [
         "//filesys:hdrs",
+        "//rpcxx",
         "//third_party/glog:glog"
     ],
     visibility = ["//visibility:public"]
@@ -27,5 +28,6 @@ cc_test(
     linkopts = select ({
         "//:freebsd": ["-pthread"],
         "//:darwin": [],
-    })
+    }),
+    linkstatic = 1,
 )

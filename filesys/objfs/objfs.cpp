@@ -109,9 +109,12 @@ ObjFilesystem::fsid() const
 shared_ptr<File>
 ObjFilesystem::find(const FileHandle& fh)
 {
-    assert(fh.fsid == fsid_);
     try {
-        return find(*reinterpret_cast<const FileId*>(fh.handle.data()));
+        oncrpc::XdrMemory xm(
+            fh.handle.data() + fsid_.size(), sizeof(std::uint64_t));
+        std::uint64_t val;
+        xdr(val, static_cast<oncrpc::XdrSource*>(&xm));
+        return find(FileId(val));
     }
     catch (system_error&) {
         throw system_error(ESTALE, system_category());

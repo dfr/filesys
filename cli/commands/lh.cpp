@@ -65,8 +65,6 @@ public:
                 FileHandle fh;
                 f->handle(fh);
                 cout << setw(15) << left << name << " FH:";
-                printByteArray(fh.fsid);
-                cout << "/";
                 printByteArray(fh.handle);
                 cout << endl;
             }

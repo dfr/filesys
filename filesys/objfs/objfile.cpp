@@ -57,9 +57,12 @@ shared_ptr<Filesystem> ObjFile::fs()
 void
 ObjFile::handle(FileHandle& fh)
 {
-    fh.fsid = fs_.lock()->fsid();
-    fh.handle.resize(sizeof(FileId));
-    *reinterpret_cast<FileId*>(fh.handle.data()) = FileId(meta_.fileid);
+    auto& fsid = fs_.lock()->fsid();
+    fh.handle.resize(fsid.size() + sizeof(FileId));
+    copy(fsid.begin(), fsid.end(), fh.handle.begin());
+    oncrpc::XdrMemory xm(
+        fh.handle.data() + fsid.size(), sizeof(std::uint64_t));
+    xdr(meta_.fileid, static_cast<oncrpc::XdrSink*>(&xm));
 }
 
 bool ObjFile::access(const Credential& cred, int accmode)
@@ -525,7 +528,7 @@ shared_ptr<DirectoryIterator> ObjFile::readdir(
 shared_ptr<Fsattr> ObjFile::fsstat(const Credential& cred)
 {
     unique_lock<mutex> lock(mutex_);
-    checkAccess(cred, AccessFlags::WRITE);
+    checkAccess(cred, AccessFlags::READ);
     return make_shared<ObjFsattr>();
 }
 

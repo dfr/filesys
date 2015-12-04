@@ -19,9 +19,12 @@ FilesystemManager::FilesystemManager()
 
 std::shared_ptr<File> FilesystemManager::find(const FileHandle& fh)
 {
+    // The initial segment of the handle should match the fsid
     for (auto& entry: filesystems_) {
         auto& fs = entry.second;
-        if (fs->fsid() == fh.fsid)
+        auto& fsid = fs->fsid();
+        if (equal(fsid.begin(), fsid.end(),
+            fh.handle.begin(), fh.handle.begin() + fsid.size()))
             return fs->find(fh);
     }
     throw std::system_error(ESTALE, std::system_category());

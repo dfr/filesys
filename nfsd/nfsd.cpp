@@ -73,11 +73,11 @@ int main(int argc, char** argv)
     auto svcreg = make_shared<ServiceRegistry>();
     if (FLAGS_realm.size() > 0)
         svcreg->mapCredentials(FLAGS_realm, make_shared<LocalCredMapper>());
-    nfs3::init(svcreg, sec);
 
     auto sockman = make_shared<SocketManager>();
     sockman->setIdleTimeout(std::chrono::seconds(FLAGS_idle_timeout));
     auto addrs = getAddressInfo("tcp://[::]:" + to_string(FLAGS_port), "tcp");
+    vector<AddressInfo> boundAddrs;
     for (auto& ai: addrs) {
         try {
             int fd = socket(ai.family, ai.socktype, ai.protocol);
@@ -90,12 +90,14 @@ int main(int argc, char** argv)
             sock->listen();
             sock->setBufferSize(FLAGS_iosize + 512);
             sockman->add(sock);
+            boundAddrs.push_back(ai);
         }
         catch (runtime_error& e) {
             cout << "nfsd: " << e.what() << endl;
             exit(1);
         }
     }
+    nfs3::init(svcreg, sec, boundAddrs);
 
     sockman->run();
 }

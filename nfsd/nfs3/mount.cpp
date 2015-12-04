@@ -23,6 +23,8 @@ void MountServer::null()
 
 mountres3 MountServer::mnt(const dirpath& dir)
 {
+    LOG(INFO) << "MountServer::mnt(" << dir << ")";
+
     // RFC1816 5.2.1: AUTH_UNIX authentication or better is required
     auto& ctx = CallContext::current();
     if (ctx.flavor() < AUTH_SYS) {
@@ -31,7 +33,8 @@ mountres3 MountServer::mnt(const dirpath& dir)
     }
 
     for (auto& entry: FilesystemManager::instance()) {
-        if (dir == entry.first) {
+        VLOG(1) << "Checking mount point " << entry.first;
+        if (dir == entry.first || dir == "/" + entry.first) {
             mountres3_ok res;
             FileHandle fh;
             entry.second->root()->handle(fh);

@@ -51,8 +51,11 @@ PfsFilesystem::fsid() const
 shared_ptr<File>
 PfsFilesystem::find(const FileHandle& fh)
 {
-    assert(fh.fsid == fsid_);
-    auto i = idmap_.find(int(*reinterpret_cast<const FileId*>(fh.handle.data())));
+    oncrpc::XdrMemory xm(
+        fh.handle.data() + fsid_.size(), sizeof(std::uint64_t));
+    std::uint64_t val;
+    xdr(val, static_cast<oncrpc::XdrSource*>(&xm));
+    auto i = idmap_.find(int(val));
     if (i == idmap_.end() || i->second.expired())
         throw system_error(ESTALE, system_category());
     return i->second.lock();
