@@ -9,10 +9,10 @@ using namespace filesys;
 using namespace std;
 
 CommandState::CommandState(shared_ptr<File> root)
-    : root_(root),
+    : cred_(0, 0, {}, true),
+      root_(root),
       cwd_(root)
 {
-    cred_.setToLocal();
 }
 
 static int parseHexDigit(char ch)
