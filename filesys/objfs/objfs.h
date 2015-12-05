@@ -40,7 +40,8 @@ private:
 };
 
 /// Key type for directory entries - we append an index number to the fileid
-/// which groups the keys for efficient iteration
+/// which groups the keys for efficient iteration. We use big endian for
+/// the fileid so we can iterate over the directory easily
 struct DirectoryKeyType
 {
     DirectoryKeyType(FileId id, std::string name)
@@ -48,8 +49,8 @@ struct DirectoryKeyType
     {
         std::uint64_t n = id;
         for (int i = 0; i < sizeof(n); i++) {
-            buf_.data()[i] = n & 0xff;
-            n >>= 8;
+            buf_.data()[i] = (n >> 56) & 0xff;
+            n <<= 8;
         }
         std::copy_n(
             reinterpret_cast<const uint8_t*>(name.data()), name.size(),
