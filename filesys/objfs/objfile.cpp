@@ -610,6 +610,7 @@ void ObjFile::unlink(
         trans->remove(fs->defaultNS(), KeyType(id));
         meta_.attr.nlink--;
         assert(meta_.attr.size > 0);
+        fs->remove(file->fileid());
     }
     else {
         file->meta_.attr.nlink--;
@@ -635,6 +636,7 @@ void ObjFile::unlink(
                 break;
             }
             trans->remove(fs->defaultNS(), KeyType(id));
+            fs->remove(file->fileid());
         }
     }
     DirectoryKeyType key(fileid(), name);

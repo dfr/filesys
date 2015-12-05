@@ -28,10 +28,12 @@ public:
             auto p = i->second;
             lru_.splice(lru_.begin(), lru_, p);
             auto file = p->second;
+            hits_++;
             update(file);
             return file;
         }
         else {
+            misses_++;
             auto file = ctor(fileid);
             add(std::move(lock), fileid, file);
             return file;
@@ -42,6 +44,17 @@ public:
     void add(const ID& fileid, std::shared_ptr<FILE> file)
     {
         add(std::unique_lock<std::mutex>(mutex_), fileid, file);
+    }
+
+    /// Remove a cache entry
+    void remove(const ID& fileid)
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        auto i = cache_.find(fileid);
+        if (i != cache_.end()) {
+            cache_.erase(fileid);
+            lru_.erase(i->second);
+        }
     }
 
     /// Return the number of entries in the cache
@@ -63,6 +76,9 @@ public:
     {
         return cache_.find(id) != cache_.end();
     }
+
+    auto hits() const { return hits_; }
+    auto misses() const { return misses_; }
 
 private:
 
@@ -97,6 +113,8 @@ private:
     lruT lru_;
     std::unordered_map<ID, typename lruT::iterator, HASH> cache_;
     int sizeLimit_ = DEFAULT_SIZE_LIMIT;
+    int hits_ = 0;
+    int misses_ = 0;
 };
 
 }

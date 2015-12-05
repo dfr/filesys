@@ -124,12 +124,27 @@ ObjFilesystem::find(const FileHandle& fh)
 shared_ptr<ObjFile>
 ObjFilesystem::find(FileId fileid)
 {
-    return cache_.find(
+    auto res = cache_.find(
         fileid,
         [](auto) {},
         [this](auto id) {
             return make_shared<ObjFile>(shared_from_this(), FileId(id));
         });
+    static int count = 0;
+    count++;
+    if (count > 10000) {
+        count = 0;
+        LOG(INFO) << "fileid cache hit rate: "
+                  << 100.0 * cache_.hits() / (cache_.hits() + cache_.misses())
+                  << "%";
+    }
+    return res;
+}
+
+void
+ObjFilesystem::remove(FileId fileid)
+{
+    cache_.remove(fileid);
 }
 
 void

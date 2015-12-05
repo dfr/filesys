@@ -324,6 +324,7 @@ public:
     }
 
     std::shared_ptr<ObjFile> find(FileId fileid);
+    void remove(FileId fileid);
     void add(std::shared_ptr<ObjFile> file);
     void writeMeta(Transaction* trans);
     void setFsid();
