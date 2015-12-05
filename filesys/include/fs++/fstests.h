@@ -69,6 +69,10 @@ TYPED_TEST_P(FilesystemTest, Open)
         OpenFlags::RDWR+OpenFlags::CREATE+OpenFlags::EXCLUSIVE,
         setMode666),
         std::system_error);
+    root->open(
+        this->cred_, "foo2",
+        OpenFlags::RDWR+OpenFlags::CREATE+OpenFlags::EXCLUSIVE,
+        setMode666);
 }
 
 TYPED_TEST_P(FilesystemTest, ReadWrite)

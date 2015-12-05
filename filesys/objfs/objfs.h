@@ -116,6 +116,7 @@ public:
     std::chrono::system_clock::time_point atime() const override;
     std::chrono::system_clock::time_point ctime() const override;
     std::chrono::system_clock::time_point birthtime() const override;
+    std::uint64_t createverf() const override;
 
 private:
     FileId fileid_;
@@ -136,6 +137,7 @@ public:
     void setSize(std::uint64_t size) override;
     void setMtime(std::chrono::system_clock::time_point mtime) override;
     void setAtime(std::chrono::system_clock::time_point atime) override;
+    void setCreateverf(std::uint64_t verf) override;
 
 private:
     const Credential& cred_;

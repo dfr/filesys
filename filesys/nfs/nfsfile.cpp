@@ -147,9 +147,16 @@ NfsFile::open(
         CREATE3args args;
         args.where = {fh_, name};
         args.how.set_mode(
-            (flags & OpenFlags::EXCLUSIVE) ? GUARDED : UNCHECKED);
-        NfsSetattr sattr(args.how.obj_attributes());
-        cb(&sattr);
+            (flags & OpenFlags::EXCLUSIVE) ? EXCLUSIVE : UNCHECKED);
+        if (flags & OpenFlags::EXCLUSIVE) {
+            uint64_t verf =
+                chrono::system_clock::now().time_since_epoch().count();
+            *reinterpret_cast<uint64_t*>(args.how.verf().data()) = verf;
+        }
+        else {
+            NfsSetattr sattr(args.how.obj_attributes());
+            cb(&sattr);
+        }
         auto fs = fs_.lock();
         auto res = fs->proto()->create(args);
         if (res.status == NFS3_OK) {
@@ -158,6 +165,9 @@ NfsFile::open(
             auto f = find(name, resok.obj, resok.obj_attributes);
             if (flags & OpenFlags::TRUNCATE) {
                 f->setattr(cred, [](auto attr) { attr->setSize(0); });
+            }
+            if (flags & OpenFlags::EXCLUSIVE) {
+                f->setattr(cred, cb);
             }
             return f;
         }

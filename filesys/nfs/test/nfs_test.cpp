@@ -336,8 +336,8 @@ TEST_F(NfsTest, Create)
 
 }
 
-MATCHER(matchGuarded, "") {
-    return arg.how.mode == GUARDED;
+MATCHER(matchExclusive, "") {
+    return arg.how.mode == EXCLUSIVE;
 }
 
 TEST_F(NfsTest, CreateExclusive)
@@ -346,7 +346,7 @@ TEST_F(NfsTest, CreateExclusive)
     // GUARDED
     ignoreGetattr();
 
-    EXPECT_CALL(*proto.get(), create(matchGuarded()))
+    EXPECT_CALL(*proto.get(), create(matchExclusive()))
         .Times(1)
         .WillOnce(InvokeWithoutArgs([]() {
             return CREATE3res(

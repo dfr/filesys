@@ -71,6 +71,10 @@ public:
     {
         return time_;
     }
+    std::uint64_t createverf() const override
+    {
+        return 0;
+    }
 
 private:
     FileId fileid_;

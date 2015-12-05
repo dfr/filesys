@@ -478,18 +478,42 @@ CREATE3res NfsServer::create(const CREATE3args& args)
     shared_ptr<File> dir;
     try {
         dir = importFileHandle(args.where.dir);
-        int flags = OpenFlags::RDWR | OpenFlags::CREATE;
+        int flags = OpenFlags::RDWR;
+        shared_ptr<File> obj;
         switch (args.how.mode) {
         case UNCHECKED:
+            flags |= OpenFlags::CREATE;
+            obj = dir->open(
+                cred, args.where.name, flags,
+                importAttr(args.how.obj_attributes()));
             break;
         case GUARDED:
-            flags |= OpenFlags::EXCLUSIVE;
+            flags |= OpenFlags::CREATE | OpenFlags::EXCLUSIVE;
+            obj = dir->open(
+                cred, args.where.name, flags,
+                importAttr(args.how.obj_attributes()));
             break;
         case EXCLUSIVE:
-            throw system_error(EOPNOTSUPP, system_category());
+            uint64_t verf = *reinterpret_cast<const uint64_t*>(
+                args.how.verf().data());
+            try {
+                obj = dir->open(cred, args.where.name, flags, [](auto){});
+                if (obj->getattr()->createverf() != verf)
+                    throw system_error(EEXIST, system_category());
+            } catch (system_error& e) {
+                if (e.code().value() == ENOENT) {
+                    obj = dir->open(
+                        cred, args.where.name, flags | OpenFlags::CREATE,
+                        [verf](auto sattr){
+                            sattr->setCreateverf(verf);
+                        });
+                }
+                else {
+                    throw;
+                }
+            }
+            break;
         }
-        auto obj = dir->open(
-            cred, args.where.name, flags, importAttr(args.how.obj_attributes()));
         return CREATE3res{
             NFS3_OK,
             CREATE3resok{

@@ -195,6 +195,10 @@ public:
 
     /// Return the time the file was created
     virtual std::chrono::system_clock::time_point birthtime() const = 0;
+
+    /// Create verifier used for NFSv3 exclusive create semantics - may
+    /// be overlaid with some other metadata (typically atime)
+    virtual std::uint64_t createverf() const = 0;
 };
 
 /// Settable attributes
@@ -218,6 +222,10 @@ public:
 
     /// Set the file access time
     virtual void setAtime(std::chrono::system_clock::time_point atime) = 0;
+
+    /// Set the create verifier used for NFSv3 exclusive create semantics.
+    /// May be overlaid with some other metadata (typically atime)
+    virtual void setCreateverf(std::uint64_t verf) = 0;
 };
 
 /// Filesystem attributes
