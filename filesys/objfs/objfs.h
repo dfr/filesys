@@ -3,6 +3,7 @@
 #include <fs++/filecache.h>
 #include <fs++/filesys.h>
 #include "filesys/objfs/objfsproto.h"
+#include "filesys/objfs/objfskey.h"
 #include "filesys/objfs/dbi.h"
 
 namespace filesys {
@@ -11,88 +12,6 @@ namespace objfs {
 constexpr int OBJFS_NAME_MAX = 255;     // consistent with FreeBSD default
 
 class ObjFilesystem;
-
-/// Key type for our DB - we index by fileid, using fileid zero for filesystem
-/// metadata. The fileid is encoded little endian to make best use of bloom
-/// filters
-struct KeyType {
-    KeyType(FileId id)
-        : buf_(sizeof(std::uint64_t)),
-          fileid_(id)
-    {
-        std::uint64_t n = id;
-        for (int i = 0; i < sizeof(n); i++) {
-            buf_.data()[i] = n & 0xff;
-            n >>= 8;
-        }
-    }
-
-    operator const oncrpc::Buffer&() const
-    {
-        return buf_;
-    }
-
-    auto fileid() const { return fileid_; }
-
-private:
-    oncrpc::Buffer buf_;
-    FileId fileid_;
-};
-
-/// Key type for directory entries - we append an index number to the fileid
-/// which groups the keys for efficient iteration. We use big endian for
-/// the fileid so we can iterate over the directory easily
-struct DirectoryKeyType
-{
-    DirectoryKeyType(FileId id, std::string name)
-        : buf_(sizeof(std::uint64_t) + name.size())
-    {
-        std::uint64_t n = id;
-        for (int i = 0; i < sizeof(n); i++) {
-            buf_.data()[i] = (n >> 56) & 0xff;
-            n <<= 8;
-        }
-        std::copy_n(
-            reinterpret_cast<const uint8_t*>(name.data()), name.size(),
-            buf_.data() + sizeof(uint64_t));
-    }
-
-    operator const oncrpc::Buffer&() const
-    {
-        return buf_;
-    }
-
-private:
-    oncrpc::Buffer buf_;
-};
-
-/// Key type for file data and block map - we index by fileid and byte offset,
-/// using the highest bit of the file offset to distinguish between data and
-/// block map
-struct DataKeyType {
-    DataKeyType(FileId id, uint64_t off)
-        : buf_(2*sizeof(std::uint64_t))
-    {
-        std::uint64_t n = id;
-        for (int i = 0; i < sizeof(n); i++) {
-            buf_.data()[i] = n & 0xff;
-            n >>= 8;
-        }
-        n = off;
-        for (int i = 0; i < sizeof(n); i++) {
-            buf_.data()[8+i] = n & 0xff;
-            n >>= 8;
-        }
-    }
-
-    operator const oncrpc::Buffer&() const
-    {
-        return buf_;
-    }
-
-private:
-    oncrpc::Buffer buf_;
-};
 
 class ObjGetattr: public Getattr
 {

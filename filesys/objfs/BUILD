@@ -1,9 +1,10 @@
 cc_library(
     name = "objfs",
     copts = ["-std=c++14"],
-    srcs = glob(["*.cpp", "*.h"]) + [":proto"],
+    srcs = glob(["*.cpp"]) + [":proto"],
     hdrs = ["objfs.h"],
     deps = [
+        ":hdrs",
         "//rpcxx",
         "//filesys:hdrs",
         "//filesys:access",
@@ -11,6 +12,23 @@ cc_library(
         "//third_party/rocksdb",
     ],
     visibility = ["//visibility:public"]
+)
+
+cc_library(
+    name = "hdrs",
+    hdrs = glob(["*.h"]),
+)
+
+cc_binary(
+    name = "objfsck",
+    copts = ["-std=c++14"],
+    srcs = glob(["check/*.cpp", "check/*.h", "rocksdbi.*"]) + [":proto"],
+    deps = [
+        ":hdrs",
+        "//rpcxx",
+        "//third_party/glog",
+        "//third_party/rocksdb",
+    ],
 )
 
 genrule(
