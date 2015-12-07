@@ -464,7 +464,11 @@ WRITE3res NfsServer::write(const WRITE3args& args)
     try {
         obj = importFileHandle(args.file);
         auto n = obj->write(cred, args.offset, args.data);
-        // XXX: args.stable
+        stable_how stable = UNSTABLE;
+        if (args.stable > UNSTABLE) {
+            obj->commit(cred);
+            stable = FILE_SYNC;
+        }
         return WRITE3res{
             NFS3_OK,
             WRITE3resok{
@@ -472,7 +476,7 @@ WRITE3res NfsServer::write(const WRITE3args& args)
                     pre_op_attr(true, move(wcc)),
                     post_op_attr(true, exportAttr(obj))},
                 n,
-                FILE_SYNC,  // XXX: bogus
+                stable,
                 {}}};
     }
     catch (system_error& e) {
