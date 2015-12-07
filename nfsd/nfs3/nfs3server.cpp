@@ -20,8 +20,35 @@ DECLARE_int32(iosize);
 
 static nfsstat3 exportStatus(const system_error& e)
 {
-    // XXX: translate errors
-    return nfsstat3(e.code().value());
+    static unordered_map<int, int> statusMap = {
+    	{ EPERM, NFS3ERR_PERM },
+    	{ ENOENT, NFS3ERR_NOENT },
+    	{ EIO, NFS3ERR_IO },
+    	{ ENXIO, NFS3ERR_NXIO },
+    	{ EACCES, NFS3ERR_ACCES },
+    	{ EEXIST, NFS3ERR_EXIST },
+    	{ EXDEV, NFS3ERR_XDEV },
+    	{ ENODEV, NFS3ERR_NODEV },
+    	{ ENOTDIR, NFS3ERR_NOTDIR },
+    	{ EISDIR, NFS3ERR_ISDIR },
+    	{ EINVAL, NFS3ERR_INVAL },
+    	{ EFBIG, NFS3ERR_FBIG },
+    	{ ENOSPC, NFS3ERR_NOSPC },
+    	{ EROFS, NFS3ERR_ROFS },
+    	{ EMLINK, NFS3ERR_MLINK },
+    	{ ENAMETOOLONG, NFS3ERR_NAMETOOLONG },
+    	{ ENOTEMPTY, NFS3ERR_NOTEMPTY },
+    	{ EDQUOT, NFS3ERR_DQUOT },
+    	{ ESTALE, NFS3ERR_STALE },
+    	{ EREMOTE, NFS3ERR_REMOTE },
+    	{ EOPNOTSUPP, NFS3ERR_NOTSUPP },
+    };
+    int error = e.code().value();
+    auto i = statusMap.find(error);
+    if (i != statusMap.end())
+	   return nfsstat3(i->second);
+    else
+	   return NFS3ERR_INVAL;
 }
 
 static string formatFileHandle(const nfs_fh3& nfh)
@@ -437,7 +464,7 @@ WRITE3res NfsServer::write(const WRITE3args& args)
     try {
         obj = importFileHandle(args.file);
         auto n = obj->write(cred, args.offset, args.data);
-        // XXX: args.Settable
+        // XXX: args.stable
         return WRITE3res{
             NFS3_OK,
             WRITE3resok{

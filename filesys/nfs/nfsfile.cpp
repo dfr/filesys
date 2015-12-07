@@ -8,6 +8,39 @@ using namespace filesys;
 using namespace filesys::nfs;
 using namespace std;
 
+static system_error mapStatus(nfsstat3 stat)
+{
+    static unordered_map<int, int> statusMap = {
+        { NFS3ERR_PERM, EPERM },
+        { NFS3ERR_NOENT, ENOENT },
+        { NFS3ERR_IO, EIO },
+        { NFS3ERR_NXIO, ENXIO },
+        { NFS3ERR_ACCES, EACCES },
+        { NFS3ERR_EXIST, EEXIST },
+        { NFS3ERR_XDEV, EXDEV },
+        { NFS3ERR_NODEV, ENODEV },
+        { NFS3ERR_NOTDIR, ENOTDIR },
+        { NFS3ERR_ISDIR, EISDIR },
+        { NFS3ERR_INVAL, EINVAL },
+        { NFS3ERR_FBIG, EFBIG },
+        { NFS3ERR_NOSPC, ENOSPC },
+        { NFS3ERR_ROFS, EROFS },
+        { NFS3ERR_MLINK, EMLINK },
+        { NFS3ERR_NAMETOOLONG, ENAMETOOLONG },
+        { NFS3ERR_NOTEMPTY, ENOTEMPTY },
+        { NFS3ERR_DQUOT, EDQUOT },
+        { NFS3ERR_STALE, ESTALE },
+        { NFS3ERR_REMOTE, EREMOTE },
+        { NFS3ERR_NOTSUPP, EOPNOTSUPP },
+    };
+    auto i = statusMap.find(int(stat));
+    if (i != statusMap.end())
+	   return system_error(i->second, system_category());
+    else
+	   return system_error(EINVAL, system_category());
+}
+
+
 NfsFile::NfsFile(
     shared_ptr<NfsFilesystem> fs, const nfs_fh3& fh, const fattr3& attr)
     : fs_(fs),
@@ -50,7 +83,7 @@ bool NfsFile::access(const Credential& cred, int accmode)
     }
     else {
         update(res.resfail().obj_attributes);
-        throw system_error(res.status, system_category());
+        throw mapStatus(res.status);
     }
 }
 
@@ -66,7 +99,7 @@ NfsFile::getattr()
             attr_ = res.resok().obj_attributes;
         }
         else {
-            throw system_error(res.status, system_category());
+            throw mapStatus(res.status);
         }
     }
     return make_shared<NfsGetattr>(attr_);
@@ -113,7 +146,7 @@ void NfsFile::setattr(const Credential&, function<void(Setattr*)> cb)
     }
     else {
         update(res.resfail().obj_wcc.after);
-        throw system_error(res.status, system_category());
+        throw mapStatus(res.status);
     }
 }
 
@@ -134,7 +167,7 @@ NfsFile::lookup(const Credential&, const string& name)
     }
     else {
         update(res.resfail().dir_attributes);
-        throw system_error(res.status, system_category());
+        throw mapStatus(res.status);
     }
 }
 
@@ -173,7 +206,7 @@ NfsFile::open(
         }
         else {
             update(res.resfail().dir_wcc.after);
-            throw system_error(res.status, system_category());
+            throw mapStatus(res.status);
         }
     }
     else {
@@ -196,7 +229,7 @@ NfsFile::commit(const Credential&)
     }
     else {
         update(res.resfail().file_wcc.after);
-        throw system_error(res.status, system_category());
+        throw mapStatus(res.status);
     }
 }
 
@@ -211,7 +244,7 @@ NfsFile::readlink(const Credential&)
     }
     else {
         update(res.resfail().symlink_attributes);
-        throw system_error(res.status, system_category());
+        throw mapStatus(res.status);
     }
 }
 
@@ -230,7 +263,7 @@ NfsFile::read(
     }
     else {
         update(res.resfail().file_attributes);
-        throw system_error(res.status, system_category());
+        throw mapStatus(res.status);
     }
 }
 
@@ -250,7 +283,7 @@ NfsFile::write(
         return res.resok().count;
     }
     else {
-        throw system_error(res.status, system_category());
+        throw mapStatus(res.status);
     }
 }
 
@@ -271,7 +304,7 @@ NfsFile::mkdir(
     }
     else {
         update(res.resfail().dir_wcc.after);
-        throw system_error(res.status, system_category());
+        throw mapStatus(res.status);
     }
 }
 
@@ -293,7 +326,7 @@ shared_ptr<File> NfsFile::symlink(
     }
     else {
         update(res.resfail().dir_wcc.after);
-        throw system_error(res.status, system_category());
+        throw mapStatus(res.status);
     }
 }
 
@@ -315,7 +348,7 @@ std::shared_ptr<File> NfsFile::mkfifo(
     }
     else {
         update(res.resfail().dir_wcc.after);
-        throw system_error(res.status, system_category());
+        throw mapStatus(res.status);
     }
 }
 
@@ -329,7 +362,7 @@ NfsFile::remove(const Credential&, const string& name)
     }
     else {
         update(res.resfail().dir_wcc.after);
-        throw system_error(res.status, system_category());
+        throw mapStatus(res.status);
     }
 }
 
@@ -343,7 +376,7 @@ NfsFile::rmdir(const Credential&, const string& name)
     }
     else {
         update(res.resfail().dir_wcc.after);
-        throw system_error(res.status, system_category());
+        throw mapStatus(res.status);
     }
 }
 
@@ -361,7 +394,7 @@ void NfsFile::rename(
     else {
         from->update(res.resfail().fromdir_wcc.after);
         update(res.resfail().todir_wcc.after);
-        throw system_error(res.status, system_category());
+        throw mapStatus(res.status);
     }
 }
 
@@ -378,7 +411,7 @@ void NfsFile::link(
     else {
         from->update(res.resfail().file_attributes);
         update(res.resfail().linkdir_wcc.after);
-        throw system_error(res.status, system_category());
+        throw mapStatus(res.status);
     }
 }
 
