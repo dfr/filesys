@@ -22,9 +22,9 @@ cc_library(
 cc_binary(
     name = "objfsck",
     copts = ["-std=c++14"],
-    srcs = glob(["check/*.cpp", "check/*.h", "rocksdbi.*"]) + [":proto"],
+    srcs = glob(["check/*.cpp", "rocksdbi.*"]),
     deps = [
-        ":hdrs",
+        ":objfs",
         "//rpcxx",
         "//third_party/glog",
         "//third_party/rocksdb",
