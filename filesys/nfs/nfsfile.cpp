@@ -455,7 +455,7 @@ NfsFile::find(
         else
             f = fs->find(fh.handle());
     }
-    return move(f);
+    return f;
 }
 
 void
