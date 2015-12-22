@@ -5,6 +5,7 @@ cc_library(
     hdrs = ["pfsfs.h"],
     deps = [
         "//filesys:hdrs",
+	"//filesys:access",
         "//rpcxx",
         "//third_party/glog:glog"
     ],
