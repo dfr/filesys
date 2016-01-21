@@ -2,10 +2,10 @@
 #include <fs++/urlparser.h>
 #include <glog/logging.h>
 
-#include "nfsfs.h"
+#include "nfs3fs.h"
 
 using namespace filesys;
-using namespace filesys::nfs;
+using namespace filesys::nfs3;
 
 NfsDirectoryIterator::NfsDirectoryIterator(
     const Credential& cred, std::shared_ptr<NfsFile> dir, std::uint64_t seek)

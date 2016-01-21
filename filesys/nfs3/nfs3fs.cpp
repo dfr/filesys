@@ -11,11 +11,11 @@
 #include <glog/logging.h>
 #include <glog/stl_logging.h>
 
-#include "nfsfs.h"
+#include "nfs3fs.h"
 #include "filesys/pfs/pfsfs.h"
 
 using namespace filesys;
-using namespace filesys::nfs;
+using namespace filesys::nfs3;
 using namespace std;
 
 DEFINE_int32(mount_port, 0, "port use for contacting mount service");
@@ -184,7 +184,7 @@ NfsFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
     return make_pair(pfs, p.path);
 };
 
-void filesys::nfs::init(FilesystemManager* fsman)
+void filesys::nfs3::init(FilesystemManager* fsman)
 {
     fsman->add(make_shared<NfsFilesystemFactory>());
 }

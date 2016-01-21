@@ -6,11 +6,11 @@
 #include <fs++/proto/mount.h>
 
 #include "filesys/objfs/objfs.h"
-#include "filesys/nfs/nfsfs.h"
+#include "filesys/nfs3/nfs3fs.h"
 #include "nfsd/nfs3/nfs3.h"
 
 using namespace filesys;
-using namespace filesys::nfs;
+using namespace filesys::nfs3;
 using namespace filesys::objfs;
 using namespace nfsd::nfs3;
 using namespace oncrpc;

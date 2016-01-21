@@ -1,5 +1,5 @@
 cc_library(
-    name = "nfs",
+    name = "nfs3",
     copts = ["-std=c++14"],
     srcs = glob(["*.cpp", "*.h"]) + [
         "//filesys:mount_prot",
@@ -20,13 +20,13 @@ test_suite(
 )
 
 cc_test(
-    name = "nfs_test",
+    name = "nfs3_test",
     size = "small",
     copts = ["-std=c++14"],
     srcs = glob(["test/*.cpp"]),
     linkstatic = 1,
     deps = [
-        ":nfs",
+        ":nfs3",
         "//rpcxx",
         "//third_party/gmock:gmock_main"
     ],

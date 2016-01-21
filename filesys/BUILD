@@ -5,7 +5,7 @@ cc_library(
     deps = [
         ":hdrs",
         ":access",
-        "//filesys/nfs",
+        "//filesys/nfs3",
         "//filesys/posix",
         "//filesys/objfs",
     ],
@@ -52,7 +52,7 @@ genrule(
     srcs = ["include/fs++/proto/mount.x"],
     outs = ["include/fs++/proto/mount.h"],
     tools = ["//rpcxx/utils/rpcgen"],
-    cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::nfs $(location include/fs++/proto/mount.x) > $(OUTS)",
+    cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::nfs3 $(location include/fs++/proto/mount.x) > $(OUTS)",
     visibility = ["//visibility:public"]
 )
 
@@ -61,6 +61,6 @@ genrule(
     srcs = ["include/fs++/proto/nfs_prot.x"],
     outs = ["include/fs++/proto/nfs_prot.h"],
     tools = ["//rpcxx/utils/rpcgen"],
-    cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::nfs $(location include/fs++/proto/nfs_prot.x) > $(OUTS)",
+    cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::nfs3 $(location include/fs++/proto/nfs_prot.x) > $(OUTS)",
     visibility = ["//visibility:public"]
 )

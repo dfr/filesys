@@ -5,7 +5,7 @@
 #include <fs++/proto/nfs_prot.h>
 
 namespace filesys {
-namespace nfs {
+namespace nfs3 {
 
 constexpr detail::Clock::duration ATTR_TIMEOUT = std::chrono::seconds(5);
 
@@ -189,7 +189,7 @@ struct NfsFsinfo
 
 struct NfsFhHash
 {
-    size_t operator()(const filesys::nfs::nfs_fh3& fh) const
+    size_t operator()(const filesys::nfs3::nfs_fh3& fh) const
     {
         // This uses the djb2 hash
         size_t hash = 5381;

@@ -1,8 +1,8 @@
-#include "filesys/nfs/nfsfs.h"
+#include "filesys/nfs3/nfs3fs.h"
 #include <gmock/gmock.h>
 
 using namespace filesys;
-using namespace filesys::nfs;
+using namespace filesys::nfs3;
 using namespace std;
 using namespace testing;
 

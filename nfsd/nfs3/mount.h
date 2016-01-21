@@ -5,18 +5,18 @@
 namespace nfsd {
 namespace nfs3 {
 
-class MountServer: public filesys::nfs::Mountprog3Service
+class MountServer: public filesys::nfs3::Mountprog3Service
 {
 public:
     MountServer(const std::vector<int>& sec);
 
     // IMountprog3 overrides
     void null() override;
-    filesys::nfs::mountres3 mnt(const filesys::nfs::dirpath& dir) override;
-    filesys::nfs::mountlist dump() override;
-    void umnt(const filesys::nfs::dirpath& dir) override;
+    filesys::nfs3::mountres3 mnt(const filesys::nfs3::dirpath& dir) override;
+    filesys::nfs3::mountlist dump() override;
+    void umnt(const filesys::nfs3::dirpath& dir) override;
     void umntall() override;
-    filesys::nfs::exports listexports() override;
+    filesys::nfs3::exports listexports() override;
 
 private:
     std::vector<int> sec_;

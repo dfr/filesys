@@ -2,10 +2,10 @@
 #include <fs++/urlparser.h>
 #include <glog/logging.h>
 
-#include "nfsfs.h"
+#include "nfs3fs.h"
 
 using namespace filesys;
-using namespace filesys::nfs;
+using namespace filesys::nfs3;
 using namespace std;
 
 static system_error mapStatus(nfsstat3 stat)

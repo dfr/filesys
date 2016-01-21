@@ -9,7 +9,7 @@
 #include "nfs3server.h"
 
 using namespace filesys;
-using namespace filesys::nfs;
+using namespace filesys::nfs3;
 using namespace nfsd;
 using namespace nfsd::nfs3;
 using namespace oncrpc;
