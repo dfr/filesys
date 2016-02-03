@@ -1,6 +1,7 @@
 #include <cassert>
 #include <system_error>
 
+#include <fs++/urlparser.h>
 #include "pfsfs.h"
 
 using namespace filesys;
@@ -38,7 +39,10 @@ PfsFilesystem::PfsFilesystem()
 std::shared_ptr<File>
 PfsFilesystem::root()
 {
-    return root_;
+    if (root_)
+        return root_->checkMount();
+    return
+        nullptr;
 }
 
 const FilesystemId&
@@ -75,8 +79,6 @@ PfsFilesystem::add(const std::string& path, shared_ptr<Filesystem> mount)
     }
 
     vector<string> entries = parsePath(path);
-    assert(entries.size() > 0);
-
     auto dir = root_;
     for (auto& entry: entries) {
         if (entry.size() > PFS_NAME_MAX)

@@ -67,11 +67,14 @@ public:
         const std::string& path, bool follow = true);
 
     auto& cred() const { return cred_; }
+    bool quit() const { return quit_; }
+    void setQuit(bool v) { quit_ = v; }
 
 private:
     Credential cred_;
     std::shared_ptr<File> root_;
     std::shared_ptr<File> cwd_;
+    bool quit_ = false;
 };
 
 class Command

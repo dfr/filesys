@@ -6,28 +6,6 @@ using namespace filesys::nfs3;
 using namespace std;
 using namespace testing;
 
-// Not using gmock for this - this is just to make it easy to trigger timeouts
-class MockClock: public detail::Clock
-{
-public:
-    MockClock()
-        : now_(chrono::system_clock::now())
-    {
-    }
-
-    time_point now() override { return now_; }
-
-    template <typename Dur>
-    MockClock& operator+=(Dur dur)
-    {
-        now_ += dur;
-        return *this;
-    }
-
-private:
-    time_point now_;
-};
-
 class MockNfs: public INfsProgram3
 {
 public:
@@ -61,7 +39,7 @@ public:
     NfsTest()
     {
         proto = make_shared<MockNfs>();
-        clock = make_shared<MockClock>();
+        clock = make_shared<detail::MockClock>();
         nfs = make_shared<NfsFilesystem>(proto, clock, nfs_fh3{{1, 0, 0, 0}});
         ignoreFsinfo();
     }
@@ -112,7 +90,7 @@ public:
     Credential cred;
     shared_ptr<NfsFilesystem> nfs;
     shared_ptr<MockNfs> proto;
-    shared_ptr<MockClock> clock;
+    shared_ptr<detail::MockClock> clock;
 };
 
 TEST_F(NfsTest, Root)
@@ -473,7 +451,7 @@ TEST_F(NfsTest, Commit)
                 COMMIT3resok{
                     {pre_op_attr(false), post_op_attr(false)}, {}});
         }));
-    nfs->root()->open(cred, OpenFlags::RDWR)->commit();
+    nfs->root()->open(cred, OpenFlags::RDWR)->flush();
 
     EXPECT_CALL(*proto.get(), commit(_))
         .Times(1)
@@ -484,7 +462,7 @@ TEST_F(NfsTest, Commit)
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
     EXPECT_THROW(
-        nfs->root()->open(cred, OpenFlags::RDWR)->commit(), system_error);
+        nfs->root()->open(cred, OpenFlags::RDWR)->flush(), system_error);
 }
 
 TEST_F(NfsTest, Readlink)

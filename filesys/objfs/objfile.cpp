@@ -11,12 +11,6 @@ using namespace filesys::objfs;
 using namespace std;
 using namespace chrono;
 
-static uint64_t getTime()
-{
-    return duration_cast<nanoseconds>(
-        system_clock::now().time_since_epoch()).count();
-}
-
 ObjFile::ObjFile(shared_ptr<ObjFilesystem> fs, FileId fileid)
     : fs_(fs)
 {
@@ -565,6 +559,12 @@ void ObjFile::checkSticky(const Credential& cred, ObjFile* file)
     }
 }
 
+uint64_t ObjFile::getTime()
+{
+    return duration_cast<nanoseconds>(
+        fs_.lock()->clock()->now().time_since_epoch()).count();
+}
+
 ObjOpenFile::~ObjOpenFile()
 {
     if (fd_ >= 0)
@@ -577,7 +577,7 @@ shared_ptr<Buffer> ObjOpenFile::read(
     unique_lock<mutex> lock(file_->mutex_);
     file_->checkAccess(cred_, AccessFlags::READ);
     auto& meta = file_->meta_;
-    meta.attr.ctime = meta.attr.atime = getTime();
+    meta.attr.ctime = meta.attr.atime = file_->getTime();
     file_->writeMeta();
 
     switch (meta.location.type) {
@@ -676,7 +676,7 @@ uint32_t ObjOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
         auto len = data->size();
         auto fs = file_->fs_.lock();
         auto trans = fs->db()->beginTransaction();
-        meta.attr.ctime = meta.attr.mtime = getTime();
+        meta.attr.ctime = meta.attr.mtime = file_->getTime();
         if (offset + len > meta.attr.size) {
             meta.attr.size = offset + len;
         }
@@ -733,7 +733,7 @@ uint32_t ObjOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
     }
 }
 
-void ObjOpenFile::commit()
+void ObjOpenFile::flush()
 {
     // XXX: possibly too expensive
     file_->fs_.lock()->db()->flush();

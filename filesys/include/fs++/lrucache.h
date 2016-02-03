@@ -1,3 +1,4 @@
+// -*- c++ -*-
 #pragma once
 
 #include <cassert>
@@ -10,7 +11,9 @@ namespace filesys {
 namespace detail {
 
 /// A cache mapping instances of ID to shared_ptr<OBJ> entries
-template <typename ID, typename OBJ, typename HASH = std::hash<ID>>
+template <typename ID, typename OBJ,
+          typename HASH = std::hash<ID>,
+          typename EQUAL = std::equal_to<ID>>
 class LRUCache
 {
 public:
@@ -35,7 +38,8 @@ public:
         else {
             misses_++;
             auto file = ctor(fileid);
-            add(std::move(lock), fileid, file);
+            if (file)
+                add(std::move(lock), fileid, file);
             return file;
         }
     }
@@ -56,6 +60,15 @@ public:
             cache_.erase(fileid);
             lru_.erase(p);
         }
+    }
+
+    /// Clear the cache
+    void clear()
+    {
+        // Clearing cache_ must be first since it contains iterators
+        // to lru_
+        cache_.clear();
+        lru_.clear();
     }
 
     /// Return the number of entries in the cache
@@ -99,23 +112,23 @@ private:
         assert(lock);
         // Expire old entries if the cache is full
         while (cache_.size() > sizeLimit_) {
-	    bool expiredOne = false;
-	    for (auto i = lru_.rbegin(); i != lru_.rend(); ++i) {
-		if (i->second.unique()) {
-		    // This entry is only referenced by the cache so
-		    // we can expire it.
-		    const auto& oldest = *i;
-		    //VLOG(2) << "expiring fileid: " << oldest->fileid();
-		    auto p = cache_[oldest.first];
-		    cache_.erase(oldest.first);
-		    lru_.erase(p);
-		    expiredOne = true;
-		    break;
-		}
-	    }
-	    // If the whole cache is busy, just let it grow
-	    if (!expiredOne)
-		break;
+            bool expiredOne = false;
+            for (auto i = lru_.rbegin(); i != lru_.rend(); ++i) {
+                if (i->second.unique()) {
+                    // This entry is only referenced by the cache so
+                    // we can expire it.
+                    const auto& oldest = *i;
+                    //VLOG(2) << "expiring fileid: " << oldest->fileid();
+                    auto p = cache_[oldest.first];
+                    cache_.erase(oldest.first);
+                    lru_.erase(p);
+                    expiredOne = true;
+                    break;
+                }
+            }
+            // If the whole cache is busy, just let it grow
+            if (!expiredOne)
+                break;
         }
     }
 
@@ -125,7 +138,7 @@ private:
     // should be shared_timed_mutex but its missing on OS X
     std::mutex mutex_;
     lruT lru_;
-    std::unordered_map<ID, typename lruT::iterator, HASH> cache_;
+    std::unordered_map<ID, typename lruT::iterator, HASH, EQUAL> cache_;
     int sizeLimit_ = DEFAULT_SIZE_LIMIT;
     int hits_ = 0;
     int misses_ = 0;

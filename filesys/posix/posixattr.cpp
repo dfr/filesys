@@ -92,6 +92,12 @@ std::chrono::system_clock::time_point PosixGetattr::birthtime() const
     return fromTimespec(stat_.st_birthtimespec);
 }
 
+std::uint64_t PosixGetattr::change() const
+{
+    auto& ts = stat_.st_ctimespec;
+    return (std::uint64_t(ts.tv_sec) << 32) | ts.tv_nsec;
+}
+
 std::uint64_t PosixGetattr::createverf() const
 {
     auto& ts = stat_.st_atimespec;

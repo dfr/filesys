@@ -102,7 +102,7 @@ public:
                 out->write(offset, data);
                 offset += data->size();
             }
-            out->commit();
+            out->flush();
         }
         catch (system_error& e) {
             cout << e.what() << endl;

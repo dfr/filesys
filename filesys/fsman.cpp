@@ -4,6 +4,7 @@
 
 namespace filesys {
 namespace nfs3 { void init(FilesystemManager* fsman); }
+namespace nfs4 { void init(FilesystemManager* fsman); }
 namespace posix { void init(FilesystemManager* fsman); }
 namespace objfs { void init(FilesystemManager* fsman); }
 }
@@ -12,7 +13,8 @@ using namespace filesys;
 
 FilesystemManager::FilesystemManager()
 {
-    nfs3::init(this);
+    //nfs3::init(this);
+    nfs4::init(this);
     posix::init(this);
     objfs::init(this);
 }

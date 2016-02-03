@@ -102,6 +102,11 @@ std::chrono::system_clock::time_point NfsGetattr::birthtime() const
     return  fromNfsTime({0, 0});
 }
 
+std::uint64_t NfsGetattr::change() const
+{
+    return (std::uint64_t(attr_.ctime.seconds) << 32) | attr_.ctime.nseconds;
+}
+
 std::uint64_t NfsGetattr::createverf() const
 {
     return 0;
@@ -152,6 +157,10 @@ void NfsSetattr::setAtime(std::chrono::system_clock::time_point atime)
 {
     attr_.atime.set_set_it(SET_TO_CLIENT_TIME);
     attr_.atime.atime() = toNfsTime(atime);
+}
+
+void NfsSetattr::setChange(std::uint64_t change)
+{
 }
 
 void NfsSetattr::setCreateverf(std::uint64_t verf)

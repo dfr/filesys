@@ -15,7 +15,9 @@ using namespace std;
 
 static std::random_device rnd;
 
-ObjFilesystem::ObjFilesystem(const std::string& filename)
+ObjFilesystem::ObjFilesystem(
+    const std::string& filename, std::shared_ptr<detail::Clock> clock)
+    : clock_(clock)
 {
     db_ = make_unique<RocksDatabase>(filename);
 
@@ -53,6 +55,11 @@ ObjFilesystem::ObjFilesystem(const std::string& filename)
     setFsid();
 }
 
+ObjFilesystem::ObjFilesystem(const std::string& filename)
+    : ObjFilesystem(filename, make_shared<detail::SystemClock>())
+{
+}
+
 ObjFilesystem::~ObjFilesystem()
 {
 }
@@ -76,7 +83,7 @@ ObjFilesystem::root()
             // shared_from_this() doesn't work there.
             ObjFileMetaImpl meta;
             auto time = duration_cast<nanoseconds>(
-                system_clock::now().time_since_epoch());
+                clock_->now().time_since_epoch());
             meta.fileid = FileId(1);
             meta.attr.type = PT_DIR;
             meta.attr.mode = 0755;

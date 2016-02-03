@@ -5,6 +5,9 @@
 
 #include <fs++/filesys.h>
 #include <fs++/urlparser.h>
+
+#include "filesys/pfs/pfsfs.h"
+
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
@@ -14,6 +17,7 @@ using namespace filesys;
 using namespace std;
 
 DEFINE_string(c, "", "file of commands to execute");
+DEFINE_string(realm, "", "Local krb5 realm name");
 
 deque<string> filesys::parsePath(const string& path)
 {
@@ -97,9 +101,9 @@ int main(int argc, char** argv)
 {
     bool interactive = ::isatty(0);
 
-    gflags::SetUsageMessage("usage: fscli <url>");
+    gflags::SetUsageMessage("usage: fscli [path+]<url> ...");
     gflags::ParseCommandLineFlags(&argc, &argv, true);
-    if (argc != 2) {
+    if (argc < 2) {
         gflags::ShowUsageWithFlagsRestrict(argv[0], "fscli.cpp");
         return 1;
     }
@@ -108,16 +112,29 @@ int main(int argc, char** argv)
 
     auto& fsman = FilesystemManager::instance();
 
-    UrlParser p(argv[1]);
-    auto fac = fsman.find(p.scheme);
-    if (!fac) {
-        cerr << argv[1] << ": unsupported url scheme" << endl;
-        return 1;
+    auto pfs = make_shared<filesys::pfs::PfsFilesystem>();
+
+    for (int i = 1; i < argc; i++) {
+	string url = argv[i];
+	string path = "/";
+	auto j = url.find('=');
+	if (j != string::npos) {
+	    path = url.substr(0, j);
+	    url = url.substr(j + 1);
+	}
+
+	UrlParser p(url);
+	auto fac = fsman.find(p.scheme);
+	if (!fac) {
+	    cerr << url << ": unsupported url scheme" << endl;
+	    return 1;
+	}
+
+	auto mnt = fac->mount(&fsman, url);
+	pfs->add(path, mnt.first);
     }
 
-    auto mnt = fac->mount(&fsman, argv[1]);
-    CommandState state(mnt.first->root());
-    state.chdir(state.lookup(mnt.second));
+    CommandState state(pfs->root());
 
     istream* input;
     if (FLAGS_c.size() > 0) {
@@ -128,7 +145,7 @@ int main(int argc, char** argv)
         input = &cin;
     }
 
-    while (!input->eof()) {
+    while (!input->eof() && !state.quit()) {
         if (interactive) {
             cout << "FSCLI> ";
             cout.flush();

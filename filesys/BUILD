@@ -6,6 +6,7 @@ cc_library(
         ":hdrs",
         ":access",
         "//filesys/nfs3",
+        "//filesys/nfs4",
         "//filesys/posix",
         "//filesys/objfs",
     ],
@@ -62,5 +63,14 @@ genrule(
     outs = ["include/fs++/proto/nfs_prot.h"],
     tools = ["//rpcxx/utils/rpcgen"],
     cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::nfs3 $(location include/fs++/proto/nfs_prot.x) > $(OUTS)",
+    visibility = ["//visibility:public"]
+)
+
+genrule(
+    name = "nfs4_prot",
+    srcs = ["include/fs++/proto/nfs4_prot.x"],
+    outs = ["include/fs++/proto/nfs4_prot.h"],
+    tools = ["//rpcxx/utils/rpcgen"],
+    cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::nfs4 $(location include/fs++/proto/nfs4_prot.x) > $(OUTS)",
     visibility = ["//visibility:public"]
 )

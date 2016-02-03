@@ -37,6 +37,7 @@ public:
     std::chrono::system_clock::time_point atime() const override;
     std::chrono::system_clock::time_point ctime() const override;
     std::chrono::system_clock::time_point birthtime() const override;
+    std::uint64_t change() const override;
     std::uint64_t createverf() const override;
 
 private:
@@ -58,6 +59,7 @@ public:
     void setSize(std::uint64_t size) override;
     void setMtime(std::chrono::system_clock::time_point mtime) override;
     void setAtime(std::chrono::system_clock::time_point atime) override;
+    void setChange(std::uint64_t change) override;
     void setCreateverf(std::uint64_t verf) override;
 
 private:
@@ -176,6 +178,7 @@ public:
         std::function<void(Transaction*, std::shared_ptr<ObjFile>)> writeCb);
     void checkAccess(const Credential& cred, int accmode);
     void checkSticky(const Credential& cred, ObjFile* file);
+    uint64_t getTime();
 
 private:
     std::mutex mutex_;
@@ -201,7 +204,7 @@ public:
         std::uint64_t offset, std::uint32_t size, bool& eof) override;
     std::uint32_t write(
         std::uint64_t offset, std::shared_ptr<Buffer> data) override;
-    void commit() override;
+    void flush() override;
 
 private:
     Credential cred_;
@@ -239,15 +242,21 @@ class ObjFilesystem: public Filesystem,
 {
 public:
     ObjFilesystem(const std::string& filename);
+    ObjFilesystem(
+        const std::string& filename,
+        std::shared_ptr<detail::Clock> clock);
     ~ObjFilesystem() override;
 
     std::shared_ptr<File> root() override;
     const FilesystemId& fsid() const override;
     std::shared_ptr<File> find(const FileHandle& fh) override;
+    void unmount() override {}
 
     auto defaultNS() const { return defaultNS_; }
     auto directoriesNS() const { return directoriesNS_; }
     auto dataNS() const { return dataNS_; }
+
+    auto clock() const { return clock_; }
 
     Database* db() const
     {
@@ -272,6 +281,7 @@ public:
 
 private:
     std::mutex mutex_;
+    std::shared_ptr<detail::Clock> clock_;
     std::unique_ptr<Database> db_;
     Namespace* defaultNS_;
     Namespace* directoriesNS_;

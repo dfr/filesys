@@ -1,0 +1,100 @@
+
+nfs4dir.cpp,369
+PfsDirectoryIterator::PfsDirectoryIterator(8,98
+bool PfsDirectoryIterator::valid(16,284
+FileId PfsDirectoryIterator::fileid(21,363
+uint64_t PfsDirectoryIterator::seek(26,452
+std::string PfsDirectoryIterator::name(31,515
+std::shared_ptr<File> PfsDirectoryIterator::file(36,589
+void PfsDirectoryIterator::next(41,695
+void PfsDirectoryIterator::skipExpired(47,763
+
+nfs4file.cpp,866
+PfsFile::PfsFile(10,141
+shared_ptr<Filesystem> PfsFile::fs(19,344
+PfsFile::handle(25,414
+bool PfsFile::access(35,739
+shared_ptr<Getattr> PfsFile::getattr(47,970
+void PfsFile::setattr(52,1067
+shared_ptr<File> PfsFile::lookup(57,1189
+shared_ptr<File> PfsFile::open(71,1498
+void PfsFile::close(77,1655
+void PfsFile::commit(82,1750
+string PfsFile::readlink(87,1846
+std::shared_ptr<oncrpc::Buffer> PfsFile::read(92,1946
+uint32_t PfsFile::write(98,2099
+shared_ptr<File> PfsFile::mkdir(104,2246
+shared_ptr<File> PfsFile::symlink(110,2398
+std::shared_ptr<File> PfsFile::mkfifo(117,2576
+void PfsFile::remove(123,2744
+void PfsFile::rmdir(128,2854
+void PfsFile::rename(133,2963
+void PfsFile::link(139,3111
+shared_ptr<DirectoryIterator> PfsFile::readdir(144,3247
+std::shared_ptr<Fsattr> PfsFile::fsstat(149,3384
+shared_ptr<PfsFile> PfsFile::find(154,3485
+
+nfs4fs.cpp,258
+int PfsFilesystem::nextfsid_ 10,141
+static vector<string> parsePath(12,176
+PfsFilesystem::PfsFilesystem(32,591
+PfsFilesystem::root(39,747
+PfsFilesystem::fsid(45,812
+PfsFilesystem::find(52,917
+PfsFilesystem::add(65,1305
+PfsFilesystem::remove(101,2290
+
+nfs4fs.h,2901
+class PfsGetattr:PfsGetattr16,187
+    PfsGetattr(19,230
+    FileType type(26,391
+    int mode(PfsGetattr::mode30,474
+    int nlink(PfsGetattr::nlink34,537
+    int uid(PfsGetattr::uid38,598
+    int gid(PfsGetattr::gid42,657
+    std::uint64_t size(PfsGetattr::size46,716
+    std::uint64_t used(PfsGetattr::used50,786
+    FileId fileid(PfsGetattr::fileid54,856
+    std::chrono::system_clock::time_point mtime(PfsGetattr::mtime58,927
+    std::chrono::system_clock::time_point atime(PfsGetattr::atime62,1026
+    std::chrono::system_clock::time_point ctime(PfsGetattr::ctime66,1125
+    std::chrono::system_clock::time_point birthtime(PfsGetattr::birthtime70,1224
+    std::uint64_t createverf(PfsGetattr::createverf74,1327
+    FileId fileid_;PfsGetattr::fileid_80,1413
+    std::chrono::system_clock::time_point time_;PfsGetattr::time_81,1433
+class PfsFsattr:PfsFsattr84,1486
+    size_t tbytes(PfsFsattr::tbytes87,1527
+    size_t fbytes(PfsFsattr::fbytes88,1576
+    size_t abytes(PfsFsattr::abytes89,1625
+    size_t tfiles(PfsFsattr::tfiles90,1674
+    size_t ffiles(PfsFsattr::ffiles91,1723
+    size_t afiles(PfsFsattr::afiles92,1772
+    int linkMax(PfsFsattr::linkMax93,1821
+    int nameMax(PfsFsattr::nameMax97,1884
+class PfsFile:PfsFile103,1958
+    FileId fileid(PfsFile::fileid150,4200
+    std::shared_ptr<PfsFile> parent(PfsFile::parent151,4246
+    void add(PfsFile::add153,4370
+    void mount(PfsFile::mount157,4480
+    std::shared_ptr<File> checkMount(PfsFile::checkMount161,4566
+    std::weak_ptr<PfsFilesystem> fs_;PfsFile::fs_170,4734
+    FileId fileid_;PfsFile::fileid_171,4772
+    std::chrono::system_clock::time_point ctime_;PfsFile::ctime_172,4792
+    std::shared_ptr<PfsFile> parent_;PfsFile::parent_173,4842
+    std::shared_ptr<Filesystem> mount_;PfsFile::mount_174,4880
+    std::map<PfsFile::std::map175,4920
+    std::map<std::string, std::weak_ptr<PfsFile>> entries_;PfsFile::entries_175,4920
+class PfsDirectoryIterator:PfsDirectoryIterator178,4984
+    const std::map<PfsDirectoryIterator::std::map193,5398
+    const std::map<std::string, std::weak_ptr<PfsFile>>& entries_;PfsDirectoryIterator::entries_193,5398
+    std::map<PfsDirectoryIterator::std::map194,5465
+    std::map<std::string, std::weak_ptr<PfsFile>>::const_iterator p_;PfsDirectoryIterator::p_194,5465
+class PfsFilesystem:PfsFilesystem197,5539
+    static int nextfsid_;PfsFilesystem::nextfsid_214,6065
+    FilesystemId fsid_;PfsFilesystem::fsid_215,6091
+    int nextid_ PfsFilesystem::nextid_216,6115
+    std::shared_ptr<PfsFile> root_;PfsFilesystem::root_217,6136
+    std::map<PfsFilesystem::std::map218,6172
+    std::map<int, std::weak_ptr<PfsFile>> idmap_;PfsFilesystem::idmap_218,6172
+    std::map<PfsFilesystem::std::map219,6222
+    std::map<std::string, std::shared_ptr<PfsFile>> paths_;PfsFilesystem::paths_219,6222

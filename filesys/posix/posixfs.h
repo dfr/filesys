@@ -34,6 +34,7 @@ public:
     std::chrono::system_clock::time_point atime() const override;
     std::chrono::system_clock::time_point ctime() const override;
     std::chrono::system_clock::time_point birthtime() const override;
+    std::uint64_t change() const override;
     std::uint64_t createverf() const override;
 
 private:
@@ -58,6 +59,7 @@ public:
     }
     void setMtime(std::chrono::system_clock::time_point mtime) override {}
     void setAtime(std::chrono::system_clock::time_point atime) override {}
+    void setChange(std::uint64_t change) override {}
     void setCreateverf(std::uint64_t verf) override {}
 
     bool hasMode_ = false;
@@ -176,7 +178,7 @@ public:
         std::uint64_t offset, std::uint32_t size, bool& eof) override;
     std::uint32_t write(
         std::uint64_t offset, std::shared_ptr<Buffer> data) override;
-    void commit() override {}
+    void flush() override {}
 
 private:
     std::shared_ptr<PosixFile> file_;
@@ -212,6 +214,7 @@ public:
     std::shared_ptr<File> root() override;
     const FilesystemId& fsid() const override;
     std::shared_ptr<File> find(const FileHandle& fh) override;
+    void unmount() override {}
 
     std::shared_ptr<PosixFile> find(
         std::shared_ptr<PosixFile> parent,

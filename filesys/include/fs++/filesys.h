@@ -28,6 +28,7 @@ public:
     virtual time_point now() = 0;
 };
 
+/// Clock implementation using system_clock
 class SystemClock: public Clock
 {
 public:
@@ -35,6 +36,28 @@ public:
     {
         return std::chrono::system_clock::now();
     }
+};
+
+/// Fake clock which can be used for time-related unit tests
+class MockClock: public detail::Clock
+{
+public:
+    MockClock()
+        : now_(std::chrono::system_clock::now())
+    {
+    }
+
+    time_point now() override { return now_; }
+
+    template <typename Dur>
+    MockClock& operator+=(Dur dur)
+    {
+        now_ += dur;
+        return *this;
+    }
+
+private:
+    time_point now_;
 };
 
 }
@@ -198,7 +221,11 @@ public:
     /// Return the time the file was created
     virtual std::chrono::system_clock::time_point birthtime() const = 0;
 
-    /// Create verifier used for NFSv3 exclusive create semantics - may
+    /// Return a monotonically increasing value which changes when
+    /// either file data or metadata changes
+    virtual std::uint64_t change() const = 0;
+
+    /// Create verifier used for NFS exclusive create semantics - may
     /// be overlaid with some other metadata (typically atime)
     virtual std::uint64_t createverf() const = 0;
 };
@@ -225,7 +252,10 @@ public:
     /// Set the file access time
     virtual void setAtime(std::chrono::system_clock::time_point atime) = 0;
 
-    /// Set the create verifier used for NFSv3 exclusive create semantics.
+    /// Set the file change value
+    virtual void setChange(std::uint64_t change) = 0;
+
+    /// Set the create verifier used for NFS exclusive create semantics.
     /// May be overlaid with some other metadata (typically atime)
     virtual void setCreateverf(std::uint64_t verf) = 0;
 };
@@ -262,8 +292,8 @@ public:
     virtual std::uint32_t write(
         std::uint64_t offset, std::shared_ptr<Buffer> data) = 0;
 
-    /// Commit cached data to stable storage
-    virtual void commit() = 0;
+    /// Write any cached data to stable storage
+    virtual void flush() = 0;
 };
 
 /// A file, directory or other filesystem object
@@ -361,6 +391,12 @@ public:
 
     /// Find a file given a file haldne
     virtual std::shared_ptr<File> find(const FileHandle& fh) = 0;
+
+    /// Unmount the file system, clearing any associated state. We do
+    /// this explicitly rather than via the destructor to avoid
+    /// problems caused by the restrictions of operating inside the
+    /// destructor.
+    virtual void unmount() = 0;
 };
 
 class FilesystemFactory
@@ -392,6 +428,8 @@ public:
 
     void unmountAll()
     {
+        for (auto fs: filesystems_)
+            fs.second->unmount();
         filesystems_.clear();
     }
 

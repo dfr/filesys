@@ -465,7 +465,7 @@ NfsOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
 }
 
 void
-NfsOpenFile::commit()
+NfsOpenFile::flush()
 {
     auto fs = file_->nfs();
     auto res = fs->proto()->commit(COMMIT3args{file_->fh(), 0, 0});

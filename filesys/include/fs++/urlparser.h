@@ -47,9 +47,10 @@ struct UrlParser
         if (!std::isalpha(s[0]))
             throw std::runtime_error("malformed url");
         while (s.size() > 0 && s[0] != ':') {
-            if (!std::isalpha(s[0]))
+            auto ch = s[0];
+            if (!std::isalnum(ch) && ch != '+' && ch != '.' && ch != '-')
                 throw std::runtime_error("malformed url");
-            scheme += s[0];
+            scheme += ch;
             s = s.substr(1);
         }
         if (s.size() == 0 || s[0] != ':')

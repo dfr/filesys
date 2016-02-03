@@ -92,8 +92,8 @@ public:
                 for (auto iter = dir->readdir(cred, 0);
                     iter->valid(); iter->next()) {
                     auto name = iter->name();
-                    if (name == "." || name == "..")
-                        continue;
+                    //if (name == "." || name == "..")
+                    //    continue;
                     files.push_back(make_pair(name, iter->file()));
                 }
             }

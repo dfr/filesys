@@ -15,13 +15,15 @@ public:
     {
         Credential cred(0, 0, {}, true);
         system("rm -rf ./testdb");
-        fs_ = make_shared<ObjFilesystem>("testdb");
+        clock_ = make_shared<detail::MockClock>();
+        fs_ = make_shared<ObjFilesystem>("testdb", clock_);
         blockSize_ = fs_->blockSize();
         fs_->root()->setattr(cred, setMode777);
     }
 
     void setCred(const Credential&) {}
 
+    shared_ptr<detail::MockClock> clock_;
     shared_ptr<ObjFilesystem> fs_;
     size_t blockSize_;
 };

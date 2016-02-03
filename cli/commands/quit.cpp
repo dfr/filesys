@@ -29,7 +29,7 @@ public:
             usage();
             return;
         }
-        exit(0);
+	state.setQuit(true);
     }
 };
 

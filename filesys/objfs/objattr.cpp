@@ -89,6 +89,11 @@ std::chrono::system_clock::time_point ObjGetattr::birthtime() const
             nanoseconds(attr_.birthtime)));
 }
 
+std::uint64_t ObjGetattr::change() const
+{
+    return attr_.ctime;
+}
+
 std::uint64_t ObjGetattr::createverf() const
 {
     return attr_.atime;
@@ -149,6 +154,19 @@ void ObjSetattr::setAtime(std::chrono::system_clock::time_point atime)
     }
     attr_.atime =
         duration_cast<nanoseconds>(atime.time_since_epoch()).count();
+}
+
+void ObjSetattr::setChange(std::uint64_t change)
+{
+    // The file owner can change the times unconditionally
+    if (attr_.uid != cred_.uid()) {
+        CheckAccess(
+            attr_.uid, attr_.gid, attr_.mode,
+            cred_, AccessFlags::WRITE);
+    }
+    // Enforce monotonicity
+    if (change > attr_.ctime)
+        attr_.ctime = change;
 }
 
 void ObjSetattr::setCreateverf(std::uint64_t verf)

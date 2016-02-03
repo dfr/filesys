@@ -468,7 +468,7 @@ WRITE3res NfsServer::write(const WRITE3args& args)
         auto n = of->write(args.offset, args.data);
         stable_how stable = UNSTABLE;
         if (args.stable > UNSTABLE) {
-            of->commit();
+            of->flush();
             stable = FILE_SYNC;
         }
         return WRITE3res{
@@ -1116,7 +1116,7 @@ COMMIT3res NfsServer::commit(const COMMIT3args& args)
         obj = importFileHandle(args.file);
         wcc = exportWcc(obj);
         // XXX: offset, count
-        obj->open(cred, OpenFlags::WRITE)->commit();
+        obj->open(cred, OpenFlags::WRITE)->flush();
         // XXX: writeverf
         return COMMIT3res{
             NFS3_OK,

@@ -58,7 +58,8 @@ TYPED_TEST_P(FilesystemTest, Open)
     using filesys::OpenFlags;
     auto root = this->fs_->root();
     EXPECT_THROW(
-        root->open(this->cred_, "foo", 0, setMode666), std::system_error);
+        root->open(this->cred_, "foo", OpenFlags::READ, setMode666),
+        std::system_error);
     auto of = root->open(
         this->cred_, "foo", OpenFlags::RDWR+OpenFlags::CREATE, setMode666);
     auto file = of->file();
@@ -120,6 +121,7 @@ TYPED_TEST_P(FilesystemTest, Truncate)
     using filesys::Buffer;
     using filesys::OpenFlags;
     using std::make_shared;
+    using namespace std::literals;
 
     auto root = this->fs_->root();
     auto of = root->open(
@@ -130,6 +132,8 @@ TYPED_TEST_P(FilesystemTest, Truncate)
     for (int i = 0; i < 10; i++)
         of->write(i * this->blockSize_, buf);
     EXPECT_GE(10 * this->blockSize_, file->getattr()->used());
+    // Force mtime to change, flushing any caches
+    *this->clock_ += 1s;
     file->setattr(
         this->cred_, [](auto attr){ attr->setSize(0); });
     file->setattr(
@@ -143,6 +147,7 @@ TYPED_TEST_P(FilesystemTest, Mtime)
     using filesys::Buffer;
     using filesys::OpenFlags;
     using std::make_shared;
+    using namespace std::literals;
 
     auto root = this->fs_->root();
     auto of = root->open(
@@ -151,27 +156,33 @@ TYPED_TEST_P(FilesystemTest, Mtime)
     auto buf = make_shared<Buffer>(this->blockSize_);
     std::fill_n(buf->data(), this->blockSize_, 1);
     auto mtime = file->getattr()->mtime();
+    *this->clock_ += 1s;
     of->write(0, buf);
     EXPECT_LT(mtime, file->getattr()->mtime());
 
     // Test mtime for directory modifying operations
     mtime = root->getattr()->mtime();
+    *this->clock_ += 1s;
     root->link(this->cred_, "bar", file);
     EXPECT_LT(mtime, root->getattr()->mtime());
 
     mtime = root->getattr()->mtime();
+    *this->clock_ += 1s;
     root->remove(this->cred_, "bar");
     EXPECT_LT(mtime, root->getattr()->mtime());
 
     mtime = root->getattr()->mtime();
+    *this->clock_ += 1s;
     root->mkdir(this->cred_, "bar", setMode777);
     EXPECT_LT(mtime, root->getattr()->mtime());
 
     mtime = root->getattr()->mtime();
+    *this->clock_ += 1s;
     root->rename(this->cred_, "baz", root, "bar");
     EXPECT_LT(mtime, root->getattr()->mtime());
 
     mtime = root->getattr()->mtime();
+    *this->clock_ += 1s;
     root->rmdir(this->cred_, "baz");
     EXPECT_LT(mtime, root->getattr()->mtime());
 
@@ -187,6 +198,7 @@ TYPED_TEST_P(FilesystemTest, Mtime)
     auto bmtime = b->getattr()->mtime();
     //auto cmtime = c->getattr()->mtime();
 
+    *this->clock_ += 1s;
     b->rename(this->cred_, "c", a, "c");
 
     EXPECT_LT(amtime, a->getattr()->mtime());
@@ -199,6 +211,7 @@ TYPED_TEST_P(FilesystemTest, Atime)
     using filesys::Buffer;
     using filesys::OpenFlags;
     using std::make_shared;
+    using namespace std::literals;
 
     auto root = this->fs_->root();
     auto of = root->open(
@@ -208,18 +221,22 @@ TYPED_TEST_P(FilesystemTest, Atime)
     std::fill_n(buf->data(), this->blockSize_, 1);
     of->write(0, buf);
     auto atime = file->getattr()->atime();
+    *this->clock_ += 1s;
     bool eof;
     of->read(0, this->blockSize_, eof);
     EXPECT_LT(atime, file->getattr()->atime());
 
     atime = root->getattr()->atime();
-    root->readdir(this->cred_, 0);
+    *this->clock_ += 1s;
+    auto iter = root->readdir(this->cred_, 0);
+    while (iter->valid()) iter->next();
     EXPECT_LT(atime, root->getattr()->atime());
 }
 
 TYPED_TEST_P(FilesystemTest, Symlink)
 {
     using filesys::FileType;
+    using namespace std::literals;
 
     auto root = this->fs_->root();
     auto link = root->symlink(this->cred_, "foo", "bar", setMode666);
@@ -230,6 +247,7 @@ TYPED_TEST_P(FilesystemTest, Symlink)
     EXPECT_EQ(3, root->getattr()->size());
 
     auto atime = link->getattr()->atime();
+    *this->clock_ += 1s;
     link->readlink(this->cred_);
     EXPECT_LT(atime, link->getattr()->atime());
 }
