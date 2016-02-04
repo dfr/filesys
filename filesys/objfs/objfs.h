@@ -99,6 +99,7 @@ struct ObjFileMetaImpl: public ObjFileMeta
         attr.atime = 0;
         attr.mtime = 0;
         attr.ctime = 0;
+        attr.birthtime = 0;
         location.set_type(LOC_EMBEDDED);
         location.embedded().data.clear();
     }

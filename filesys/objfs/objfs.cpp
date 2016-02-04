@@ -85,6 +85,7 @@ ObjFilesystem::root()
             meta.attr.atime = time.count();
             meta.attr.mtime = time.count();
             meta.attr.ctime = time.count();
+            meta.attr.birthtime = time.count();
             root_ = make_shared<ObjFile>(shared_from_this(), move(meta));
             add(root_);
 
