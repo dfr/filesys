@@ -52,7 +52,7 @@ public:
         std::unique_lock<std::mutex> lock(mutex_);
         auto i = cache_.find(fileid);
         if (i != cache_.end()) {
-	    auto p = i->second;
+            auto p = i->second;
             cache_.erase(fileid);
             lru_.erase(p);
         }

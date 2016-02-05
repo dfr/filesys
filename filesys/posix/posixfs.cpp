@@ -19,7 +19,7 @@ PosixFilesystem::PosixFilesystem(const std::string& path)
 {
     rootfd_ = ::open(path.size() > 0 ? path.c_str() : ".", O_RDONLY);
     if (rootfd_ < 0)
-	throw system_error(errno, system_category());
+        throw system_error(errno, system_category());
     struct ::stat st;
     ::fstat(rootfd_, &st);
     rootid_ = FileId(st.st_ino);
