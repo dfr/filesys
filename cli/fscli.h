@@ -54,7 +54,8 @@ public:
     CommandState(std::shared_ptr<File> dir);
     std::shared_ptr<File> cwd() const { return cwd_; }
     std::shared_ptr<File> lookup(const std::string& name);
-    std::shared_ptr<File> open(const std::string& name, int flags, int mode);
+    std::shared_ptr<OpenFile> open(
+	const std::string& name, int flags, int mode);
     std::shared_ptr<File> mkdir(const std::string& name, int mode);
     std::shared_ptr<File> symlink(
         const std::string& name, const std::string& path);

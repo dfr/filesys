@@ -68,35 +68,18 @@ shared_ptr<File> PfsFile::lookup(const Credential&, const string& name)
     return find(name)->checkMount();
 }
 
-shared_ptr<File> PfsFile::open(
+shared_ptr<OpenFile> PfsFile::open(
     const Credential&, const string&, int, function<void(Setattr*)>)
 {
     throw system_error(EISDIR, system_category());
 }
 
-void PfsFile::close(const Credential&)
-{
-    throw system_error(EISDIR, system_category());
-}
-
-void PfsFile::commit(const Credential&)
+std::shared_ptr<OpenFile> PfsFile::open(const Credential&, int)
 {
     throw system_error(EISDIR, system_category());
 }
 
 string PfsFile::readlink(const Credential&)
-{
-    throw system_error(EISDIR, system_category());
-}
-
-std::shared_ptr<oncrpc::Buffer> PfsFile::read(
-    const Credential&, uint64_t, uint32_t, bool&)
-{
-    throw system_error(EISDIR, system_category());
-}
-
-uint32_t PfsFile::write(
-    const Credential&, uint64_t, std::shared_ptr<oncrpc::Buffer>)
 {
     throw system_error(EISDIR, system_category());
 }

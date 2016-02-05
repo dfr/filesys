@@ -1,3 +1,4 @@
+// -*- c++ -*-
 #pragma once
 
 #include <chrono>
@@ -13,6 +14,7 @@
 namespace filesys {
 
 using oncrpc::Credential;
+using oncrpc::Buffer;
 
 namespace detail {
 
@@ -243,6 +245,27 @@ public:
     virtual int nameMax() const = 0;
 };
 
+/// A stateful object for performing i/o on a File
+class OpenFile
+{
+public:
+    virtual ~OpenFile() {}
+
+    /// Return the File that this object accesses
+    virtual std::shared_ptr<File> file() const = 0;
+
+    /// Read data from the file
+    virtual std::shared_ptr<Buffer> read(
+        std::uint64_t offset, std::uint32_t size, bool& eof) = 0;
+
+    /// Write data to the file
+    virtual std::uint32_t write(
+        std::uint64_t offset, std::shared_ptr<Buffer> data) = 0;
+
+    /// Commit cached data to stable storage
+    virtual void commit() = 0;
+};
+
 /// A file, directory or other filesystem object
 class File
 {
@@ -271,28 +294,16 @@ public:
         const Credential& cred, const std::string& name) = 0;
 
     /// Open or create a file using a combination of OpenFlags
-    virtual std::shared_ptr<File> open(
+    virtual std::shared_ptr<OpenFile> open(
         const Credential& cred, const std::string& name, int flags,
         std::function<void(Setattr*)> cb) = 0;
 
-    /// Close a file previously opened with open
-    virtual void close(const Credential& cred) = 0;
-
-    /// Commit cached data to stable storage
-    virtual void commit(const Credential& cred) = 0;
+    /// Get an OpenFile handle to an existing file
+    virtual std::shared_ptr<OpenFile> open(
+        const Credential& cred, int flags) = 0;
 
     /// Read the contents of a symbolic links
     virtual std::string readlink(const Credential& cred) = 0;
-
-    /// Read data from a file
-    virtual std::shared_ptr<oncrpc::Buffer> read(
-        const Credential& cred, std::uint64_t offset, std::uint32_t size,
-        bool& eof) = 0;
-
-    /// Write data to a file
-    virtual std::uint32_t write(
-        const Credential& cred, std::uint64_t offset,
-        std::shared_ptr<oncrpc::Buffer> data) = 0;
 
     /// Create a new directory
     virtual std::shared_ptr<File> mkdir(

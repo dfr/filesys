@@ -57,8 +57,7 @@ TEST_F(ObjfsTestExtra, MultiThread)
                     auto file = d->open(cred, n, flags, setMode666);
                     auto buf = make_shared<Buffer>(1024);
                     fill_n(buf->data(), 1024, i);
-                    file->write(cred, 0, buf);
-                    file->close(cred);
+                    file->write(0, buf);
                 }
             }
         );

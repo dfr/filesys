@@ -61,7 +61,7 @@ public:
             // Ignore
         }
 
-        shared_ptr<File> in, out;
+        shared_ptr<OpenFile> in, out;
         try {
             in = from.first->open(
                 cred, from.second, OpenFlags::READ,
@@ -83,12 +83,12 @@ public:
         }
 
         try {
-            if (in->getattr()->type() != FileType::FILE) {
+            if (in->file()->getattr()->type() != FileType::FILE) {
                 error_code ec(EISDIR, system_category());
                 cout << args[0] << ": " << ec.message() << endl;
                 return;
             }
-            if (out->getattr()->type() != FileType::FILE) {
+            if (out->file()->getattr()->type() != FileType::FILE) {
                 error_code ec(EISDIR, system_category());
                 cout << args[1] << ": " << ec.message() << endl;
                 return;
@@ -97,14 +97,12 @@ public:
             bool eof = false;
             while (!eof) {
                 // XXX: fix rpc buffer sizes
-                auto data = in->read(cred, offset, 1024, eof);
+                auto data = in->read(offset, 1024, eof);
                 // XXX: handle short writes
-                out->write(cred, offset, data);
+                out->write(offset, data);
                 offset += data->size();
             }
-            in->close(cred);
-            out->commit(cred);
-            out->close(cred);
+            out->commit();
         }
         catch (system_error& e) {
             cout << e.what() << endl;

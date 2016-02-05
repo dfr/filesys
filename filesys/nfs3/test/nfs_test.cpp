@@ -390,9 +390,9 @@ TEST_F(NfsTest, CreateTruncate)
                     post_op_attr(true, move(attrs))}});
         }));
 
-    auto f = nfs->root()->open(
+    auto of = nfs->root()->open(
         cred, "foo", OpenFlags::CREATE+OpenFlags::TRUNCATE, [](auto){});
-    EXPECT_EQ(0, f->getattr()->size());
+    EXPECT_EQ(0, of->file()->getattr()->size());
 
     // Make sure an exception is raised if the setattr fails
     EXPECT_CALL(*proto.get(), create(matchUnchecked()))
@@ -456,9 +456,9 @@ TEST_F(NfsTest, CreateTruncate2)
                     post_op_attr(true, move(attrs))}});
         }));
 
-    auto f = nfs->root()->open(
+    auto of = nfs->root()->open(
         cred, "foo", OpenFlags::CREATE+OpenFlags::TRUNCATE, [](auto){});
-    EXPECT_EQ(0, f->getattr()->size());
+    EXPECT_EQ(0, of->file()->getattr()->size());
 }
 
 TEST_F(NfsTest, Commit)
@@ -473,7 +473,7 @@ TEST_F(NfsTest, Commit)
                 COMMIT3resok{
                     {pre_op_attr(false), post_op_attr(false)}, {}});
         }));
-    nfs->root()->commit(cred);
+    nfs->root()->open(cred, OpenFlags::RDWR)->commit();
 
     EXPECT_CALL(*proto.get(), commit(_))
         .Times(1)
@@ -483,7 +483,8 @@ TEST_F(NfsTest, Commit)
                 COMMIT3resfail{
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    EXPECT_THROW(nfs->root()->commit(cred), system_error);
+    EXPECT_THROW(
+        nfs->root()->open(cred, OpenFlags::RDWR)->commit(), system_error);
 }
 
 TEST_F(NfsTest, Readlink)
@@ -530,7 +531,8 @@ TEST_F(NfsTest, Read)
                     buf});
         }));
 
-    auto buf = nfs->root()->read(cred, 0, 1024, atEof);
+    auto buf = nfs->root()->open(cred, OpenFlags::READ)
+        ->read(0, 1024, atEof);
     EXPECT_EQ(1024, buf->size());
     for (auto v: *buf)
         EXPECT_EQ(99, v);
@@ -542,7 +544,8 @@ TEST_F(NfsTest, Read)
                 NFS3ERR_INVAL,
                 READ3resfail{post_op_attr(false)});
         }));
-    EXPECT_THROW(nfs->root()->read(cred, 1024, 1024, atEof), system_error);
+    auto of = nfs->root()->open(cred, OpenFlags::READ);
+    EXPECT_THROW(of->read(0, 1024, atEof), system_error);
 }
 
 TEST_F(NfsTest, Write)
@@ -560,7 +563,8 @@ TEST_F(NfsTest, Write)
         }));
     auto buf = make_shared<oncrpc::Buffer>(1024);
     fill_n(buf->data(), 1024, 99);
-    EXPECT_EQ(123, nfs->root()->write(cred, 0, buf));
+    auto of = nfs->root()->open(cred, OpenFlags::READ);
+    EXPECT_EQ(123, of->write(0, buf));
 
     EXPECT_CALL(*proto.get(), write(_))
         .Times(1)
@@ -570,7 +574,7 @@ TEST_F(NfsTest, Write)
                 WRITE3resfail{
                     {pre_op_attr(false), post_op_attr(false)}});
         }));
-    EXPECT_THROW(nfs->root()->write(cred, 1024, buf), system_error);
+    EXPECT_THROW(of->write(0, buf), system_error);
 }
 
 TEST_F(NfsTest, Mkdir)

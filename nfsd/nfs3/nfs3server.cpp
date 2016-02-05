@@ -428,8 +428,9 @@ READ3res NfsServer::read(const READ3args& args)
     shared_ptr<File> obj;
     try {
         obj = importFileHandle(args.file);
+        auto of = obj->open(cred, OpenFlags::READ);
         bool eof;
-        auto data = obj->read(cred, args.offset, args.count, eof);
+        auto data = of->read(args.offset, args.count, eof);
         return READ3res{
             NFS3_OK,
             READ3resok{
@@ -463,10 +464,11 @@ WRITE3res NfsServer::write(const WRITE3args& args)
     shared_ptr<File> obj;
     try {
         obj = importFileHandle(args.file);
-        auto n = obj->write(cred, args.offset, args.data);
+        auto of = obj->open(cred, OpenFlags::WRITE);
+        auto n = of->write(args.offset, args.data);
         stable_how stable = UNSTABLE;
         if (args.stable > UNSTABLE) {
-            obj->commit(cred);
+            of->commit();
             stable = FILE_SYNC;
         }
         return WRITE3res{
@@ -510,17 +512,17 @@ CREATE3res NfsServer::create(const CREATE3args& args)
     try {
         dir = importFileHandle(args.where.dir);
         int flags = OpenFlags::RDWR;
-        shared_ptr<File> obj;
+        shared_ptr<OpenFile> of;
         switch (args.how.mode) {
         case UNCHECKED:
             flags |= OpenFlags::CREATE;
-            obj = dir->open(
+            of = dir->open(
                 cred, args.where.name, flags,
                 importAttr(args.how.obj_attributes()));
             break;
         case GUARDED:
             flags |= OpenFlags::CREATE | OpenFlags::EXCLUSIVE;
-            obj = dir->open(
+            of = dir->open(
                 cred, args.where.name, flags,
                 importAttr(args.how.obj_attributes()));
             break;
@@ -528,12 +530,12 @@ CREATE3res NfsServer::create(const CREATE3args& args)
             uint64_t verf = *reinterpret_cast<const uint64_t*>(
                 args.how.verf().data());
             try {
-                obj = dir->open(cred, args.where.name, flags, [](auto){});
-                if (obj->getattr()->createverf() != verf)
+                of = dir->open(cred, args.where.name, flags, [](auto){});
+                if (of->file()->getattr()->createverf() != verf)
                     throw system_error(EEXIST, system_category());
             } catch (system_error& e) {
                 if (e.code().value() == ENOENT) {
-                    obj = dir->open(
+                    of = dir->open(
                         cred, args.where.name, flags | OpenFlags::CREATE,
                         [verf](auto sattr){
                             sattr->setCreateverf(verf);
@@ -545,6 +547,7 @@ CREATE3res NfsServer::create(const CREATE3args& args)
             }
             break;
         }
+        auto obj = of->file();
         return CREATE3res{
             NFS3_OK,
             CREATE3resok{
@@ -1113,7 +1116,7 @@ COMMIT3res NfsServer::commit(const COMMIT3args& args)
         obj = importFileHandle(args.file);
         wcc = exportWcc(obj);
         // XXX: offset, count
-        obj->commit(cred);
+        obj->open(cred, OpenFlags::WRITE)->commit();
         // XXX: writeverf
         return COMMIT3res{
             NFS3_OK,

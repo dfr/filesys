@@ -59,11 +59,13 @@ TYPED_TEST_P(FilesystemTest, Open)
     auto root = this->fs_->root();
     EXPECT_THROW(
         root->open(this->cred_, "foo", 0, setMode666), std::system_error);
-    auto file = root->open(
+    auto of = root->open(
         this->cred_, "foo", OpenFlags::RDWR+OpenFlags::CREATE, setMode666);
+    auto file = of->file();
     EXPECT_EQ(0666, file->getattr()->mode());
     EXPECT_EQ(
-        file, root->open(this->cred_, "foo", OpenFlags::RDWR, setMode666));
+        file,
+        root->open(this->cred_, "foo", OpenFlags::RDWR, setMode666)->file());
     EXPECT_THROW(root->open(
         this->cred_, "foo",
         OpenFlags::RDWR+OpenFlags::CREATE+OpenFlags::EXCLUSIVE,
@@ -77,41 +79,36 @@ TYPED_TEST_P(FilesystemTest, Open)
 
 TYPED_TEST_P(FilesystemTest, ReadWrite)
 {
+    using filesys::Buffer;
     using filesys::OpenFlags;
     using std::make_shared;
 
     auto root = this->fs_->root();
-    auto file = root->open(
+    auto of = root->open(
         this->cred_, "foo", OpenFlags::RDWR+OpenFlags::CREATE, setMode666);
     uint8_t buf[] = {'f', 'o', 'o'};
 
     // Write at start
-    file->write(this->cred_, 0, make_shared<oncrpc::Buffer>(3, buf));
-    EXPECT_EQ(3, file->getattr()->size());
+    of->write(0, make_shared<Buffer>(3, buf));
+    EXPECT_EQ(3, of->file()->getattr()->size());
     bool eof;
-    EXPECT_EQ("foo", file->read(this->cred_, 0, 3, eof)->toString());
+    EXPECT_EQ("foo", of->read(0, 3, eof)->toString());
     EXPECT_EQ(true, eof);
 
     // Extend by one block, writing over the block boundary
-    file->write(
-        this->cred_, this->blockSize_ - 1,
-        make_shared<oncrpc::Buffer>(3, buf));
-    EXPECT_EQ(this->blockSize_ + 2, file->getattr()->size());
-    EXPECT_EQ("foo", file->read(this->cred_, 4095, 3, eof)->toString());
+    of->write(this->blockSize_ - 1, make_shared<Buffer>(3, buf));
+    EXPECT_EQ(this->blockSize_ + 2, of->file()->getattr()->size());
+    EXPECT_EQ("foo", of->read(this->blockSize_ - 1, 3, eof)->toString());
     EXPECT_EQ(true, eof);
 
     // Extend with a hole
-    file->write(
-        this->cred_, 4*this->blockSize_, make_shared<oncrpc::Buffer>(3, buf));
-    EXPECT_EQ(4*this->blockSize_ + 3, file->getattr()->size());
-    EXPECT_EQ(
-        "foo",
-        file->read(this->cred_, 4*this->blockSize_, 3, eof)->toString());
+    of->write(4*this->blockSize_, make_shared<Buffer>(3, buf));
+    EXPECT_EQ(4*this->blockSize_ + 3, of->file()->getattr()->size());
+    EXPECT_EQ("foo", of->read(4*this->blockSize_, 3, eof)->toString());
     EXPECT_EQ(true, eof);
 
     // Make sure the hole reads as zero
-    auto block = file->read(
-        this->cred_, 3*this->blockSize_, this->blockSize_, eof);
+    auto block = of->read(3*this->blockSize_, this->blockSize_, eof);
     EXPECT_EQ(this->blockSize_, block->size());
     for (int i = 0; i < this->blockSize_; i++)
         EXPECT_EQ(0, block->data()[i]);
@@ -120,37 +117,41 @@ TYPED_TEST_P(FilesystemTest, ReadWrite)
 
 TYPED_TEST_P(FilesystemTest, Truncate)
 {
+    using filesys::Buffer;
     using filesys::OpenFlags;
     using std::make_shared;
 
     auto root = this->fs_->root();
-    auto file = root->open(
+    auto of = root->open(
         this->cred_, "foo", OpenFlags::RDWR+OpenFlags::CREATE, setMode666);
-    auto buf = make_shared<oncrpc::Buffer>(this->blockSize_);
+    auto file = of->file();
+    auto buf = make_shared<Buffer>(this->blockSize_);
     std::fill_n(buf->data(), this->blockSize_, 1);
     for (int i = 0; i < 10; i++)
-        file->write(this->cred_, i * this->blockSize_, buf);
+        of->write(i * this->blockSize_, buf);
     EXPECT_GE(10 * this->blockSize_, file->getattr()->used());
     file->setattr(
         this->cred_, [](auto attr){ attr->setSize(0); });
     file->setattr(
         this->cred_, [=](auto attr){ attr->setSize(this->blockSize_); });
     bool eof;
-    EXPECT_EQ(0, file->read(this->cred_, 0, 1, eof)->data()[0]);
+    EXPECT_EQ(0, of->read(0, 1, eof)->data()[0]);
 }
 
 TYPED_TEST_P(FilesystemTest, Mtime)
 {
+    using filesys::Buffer;
     using filesys::OpenFlags;
     using std::make_shared;
 
     auto root = this->fs_->root();
-    auto file = root->open(
+    auto of = root->open(
         this->cred_, "foo", OpenFlags::RDWR+OpenFlags::CREATE, setMode666);
-    auto buf = make_shared<oncrpc::Buffer>(this->blockSize_);
+    auto file = of->file();
+    auto buf = make_shared<Buffer>(this->blockSize_);
     std::fill_n(buf->data(), this->blockSize_, 1);
     auto mtime = file->getattr()->mtime();
-    file->write(this->cred_, 0, buf);
+    of->write(0, buf);
     EXPECT_LT(mtime, file->getattr()->mtime());
 
     // Test mtime for directory modifying operations
@@ -195,18 +196,20 @@ TYPED_TEST_P(FilesystemTest, Mtime)
 
 TYPED_TEST_P(FilesystemTest, Atime)
 {
+    using filesys::Buffer;
     using filesys::OpenFlags;
     using std::make_shared;
 
     auto root = this->fs_->root();
-    auto file = root->open(
+    auto of = root->open(
         this->cred_, "foo", OpenFlags::RDWR+OpenFlags::CREATE, setMode666);
-    auto buf = make_shared<oncrpc::Buffer>(this->blockSize_);
+    auto file = of->file();
+    auto buf = make_shared<Buffer>(this->blockSize_);
     std::fill_n(buf->data(), this->blockSize_, 1);
-    file->write(this->cred_, 0, buf);
+    of->write(0, buf);
     auto atime = file->getattr()->atime();
     bool eof;
-    file->read(this->cred_, 0, this->blockSize_, eof);
+    of->read(0, this->blockSize_, eof);
     EXPECT_LT(atime, file->getattr()->atime());
 
     atime = root->getattr()->atime();

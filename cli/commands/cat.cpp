@@ -25,20 +25,18 @@ public:
 
     void run(CommandState& state, vector<string>& args) override
     {
-        auto& cred = state.cred();
-
         if (args.size() != 1) {
             usage();
             return;
         }
         try {
-            auto f = state.lookup(args[0]);
-            if (f->getattr()->type() != FileType::FILE)
+            auto of = state.open(args[0], OpenFlags::READ, 0666);
+            if (of->file()->getattr()->type() != FileType::FILE)
                 throw system_error(EISDIR, system_category());
             uint64_t offset = 0;
             bool eof = false;
             while (!eof) {
-                auto data = f->read(cred, offset, 8192, eof);
+                auto data = of->read(offset, 8192, eof);
                 cout.write(reinterpret_cast<char*>(data->data()), data->size());
                 offset += data->size();
             }

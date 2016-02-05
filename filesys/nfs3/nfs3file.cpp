@@ -153,25 +153,10 @@ void NfsFile::setattr(const Credential&, function<void(Setattr*)> cb)
 shared_ptr<File>
 NfsFile::lookup(const Credential&, const string& name)
 {
-    auto fs = fs_.lock();
-    auto res = fs->proto()->lookup(LOOKUP3args{{fh_, name}});
-    if (res.status == NFS3_OK) {
-        auto& resok = res.resok();
-        update(resok.dir_attributes);
-        if (resok.obj_attributes.attributes_follow)
-            return fs->find(
-                resok.object,
-                resok.obj_attributes.attributes());
-        else
-            return fs->find(resok.object);
-    }
-    else {
-        update(res.resfail().dir_attributes);
-        throw mapStatus(res.status);
-    }
+    return lookupInternal(name);
 }
 
-shared_ptr<File>
+shared_ptr<OpenFile>
 NfsFile::open(
     const Credential& cred, const string& name, int flags,
     function<void(Setattr*)> cb)
@@ -202,7 +187,7 @@ NfsFile::open(
             if (flags & OpenFlags::EXCLUSIVE) {
                 f->setattr(cred, cb);
             }
-            return f;
+            return make_shared<NfsOpenFile>(f);
         }
         else {
             update(res.resfail().dir_wcc.after);
@@ -210,28 +195,15 @@ NfsFile::open(
         }
     }
     else {
-        return lookup(cred, name);
+        return make_shared<NfsOpenFile>(lookupInternal(name));
     }
 }
 
-void
-NfsFile::close(const Credential&)
+std::shared_ptr<OpenFile> NfsFile::open(const Credential&, int)
 {
+    return make_shared<NfsOpenFile>(shared_from_this());
 }
 
-void
-NfsFile::commit(const Credential&)
-{
-    auto fs = fs_.lock();
-    auto res = fs->proto()->commit(COMMIT3args{fh_, 0, 0});
-    if (res.status == NFS3_OK) {
-        update(res.resok().file_wcc.after);
-    }
-    else {
-        update(res.resfail().file_wcc.after);
-        throw mapStatus(res.status);
-    }
-}
 
 string
 NfsFile::readlink(const Credential&)
@@ -244,45 +216,6 @@ NfsFile::readlink(const Credential&)
     }
     else {
         update(res.resfail().symlink_attributes);
-        throw mapStatus(res.status);
-    }
-}
-
-shared_ptr<oncrpc::Buffer>
-NfsFile::read(
-    const Credential&, uint64_t offset, uint32_t size, bool& eof)
-{
-    auto fs = fs_.lock();
-    if (size > fs->fsinfo().rtpref)
-        size = fs->fsinfo().rtpref;
-    auto res = fs->proto()->read(READ3args{fh_, offset, size});
-    if (res.status == NFS3_OK) {
-        update(res.resok().file_attributes);
-        eof = res.resok().eof;
-        return move(res.resok().data);
-    }
-    else {
-        update(res.resfail().file_attributes);
-        throw mapStatus(res.status);
-    }
-}
-
-uint32_t
-NfsFile::write(
-    const Credential&, uint64_t offset, shared_ptr<oncrpc::Buffer> data)
-{
-    auto fs = fs_.lock();
-    if (data->size() > fs->fsinfo().wtpref) {
-        data = make_shared<oncrpc::Buffer>(data, 0, fs->fsinfo().wtpref);
-    }
-    auto res = fs->proto()->write(
-        WRITE3args{fh_, offset, count3(data->size()), UNSTABLE, data});
-    if (res.status == NFS3_OK) {
-        // We ignore file_wcc.before since we aren't caching (yet)
-        update(res.resok().file_wcc.after);
-        return res.resok().count;
-    }
-    else {
         throw mapStatus(res.status);
     }
 }
@@ -439,14 +372,35 @@ NfsFile::fsstat(const Credential&)
     return make_shared<NfsFsattr>(statres.resok(), pcres.resok());
 }
 
-shared_ptr<File>
+shared_ptr<NfsFile>
+NfsFile::lookupInternal(const std::string& name)
+{
+    auto fs = fs_.lock();
+    auto res = fs->proto()->lookup(LOOKUP3args{{fh_, name}});
+    if (res.status == NFS3_OK) {
+        auto& resok = res.resok();
+        update(resok.dir_attributes);
+        if (resok.obj_attributes.attributes_follow)
+            return fs->find(
+                resok.object,
+                resok.obj_attributes.attributes());
+        else
+            return fs->find(resok.object);
+    }
+    else {
+        update(res.resfail().dir_attributes);
+        throw mapStatus(res.status);
+    }
+}
+
+shared_ptr<NfsFile>
 NfsFile::find(
     const string& name, const post_op_fh3& fh, const post_op_attr& attr)
 {
-    shared_ptr<File> f;
+    shared_ptr<NfsFile> f;
     if (!fh.handle_follows) {
         LOG(WARNING) << "no filehande returned from create-type RPC";
-        f = lookup(Credential(), name);
+        f = lookupInternal(name);
     }
     else {
         auto fs = fs_.lock();
@@ -472,3 +426,55 @@ NfsFile::update(const fattr3& attr)
     attrTime_ = fs_.lock()->clock()->now();
     attr_ = attr;
 }
+
+shared_ptr<Buffer>
+NfsOpenFile::read(uint64_t offset, uint32_t size, bool& eof)
+{
+    auto fs = file_->nfs();
+    if (size > fs->fsinfo().rtpref)
+        size = fs->fsinfo().rtpref;
+    auto res = fs->proto()->read(READ3args{file_->fh(), offset, size});
+    if (res.status == NFS3_OK) {
+        file_->update(res.resok().file_attributes);
+        eof = res.resok().eof;
+        return move(res.resok().data);
+    }
+    else {
+        file_->update(res.resfail().file_attributes);
+        throw mapStatus(res.status);
+    }
+}
+
+uint32_t
+NfsOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
+{
+    auto fs = file_->nfs();
+    if (data->size() > fs->fsinfo().wtpref) {
+        data = make_shared<Buffer>(data, 0, fs->fsinfo().wtpref);
+    }
+    auto res = fs->proto()->write(
+        WRITE3args{file_->fh(), offset, count3(data->size()), UNSTABLE, data});
+    if (res.status == NFS3_OK) {
+        // We ignore file_wcc.before since we aren't caching (yet)
+        file_->update(res.resok().file_wcc.after);
+        return res.resok().count;
+    }
+    else {
+        throw mapStatus(res.status);
+    }
+}
+
+void
+NfsOpenFile::commit()
+{
+    auto fs = file_->nfs();
+    auto res = fs->proto()->commit(COMMIT3args{file_->fh(), 0, 0});
+    if (res.status == NFS3_OK) {
+        file_->update(res.resok().file_wcc.after);
+    }
+    else {
+        file_->update(res.resfail().file_wcc.after);
+        throw mapStatus(res.status);
+    }
+}
+

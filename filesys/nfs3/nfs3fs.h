@@ -98,18 +98,12 @@ public:
     std::shared_ptr<Getattr> getattr() override;
     void setattr(const Credential& cred, std::function<void(Setattr*)> cb) override;
     std::shared_ptr<File> lookup(const Credential& cred, const std::string& name) override;
-    std::shared_ptr<File> open(
+    std::shared_ptr<OpenFile> open(
         const Credential& cred, const std::string& name, int flags,
         std::function<void(Setattr*)> cb) override;
-    void close(const Credential& cred) override;
-    void commit(const Credential& cred) override;
+    std::shared_ptr<OpenFile> open(
+        const Credential& cred, int flags) override;
     std::string readlink(const Credential& cred) override;
-    std::shared_ptr<oncrpc::Buffer> read(
-        const Credential& cred, std::uint64_t offset, std::uint32_t size,
-        bool& eof) override;
-    std::uint32_t write(
-        const Credential& cred, std::uint64_t offset,
-        std::shared_ptr<oncrpc::Buffer> data) override;
     std::shared_ptr<File> mkdir(
         const Credential& cred, const std::string& name,
         std::function<void(Setattr*)> cb) override;
@@ -134,8 +128,10 @@ public:
 
     const FileId fileid() const { return FileId(attr_.fileid); }
     const nfs_fh3& fh() const { return fh_; }
+    const fattr3& attr() const { return attr_; }
     std::shared_ptr<NfsFilesystem> nfs() const { return fs_.lock(); }
-    std::shared_ptr<File> find(
+    std::shared_ptr<NfsFile> lookupInternal(const std::string& name);
+    std::shared_ptr<NfsFile> find(
         const std::string& name,
         const post_op_fh3& fh, const post_op_attr& attr);
     void update(const post_op_attr& attr);
@@ -146,6 +142,30 @@ private:
     nfs_fh3 fh_;
     detail::Clock::time_point attrTime_;
     fattr3 attr_;
+};
+
+class NfsOpenFile: public OpenFile
+{
+public:
+    NfsOpenFile(std::shared_ptr<NfsFile> file)
+        : file_(file)
+    {
+    }
+
+    ~NfsOpenFile() override
+    {
+    }
+
+    // OpenFile overrides
+    std::shared_ptr<File> file() const override { return file_; }
+    std::shared_ptr<Buffer> read(
+        std::uint64_t offset, std::uint32_t size, bool& eof) override;
+    std::uint32_t write(
+        std::uint64_t offset, std::shared_ptr<Buffer> data) override;
+    void commit() override;
+
+private:
+    std::shared_ptr<NfsFile> file_;
 };
 
 class NfsDirectoryIterator: public DirectoryIterator

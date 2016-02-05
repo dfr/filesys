@@ -130,14 +130,12 @@ shared_ptr<File> PosixFile::lookup(const Credential&, const string& name)
     return fs_.lock()->find(shared_from_this(), name, fd);
 }
 
-shared_ptr<File> PosixFile::open(
+shared_ptr<OpenFile> PosixFile::open(
     const Credential&, const string& name, int flags, function<void(Setattr*)> cb)
 {
     // Don't allow the user to escape the root directory
-    if (name == "..") {
-        if (this == fs_.lock()->root().get())
-            return shared_from_this();
-    }
+    if (name == "..")
+        throw system_error(EACCES, system_category());
     if (name[0] == '/')
         throw system_error(EACCES, system_category());
 
@@ -159,17 +157,13 @@ shared_ptr<File> PosixFile::open(
     fd = ::openat(fd_, name.c_str(), oflag, mode);
     if (fd < 0)
         throw system_error(errno, system_category());
-    return fs_.lock()->find(shared_from_this(), name, fd);
-
-    throw system_error(EISDIR, system_category());
+    return make_shared<PosixOpenFile>(
+        fs_.lock()->find(shared_from_this(), name, fd));
 }
 
-void PosixFile::close(const Credential&)
+std::shared_ptr<OpenFile> PosixFile::open(const Credential&, int)
 {
-}
-
-void PosixFile::commit(const Credential&)
-{
+    return make_shared<PosixOpenFile>(shared_from_this());
 }
 
 string PosixFile::readlink(const Credential&)
@@ -181,38 +175,6 @@ string PosixFile::readlink(const Credential&)
         throw system_error(errno, system_category());
     buf[n] = '\0';
     return buf;
-}
-
-shared_ptr<oncrpc::Buffer>
-PosixFile::read(
-    const Credential&, uint64_t offset, uint32_t count, bool& eof)
-{
-    auto buf = make_shared<oncrpc::Buffer>(count);
-    auto n = ::pread(fd_, buf->data(), count, offset);
-    if (n < 0)
-        throw system_error(errno, system_category());
-    eof = n < count;
-    if (n != count) {
-        // Return a subset of the buffer we allocated
-        buf = make_shared<oncrpc::Buffer>(buf, 0, n);
-    }
-    return buf;
-}
-
-uint32_t PosixFile::write(
-    const Credential&, uint64_t offset, shared_ptr<oncrpc::Buffer> data)
-{
-    auto p = data->data();
-    auto len = data->size();
-    while (len > 0) {
-        auto n = ::pwrite(fd_, p, len, offset);
-        if (n < 0)
-            throw system_error(errno, system_category());
-        p += n;
-        len -= n;
-        offset += n;
-    }
-    return data->size();
 }
 
 shared_ptr<File> PosixFile::mkdir(
@@ -304,4 +266,33 @@ shared_ptr<Fsattr> PosixFile::fsstat(const Credential&)
     res->linkMax_ = ::fpathconf(fd_, _PC_LINK_MAX);
     res->nameMax_ = ::fpathconf(fd_, _PC_NAME_MAX);
     return res;
+}
+
+shared_ptr<Buffer>
+PosixOpenFile::read(uint64_t offset, uint32_t count, bool& eof)
+{
+    auto buf = make_shared<Buffer>(count);
+    auto n = ::pread(file_->fd(), buf->data(), count, offset);
+    if (n < 0)
+        throw system_error(errno, system_category());
+    eof = n < count;
+    if (n != count) {
+        // Return a subset of the buffer we allocated
+        buf = make_shared<Buffer>(buf, 0, n);
+    }
+    return buf;
+}
+
+uint32_t PosixOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
+{
+    auto p = data->data();
+    auto len = data->size();
+    while (len > 0) {
+        auto n = ::pwrite(file_->fd(), p, len, offset);
+        if (n < 0)
+            throw system_error(errno, system_category());
+        p += n;
+        len -= n;
+    }
+    return data->size();
 }

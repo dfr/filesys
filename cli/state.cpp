@@ -62,7 +62,8 @@ shared_ptr<File> CommandState::lookup(const string& name)
     return p.first->lookup(cred_, p.second);
 }
 
-shared_ptr<File> CommandState::open(const string& name, int flags, int mode)
+shared_ptr<OpenFile> CommandState::open(
+    const string& name, int flags, int mode)
 {
     auto p = resolvepath(name);
     return p.first->open(

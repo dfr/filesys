@@ -1,3 +1,4 @@
+// -*- c++ -*-
 #pragma once
 
 #include <fs++/filecache.h>
@@ -113,6 +114,7 @@ struct ObjFileMetaImpl: public ObjFileMeta
 
 class ObjFile: public File, public std::enable_shared_from_this<ObjFile>
 {
+    friend class ObjOpenFile;
 public:
     ObjFile(std::shared_ptr<ObjFilesystem>, FileId fileid);
     ObjFile(std::shared_ptr<ObjFilesystem>, ObjFileMetaImpl&& meta);
@@ -125,18 +127,12 @@ public:
     std::shared_ptr<Getattr> getattr() override;
     void setattr(const Credential& cred, std::function<void(Setattr*)> cb) override;
     std::shared_ptr<File> lookup(const Credential& cred, const std::string& name) override;
-    std::shared_ptr<File> open(
+    std::shared_ptr<OpenFile> open(
         const Credential& cred, const std::string& name, int flags,
         std::function<void(Setattr*)> cb) override;
-    void close(const Credential& cred) override;
-    void commit(const Credential& cred) override;
+    std::shared_ptr<OpenFile> open(
+        const Credential& cred, int flags) override;
     std::string readlink(const Credential& cred) override;
-    std::shared_ptr<oncrpc::Buffer> read(
-        const Credential& cred, std::uint64_t offset, std::uint32_t size,
-        bool& eof) override;
-    std::uint32_t write(
-        const Credential& cred, std::uint64_t offset,
-        std::shared_ptr<oncrpc::Buffer> data) override;
     std::shared_ptr<File> mkdir(
         const Credential& cred, const std::string& name,
         std::function<void(Setattr*)> cb) override;
@@ -171,7 +167,7 @@ public:
         bool saveMeta);
     void unlink(Transaction* trans, const std::string& name, ObjFile* file,
         bool saveMeta);
-    std::shared_ptr<File> createNewFile(
+    std::shared_ptr<ObjFile> createNewFile(
         std::unique_lock<std::mutex>& lock,
         const Credential& cred,
         PosixType type,
@@ -185,6 +181,31 @@ private:
     std::mutex mutex_;
     std::weak_ptr<ObjFilesystem> fs_;
     ObjFileMetaImpl meta_;
+    int fd_ = -1;
+};
+
+class ObjOpenFile: public OpenFile
+{
+public:
+    ObjOpenFile(const Credential& cred, std::shared_ptr<ObjFile> file)
+        : cred_(cred),
+          file_(file)
+    {
+    }
+
+    ~ObjOpenFile() override;
+
+    // OpenFile overrides
+    std::shared_ptr<File> file() const override { return file_; }
+    std::shared_ptr<Buffer> read(
+        std::uint64_t offset, std::uint32_t size, bool& eof) override;
+    std::uint32_t write(
+        std::uint64_t offset, std::shared_ptr<Buffer> data) override;
+    void commit() override;
+
+private:
+    Credential cred_;
+    std::shared_ptr<ObjFile> file_;
     int fd_ = -1;
 };
 

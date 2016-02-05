@@ -1,3 +1,4 @@
+// -*- c++ -*-
 #pragma once
 
 #include <dirent.h>
@@ -12,6 +13,7 @@
 namespace filesys {
 namespace posix {
 
+class PosixFile;
 class PosixFilesystem;
 
 class PosixGetattr: public Getattr
@@ -121,18 +123,12 @@ public:
     std::shared_ptr<Getattr> getattr() override;
     void setattr(const Credential& cred, std::function<void(Setattr*)> cb) override;
     std::shared_ptr<File> lookup(const Credential& cred, const std::string& name) override;
-    std::shared_ptr<File> open(
+    std::shared_ptr<OpenFile> open(
         const Credential& cred, const std::string& name, int flags,
         std::function<void(Setattr*)> cb) override;
-    void close(const Credential& cred) override;
-    void commit(const Credential& cred) override;
+    std::shared_ptr<OpenFile> open(
+        const Credential& cred, int flags) override;
     std::string readlink(const Credential& cred) override;
-    std::shared_ptr<oncrpc::Buffer> read(
-        const Credential& cred, std::uint64_t offset, std::uint32_t size,
-        bool& eof) override;
-    std::uint32_t write(
-        const Credential& cred, std::uint64_t offset,
-        std::shared_ptr<oncrpc::Buffer> data) override;
     std::shared_ptr<File> mkdir(
         const Credential& cred, const std::string& name,
         std::function<void(Setattr*)> cb) override;
@@ -164,6 +160,26 @@ private:
     std::string name_;
     FileId id_;
     int fd_;
+};
+
+class PosixOpenFile: public OpenFile
+{
+public:
+    PosixOpenFile(std::shared_ptr<PosixFile> file)
+        : file_(file)
+    {
+    }
+
+    // OpenFile overrides
+    std::shared_ptr<File> file() const override { return file_; }
+    std::shared_ptr<Buffer> read(
+        std::uint64_t offset, std::uint32_t size, bool& eof) override;
+    std::uint32_t write(
+        std::uint64_t offset, std::shared_ptr<Buffer> data) override;
+    void commit() override {}
+
+private:
+    std::shared_ptr<PosixFile> file_;
 };
 
 class PosixDirectoryIterator: public DirectoryIterator
