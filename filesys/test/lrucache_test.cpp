@@ -75,6 +75,22 @@ TEST_F(FileCacheTest, LRU)
     EXPECT_EQ(false, cache.contains(3));
 }
 
+TEST_F(FileCacheTest, Busy)
+{
+    EXPECT_CALL(cb, ctor(_))
+        .Times(cache.sizeLimit() + 1)
+        .WillRepeatedly(Invoke(newFile));
+
+    // Entry 1 should expire since entry 0 will be busy
+    auto e0 = cache.find(0, update, ctor);
+    for (int i = 1; i < cache.sizeLimit() + 1; i++) {
+        cache.find(i, update, ctor);
+    }
+    EXPECT_EQ(cache.sizeLimit(), cache.size());
+    EXPECT_EQ(true, cache.contains(0));
+    EXPECT_EQ(false, cache.contains(1));
+}
+
 TEST_F(FileCacheTest, Multithread)
 {
     EXPECT_CALL(cb, ctor(_))

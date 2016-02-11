@@ -99,10 +99,23 @@ private:
         assert(lock);
         // Expire old entries if the cache is full
         while (cache_.size() > sizeLimit_) {
-            const auto& oldest = lru_.back();
-            //VLOG(2) << "expiring fileid: " << oldest->fileid();
-            cache_.erase(oldest.first);
-            lru_.pop_back();
+	    bool expiredOne = false;
+	    for (auto i = lru_.rbegin(); i != lru_.rend(); ++i) {
+		if (i->second.unique()) {
+		    // This entry is only referenced by the cache so
+		    // we can expire it.
+		    const auto& oldest = *i;
+		    //VLOG(2) << "expiring fileid: " << oldest->fileid();
+		    auto p = cache_[oldest.first];
+		    cache_.erase(oldest.first);
+		    lru_.erase(p);
+		    expiredOne = true;
+		    break;
+		}
+	    }
+	    // If the whole cache is busy, just let it grow
+	    if (!expiredOne)
+		break;
         }
     }
 
