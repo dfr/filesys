@@ -254,6 +254,7 @@ void NfsCallbackService::compound(oncrpc::CallContext&& ctx)
                         }
                     }
                     if (xreply != xresults) {
+                        xreply->flush();
                         slotp->reply->copyTo(xresults);
                     }
                 });
@@ -292,15 +293,16 @@ nfsstat4 NfsCallbackService::dispatchop(
 #undef OP
 }
 
-void NfsCallbackService::bind(shared_ptr<oncrpc::ServiceRegistry> svcreg)
+void NfsCallbackService::bind(
+    uint32_t prog, shared_ptr<oncrpc::ServiceRegistry> svcreg)
 {
     using placeholders::_1;
     svcreg->add(
-        NFS4_CALLBACK, NFS_CB,
-        std::bind(&NfsCallbackService::dispatch, this, _1));
+        prog, NFS_CB, std::bind(&NfsCallbackService::dispatch, this, _1));
 }
 
-void NfsCallbackService::unbind(shared_ptr<oncrpc::ServiceRegistry> svcreg)
+void NfsCallbackService::unbind(
+    uint32_t prog, shared_ptr<oncrpc::ServiceRegistry> svcreg)
 {
-    svcreg->remove(NFS4_CALLBACK, NFS_CB);
+    svcreg->remove(prog, NFS_CB);
 }

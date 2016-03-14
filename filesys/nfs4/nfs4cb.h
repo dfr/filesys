@@ -70,8 +70,8 @@ public:
     void compound(oncrpc::CallContext&& ctx);
     nfsstat4 dispatchop(
         nfs_cb_opnum4 op, oncrpc::XdrSource* xargs, oncrpc::XdrSink* xresults);
-    void bind(std::shared_ptr<oncrpc::ServiceRegistry> svcreg);
-    void unbind(std::shared_ptr<oncrpc::ServiceRegistry> svcreg);
+    void bind(uint32_t prog, std::shared_ptr<oncrpc::ServiceRegistry> svcreg);
+    void unbind(uint32_t prog, std::shared_ptr<oncrpc::ServiceRegistry> svcreg);
 
     void setSlots(int slots)
     {

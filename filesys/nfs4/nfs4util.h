@@ -72,6 +72,14 @@ struct NfsSessionIdHash
     }
 };
 
+struct NfsStateOwnerHash
+{
+    size_t operator()(const filesys::nfs4::state_owner4& owner) const
+    {
+        return owner.clientid ^ _djb2(owner.owner);
+    }
+};
+
 static inline int operator==(
     const filesys::nfs4::stateid4& x,
     const filesys::nfs4::stateid4& y)
@@ -93,6 +101,21 @@ static inline int operator==(
     return x.co_verifier == y.co_verifier &&
            x.co_ownerid == y.co_ownerid;
 }
+
+static inline int operator==(
+    const filesys::nfs4::state_owner4& x,
+    const filesys::nfs4::state_owner4& y)
+{
+    return x.clientid == y.clientid && x.owner == y.owner;
+}
+
+static inline int operator!=(
+    const filesys::nfs4::state_owner4& x,
+    const filesys::nfs4::state_owner4& y)
+{
+    return x.clientid != y.clientid || x.owner != y.owner;
+}
+
 
 static inline int operator!=(const nfstime4& x, const nfstime4& y)
 {
@@ -201,6 +224,12 @@ static inline void set(bitmap4& bm, int bit)
     bm[word] |= (1 << bit);
 }
 
+static inline bitmap4& operator+=(bitmap4& bm, int bit)
+{
+    set(bm, bit);
+    return bm;
+}
+
 static inline void clear(bitmap4& bm, int bit)
 {
     int word = bit / 32;
@@ -208,6 +237,12 @@ static inline void clear(bitmap4& bm, int bit)
     while (word >= bm.size())
         bm.push_back(0);
     bm[word] &= ~(1 << bit);
+}
+
+static inline bitmap4& operator-=(bitmap4& bm, int bit)
+{
+    clear(bm, bit);
+    return bm;
 }
 
 static inline bool isset(const bitmap4& bm, int bit)
@@ -244,7 +279,7 @@ static inline int firstSetBit(uint32_t set)
     //                 break
     //     if (i & 15) == 15:
     //         print
-    uint8_t table[256] = {
+    static uint8_t table[256] = {
         0, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
         4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
         5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,

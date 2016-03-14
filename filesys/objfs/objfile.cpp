@@ -73,12 +73,13 @@ bool ObjFile::access(const Credential& cred, int accmode)
 
 shared_ptr<Getattr> ObjFile::getattr()
 {
-    unique_lock<mutex> lock(mutex_);
-    // XXX: defer the call to spaceUsed until Getattr::used is called?
-    auto fs = fs_.lock();
-    DataKeyType start(fileid(), 0);
-    DataKeyType end(fileid(), ~0ull);
-    auto used = fs->db()->spaceUsed(fs->dataNS(), start, end);
+    auto used = [this]() {
+        unique_lock<mutex> lock(mutex_);
+        auto fs = fs_.lock();
+        DataKeyType start(fileid(), 0);
+        DataKeyType end(fileid(), ~0ull);
+        return fs->db()->spaceUsed(fs->dataNS(), start, end);
+    };
     return make_shared<ObjGetattr>(fileid(), meta_.attr, used);
 }
 
@@ -724,6 +725,8 @@ uint32_t ObjOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
             boff = 0;
             bn++;
         }
+        needFlush_ = true;
+        lock.unlock();
 
         fs->db()->commit(move(trans));
         return len;
@@ -735,6 +738,10 @@ uint32_t ObjOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
 
 void ObjOpenFile::flush()
 {
-    // XXX: possibly too expensive
-    file_->fs_.lock()->db()->flush();
+    unique_lock<mutex> lock(file_->mutex_);
+    if (needFlush_) {
+        needFlush_ = false;
+        lock.unlock();
+        file_->fs_.lock()->db()->flush();
+    }
 }

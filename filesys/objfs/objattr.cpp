@@ -56,7 +56,7 @@ std::uint64_t ObjGetattr::size() const
 
 std::uint64_t ObjGetattr::used() const
 {
-    return used_;
+    return used_();
 }
 
 FileId ObjGetattr::fileid() const

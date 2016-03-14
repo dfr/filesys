@@ -11,7 +11,10 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "threadpool.h"
+
 #include "nfs3/nfs3.h"
+#include "nfs4/nfs4.h"
 
 using namespace filesys;
 using namespace nfsd;
@@ -21,8 +24,11 @@ using namespace std;
 DEFINE_int32(port, 2049, "port to listen for connections");
 DEFINE_int32(iosize, 65536, "maximum size for read or write requests");
 DEFINE_int32(idle_timeout, 30, "idle timeout in seconds");
+DEFINE_int32(grace_time, 120, "NFSv4 grace period time in seconds");
+DEFINE_int32(lease_time, 120, "NFSv4 lease time in seconds");
 DEFINE_string(sec, "sys", "Acceptable authentication flavors");
 DEFINE_string(realm, "", "Local krb5 realm name");
+DEFINE_int32(threads, 0, "Number of worker threads");
 
 static map<string, int> flavors {
     { "sys", AUTH_SYS },
@@ -76,7 +82,13 @@ int main(int argc, char** argv)
 
     auto sockman = make_shared<SocketManager>();
     sockman->setIdleTimeout(std::chrono::seconds(FLAGS_idle_timeout));
-    auto addrs = getAddressInfo("tcp://[::]:" + to_string(FLAGS_port), "tcp");
+    vector<AddressInfo> addrs;
+    for (auto& ai:
+             getAddressInfo("tcp://[::]:" + to_string(FLAGS_port), "tcp"))
+        addrs.push_back(ai);
+    for (auto& ai:
+             getAddressInfo("tcp://0.0.0.0:" + to_string(FLAGS_port), "tcp"))
+        addrs.push_back(ai);
     vector<AddressInfo> boundAddrs;
     for (auto& ai: addrs) {
         try {
@@ -97,7 +109,11 @@ int main(int argc, char** argv)
             exit(1);
         }
     }
-    nfs3::init(svcreg, sec, boundAddrs);
+
+    auto threadpool = make_shared<ThreadPool>(FLAGS_threads);
+
+    nfs3::init(svcreg, threadpool, sec, boundAddrs);
+    nfs4::init(svcreg, threadpool, sec, boundAddrs);
 
     sockman->run();
 }

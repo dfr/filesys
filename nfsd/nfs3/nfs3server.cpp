@@ -179,7 +179,7 @@ static fattr3 exportAttr(shared_ptr<File> file)
     res.size = attr->size();
     res.used = attr->used();
     res.rdev = specdata3{0, 0},
-    res.fsid = 0,
+    res.fsid = 0,               // XXX
     res.fileid = attr->fileid();
     res.atime = exportTime(attr->atime());
     res.mtime = exportTime(attr->mtime());
@@ -397,11 +397,11 @@ READLINK3res NfsServer::readlink(const READLINK3args& args)
     shared_ptr<File> obj;
     try {
         obj = importFileHandle(args.symlink);
+        auto data = obj->readlink(cred);
         return READLINK3res{
             NFS3_OK,
             READLINK3resok{
-                post_op_attr(true, exportAttr(obj)),
-                obj->readlink(cred)}};
+                post_op_attr(true, exportAttr(obj)), data}};
     }
     catch (system_error& e) {
         if (obj) {
@@ -1042,15 +1042,15 @@ FSINFO3res NfsServer::fsinfo(const FSINFO3args& args)
             NFS3_OK,
             FSINFO3resok{
                 post_op_attr(true, exportAttr(obj)),
-                sz,          // rtmax
-                sz,           // rtpref
-                512,            // rtmult
-                sz,          // wtmax
-                sz,           // wtpref
-                512,            // wtmult
-                sz,           // dtpref
+                sz,                    // rtmax
+                sz,                    // rtpref
+                512,                   // rtmult
+                sz,                    // wtmax
+                sz,                    // wtpref
+                512,                   // wtmult
+                sz,                    // dtpref
                 0xffffffffffffffffull, // maxfilesize
-                {0, 1},         // timedelta
+                {0, 1},                // timedelta
                 properties}};
     }
     catch (system_error& e) {

@@ -16,17 +16,19 @@ using namespace nfsd::nfs3;
 using namespace oncrpc;
 using namespace std;
 
-DEFINE_int32(iosize, 65536, "maximum size for read or write requests");
+DECLARE_int32(iosize);
 
-class Nfs3Test
+class Nfs3TestBase
 {
 public:
-    Nfs3Test()
+    Nfs3TestBase()
         : fsman_(FilesystemManager::instance())
     {
+        clock_ = make_shared<detail::MockClock>();
+
         // Create a scratch filesystem to 'export'
         system("rm -rf ./testdb");
-        objfs_ = fsman_.mount<ObjFilesystem>("/", "testdb");
+        objfs_ = fsman_.mount<ObjFilesystem>("/", "testdb", clock_);
         Credential cred(0, 0, {}, true);
         objfs_->root()->setattr(cred, setMode777);
         blockSize_ = objfs_->blockSize();
@@ -34,7 +36,7 @@ public:
         // Register mount and nfs services with oncrpc
         svcreg_ = make_shared<ServiceRegistry>();
         chan_ = make_shared<LocalChannel>(svcreg_);
-        nfsd::nfs3::init(svcreg_, {AUTH_SYS}, {});
+        nfsd::nfs3::init(svcreg_, nullptr, {AUTH_SYS}, {});
 
         // Try to mount our test filesystem
         Mountprog3<oncrpc::SysClient> prog(chan_);
@@ -52,12 +54,11 @@ public:
         // Connect an instance of NfsFilesystem using our local channel
         proto_ = make_shared<NfsProgram3<oncrpc::SysClient>>(chan_);
         proto_->client()->set(cred);
-        auto clock = make_shared<detail::SystemClock>();
         fs_ = make_shared<NfsFilesystem>(
-            proto_, clock, nfs_fh3{move(info.fhandle)});
+            proto_, clock_, nfs_fh3{move(info.fhandle)});
     }
 
-    ~Nfs3Test()
+    ~Nfs3TestBase()
     {
         fsman_.unmountAll();
     }
@@ -67,6 +68,7 @@ public:
         proto_->client()->set(cred);
     }
 
+    shared_ptr<detail::MockClock> clock_;
     FilesystemManager& fsman_;
     shared_ptr<ObjFilesystem> objfs_;       // objfs backing store
     size_t blockSize_;
@@ -76,16 +78,16 @@ public:
     shared_ptr<Channel> chan_;              // oncrpc plumbing
 };
 
-INSTANTIATE_TYPED_TEST_CASE_P(Nfs3Test, FilesystemTest, Nfs3Test);
+INSTANTIATE_TYPED_TEST_CASE_P(Nfs3Test, FilesystemTest, Nfs3TestBase);
 
 // Extra tests for NFSv3
 
-class Nfs3TestExtra: public Nfs3Test, public ::testing::Test
+class Nfs3Test: public Nfs3TestBase, public ::testing::Test
 {
 public:
 };
 
-TEST_F(Nfs3TestExtra, ReaddirLarge)
+TEST_F(Nfs3Test, ReaddirLarge)
 {
     Credential cred(0, 0, {}, true);
     auto root = fs_->root();

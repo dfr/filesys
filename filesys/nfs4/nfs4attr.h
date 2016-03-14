@@ -65,6 +65,7 @@ struct NfsAttr
     fattr4_space_total space_total_ = 0;
     fattr4_maxread maxread_ = 0;
     fattr4_maxread maxwrite_ = 0;
+    fattr4_lease_time lease_time_ = 0;
 
     // Used for reporting constant-valued attributes
     bool true_ = true;
@@ -171,6 +172,9 @@ static void xdr(oncrpc::RefType<NfsAttr, XDR> v, XDR* xdrs)
                 break;
             case FATTR4_NAMED_ATTR:
                 xdr(v.false_, xdrs);
+                break;
+            case FATTR4_LEASE_TIME:
+                xdr(v.lease_time_, xdrs);
                 break;
             default:
                 abort();

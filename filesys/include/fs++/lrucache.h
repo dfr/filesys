@@ -94,6 +94,21 @@ public:
     auto hits() const { return hits_; }
     auto misses() const { return misses_; }
 
+    std::unique_lock<std::mutex> lock()
+    {
+        return std::unique_lock<std::mutex>(mutex_);
+    }
+
+    template <typename TAG>
+    std::unique_lock<std::mutex> lock(TAG tag)
+    {
+        return std::unique_lock<std::mutex>(mutex_, tag);
+    }
+
+    // Support for iterating over the cace
+    auto begin() { return lru_.begin(); }
+    auto end() { return lru_.end(); }
+
 private:
 
     void add(std::unique_lock<std::mutex>&& lock,

@@ -198,11 +198,18 @@ shared_ptr<OpenFile> NfsFile::open(
             enc.putfh(fh_);
             enc.getattr(wanted);
             int access = 0;
+            int deny = 0;
             if (flags & OpenFlags::READ) {
                 access |= OPEN4_SHARE_ACCESS_READ;
             }
             if (flags & OpenFlags::WRITE) {
                 access |= OPEN4_SHARE_ACCESS_WRITE;
+            }
+            if (flags & OpenFlags::SHLOCK) {
+                deny |= OPEN4_SHARE_DENY_WRITE;
+            }
+            if (flags & OpenFlags::EXLOCK) {
+                deny |= OPEN4_SHARE_DENY_BOTH;
             }
             openflag4 openflag;
             if (flags & OpenFlags::CREATE) {
@@ -231,7 +238,7 @@ shared_ptr<OpenFile> NfsFile::open(
                 openflag = openflag4(OPEN4_NOCREATE);
             }
             enc.open(
-                0, access, OPEN4_SHARE_DENY_NONE, oo, move(openflag),
+                0, access, deny, oo, move(openflag),
                 open_claim4(CLAIM_NULL, toUtf8string(name)));
             enc.getattr(wanted);
             enc.getfh();
@@ -277,7 +284,7 @@ std::shared_ptr<OpenFile> NfsFile::open(const Credential& cred, int flags)
                         attr_.change_++;
                         lastChange_ = attr_.change_;
                     }
-                    attr_.time_modify_ = toNfsTime(chrono::system_clock::now());
+                    attr_.time_modify_ = toNfsTime(fs->clock()->now());
                     attr_.size_ = 0;
                 }
                 else {
@@ -297,6 +304,7 @@ std::shared_ptr<OpenFile> NfsFile::open(const Credential& cred, int flags)
         [this, flags, &oo](auto& enc) {
             enc.putfh(fh_);
             int access = 0;
+            int deny = 0;
             if (flags & OpenFlags::READ) {
                 access |= OPEN4_SHARE_ACCESS_READ;
                 //access |= OPEN4_SHARE_ACCESS_WANT_READ_DELEG;
@@ -305,8 +313,14 @@ std::shared_ptr<OpenFile> NfsFile::open(const Credential& cred, int flags)
                 access |= OPEN4_SHARE_ACCESS_WRITE;
                 //access |= OPEN4_SHARE_ACCESS_WANT_WRITE_DELEG;
             }
+            if (flags & OpenFlags::SHLOCK) {
+                deny |= OPEN4_SHARE_DENY_WRITE;
+            }
+            if (flags & OpenFlags::EXLOCK) {
+                deny |= OPEN4_SHARE_DENY_BOTH;
+            }
             enc.open(
-                0, access, OPEN4_SHARE_DENY_NONE, oo,
+                0, access, deny, oo,
                 openflag4(OPEN4_NOCREATE), open_claim4(CLAIM_FH));
         },
         [this, &res](auto& dec) {
@@ -596,13 +610,14 @@ std::shared_ptr<Buffer> NfsFile::read(
     const stateid4& stateid, std::uint64_t offset, std::uint32_t count,
     bool& eof)
 {
+    auto fs = fs_.lock();
     std::unique_lock<std::mutex> lock(mutex_);
     auto buf = cache_.get(offset, count);
     if (buf) {
         VLOG(1) << "fileid: " << attr_.fileid_
                 << ": read cache hit, offset: " << offset;
         eof = offset + buf->size() == attr_.size_;
-        auto now = toNfsTime(chrono::system_clock::now());
+        auto now = toNfsTime(fs->clock()->now());
         attr_.time_access_ = now;
         // XXX: avoid the rpc if we have a delegation?
         fs_.lock()->compound(
@@ -625,8 +640,6 @@ std::shared_ptr<Buffer> NfsFile::read(
     VLOG(1) << "fileid: " << attr_.fileid_
             << ": read cache miss, offset: " << offset;
     lock.unlock();
-
-    auto fs = fs_.lock();
 
     if (count > fs->fsinfo().maxread)
         count = fs->fsinfo().maxread;
@@ -655,6 +668,7 @@ std::uint32_t NfsFile::write(
     const stateid4& stateid, std::uint64_t offset,
     std::shared_ptr<Buffer> data)
 {
+    auto fs = fs_.lock();
     std::unique_lock<std::mutex> lock(mutex_);
     auto deleg = delegation_.lock();
     if (deleg && deleg->isWrite()) {
@@ -666,13 +680,12 @@ std::uint32_t NfsFile::write(
         }
         if (offset + data->size() > attr_.size_)
             attr_.size_ = offset + data->size();
-        attr_.time_modify_ = toNfsTime(chrono::system_clock::now());
+        attr_.time_modify_ = toNfsTime(fs->clock()->now());
         cache_.add(detail::DataCache::DIRTY, offset, data);
         return data->size();
     }
     lock.unlock();
 
-    auto fs = fs_.lock();
     if (data->size() > fs->fsinfo().maxwrite)
         data = make_shared<Buffer>(data, 0, fs->fsinfo().maxwrite);
     WRITE4resok res;
@@ -823,34 +836,139 @@ void NfsFile::update(fattr4&& attr)
     }
 }
 
+void NfsFile::recover()
+{
+    auto of = open_.lock();
+    if (of) {
+        auto fs = fs_.lock();
+
+        // We open everything with the same owner
+        open_owner4 oo{ fs->clientid(), { 1, 0, 0, 0 } };
+        OPEN4resok res;
+        fs->compound(
+            [this, of, &oo](auto& enc) {
+                enc.putfh(fh_);
+                int access = 0;
+                int deny = 0;
+                if (of->flags() & OpenFlags::READ) {
+                    access |= OPEN4_SHARE_ACCESS_READ;
+                    //access |= OPEN4_SHARE_ACCESS_WANT_READ_DELEG;
+                }
+                if (of->flags() & OpenFlags::WRITE) {
+                    access |= OPEN4_SHARE_ACCESS_WRITE;
+                    //access |= OPEN4_SHARE_ACCESS_WANT_WRITE_DELEG;
+                }
+                if (of->flags() & OpenFlags::SHLOCK) {
+                    deny |= OPEN4_SHARE_DENY_WRITE;
+                }
+                if (of->flags() & OpenFlags::EXLOCK) {
+                    deny |= OPEN4_SHARE_DENY_BOTH;
+                }
+                enc.open(
+                    0, access, deny, oo,
+                    openflag4(OPEN4_NOCREATE),
+                    open_claim4(CLAIM_PREVIOUS, OPEN_DELEGATE_NONE));
+            },
+            [this, of, &res](auto& dec) {
+                dec.putfh();
+                try {
+                    res = dec.open();
+                }
+                catch (nfsstat4 stat) {
+                    if (stat == NFS4ERR_NO_GRACE) {
+                        // It looks like the server did not restart -
+                        // this recovery must have been prompted by a
+                        // network partition. There isn't much we can
+                        // do here safely - mark the object as dead.
+                        of->setDead();
+                        open_.reset();
+                        return;
+                    }
+                }
+            });
+        of->setStateid(res.stateid);
+    }
+}
+
+void NfsFile::testState()
+{
+    auto of = open_.lock();
+    if (of) {
+        auto fs = fs_.lock();
+        bool bad = false;
+        fs->compound(
+            [of](auto& enc) {
+                enc.test_stateid(vector<stateid4>{of->stateid()});
+            },
+            [of, &bad](auto& dec) {
+                auto res = dec.test_stateid();
+                if (res.tsr_status_codes[0] != NFS4_OK)
+                    bad = true;
+            });
+        if (bad) {
+            fs->compound(
+                [of](auto& enc) {
+                    enc.free_stateid(of->stateid());
+                },
+                [of, bad](auto& dec) {
+                    dec.free_stateid();
+                });
+            of->setDead();
+            open_.reset();
+        }
+    }
+}
+
 NfsOpenFile::~NfsOpenFile()
 {
-    file_->flush(stateid_, true);
-    auto fs = file_->nfs();
-    fs->compound(
-        [this](auto& enc) {
-            enc.putfh(file_->fh());
-            enc.close(0, stateid_);
-        },
-        [this](auto& dec) {
-            dec.putfh();
-            dec.close();
-        });
+    if (!dead_) {
+        file_->flush(stateid_, true);
+        auto fs = file_->nfs();
+        fs->compound(
+            [this](auto& enc) {
+                enc.putfh(file_->fh());
+                enc.close(0, stateid_);
+            },
+            [this](auto& dec) {
+                dec.putfh();
+                try {
+                    dec.close();
+                }
+                catch (nfsstat4 stat) {
+                    // Ignore NFS4ERR_BAD_STATEID here. This can
+                    // happen if the server restarts or expires our
+                    // client. We can't easily recover since the
+                    // NfsFile's weak_ptr is already invalid.
+                    //
+                    // XXX we could mitigate by moving the stateid_ to
+                    // NfsFile which would be ok since we only allow
+                    // one NfsOpenFile instance per NfsFile instance.
+                    if (stat != NFS4ERR_BAD_STATEID)
+                        throw;
+                }
+            });
+    }
     stateid_ = STATEID_INVALID;
 }
 
 shared_ptr<Buffer> NfsOpenFile::read(
     uint64_t offset, uint32_t count, bool& eof)
 {
+    if (dead_)
+        throw system_error(EBADF, system_category());
     return file_->read(stateid_, offset, count, eof);
 }
 
 uint32_t NfsOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
 {
+    if (dead_)
+        throw system_error(EBADF, system_category());
     return file_->write(stateid_, offset, data);
 }
 
 void NfsOpenFile::flush()
 {
+    if (dead_)
+        throw system_error(EBADF, system_category());
     file_->flush(stateid_, true);
 }

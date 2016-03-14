@@ -1,12 +1,20 @@
 cc_binary(
     name = "nfsd",
     copts = ["-std=c++14"],
-    srcs = glob(["*.cpp"]),
+    srcs = glob(["*.cpp", "*.h"]),
     deps = [
         ":nfs3",
+	":nfs4",
+        ":threadpool",
         "//rpcxx",
         "//filesys",
     ]
+)
+
+cc_library(
+    name = "threadpool",
+    copts = ["-std=c++14"],
+    srcs = glob(["*.h"]),
 )
 
 cc_library(
@@ -20,6 +28,23 @@ cc_library(
         "//filesys:nfs_prot"
     ],
     deps = [
+        ":threadpool",
+        "//rpcxx",
+        "//filesys",
+    ]
+)
+
+cc_library(
+    name = "nfs4",
+    copts = ["-std=c++14"],
+    srcs = glob([
+        "nfs4/*.cpp",
+        "nfs4/*.h",
+    ]) + [
+        "//filesys:nfs4_prot"
+    ],
+    deps = [
+        ":threadpool",
         "//rpcxx",
         "//filesys",
     ]
@@ -37,6 +62,7 @@ cc_test(
     srcs = glob(["test/*.cpp"]),
     deps = [
         ":nfs3",
+        ":nfs4",
         "//third_party/gtest:gtest_main",
     ],
     linkstatic = 1,

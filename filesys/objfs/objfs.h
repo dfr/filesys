@@ -17,7 +17,8 @@ class ObjFilesystem;
 class ObjGetattr: public Getattr
 {
 public:
-    ObjGetattr(FileId fileid, const PosixAttr& attr, std::uint64_t used)
+    ObjGetattr(FileId fileid, const PosixAttr& attr,
+               std::function<std::uint64_t()> used)
         : fileid_(fileid),
           attr_(attr),
           used_(used)
@@ -43,7 +44,7 @@ public:
 private:
     FileId fileid_;
     PosixAttr attr_;
-    std::uint64_t used_;
+    std::function<std::uint64_t()> used_;
 };
 
 class ObjSetattr: public Setattr
@@ -209,6 +210,7 @@ public:
 private:
     Credential cred_;
     std::shared_ptr<ObjFile> file_;
+    bool needFlush_ = false;
     int fd_ = -1;
 };
 

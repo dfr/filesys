@@ -162,6 +162,8 @@ public:
         std::shared_ptr<Buffer> data);
     void flush(const stateid4& stateid, bool commit);
     void update(fattr4&& attr);
+    void recover();
+    void testState();
 
 private:
     std::mutex mutex_;
@@ -214,10 +216,16 @@ public:
         flags_ = flags;
     }
 
+    void setDead()
+    {
+        dead_ = true;
+    }
+
 private:
     std::shared_ptr<NfsFile> file_;
     stateid4 stateid_;
     int flags_;
+    bool dead_ = false;
 };
 
 /// Each instance of this class tracks an active delegation
@@ -364,6 +372,7 @@ public:
                 lock.unlock();
 
                 int newTarget;
+                bool revoked = false;
                 chan_->call(
                     client_.get(), NFSPROC4_COMPOUND,
                     [&args, slot, seq, this](auto xdrs) {
@@ -372,20 +381,30 @@ public:
                             sessionid_, seq, slot, highestSlot_, false);
                         args(enc);
                     },
-                    [&res, &newTarget, this](auto xdrs) {
+                    [&res, &newTarget, &revoked, this](auto xdrs) {
                         CompoundReplyDecoder dec(tag_, xdrs);
-                        newTarget = dec.sequence().sr_target_highest_slotid;
+                        auto seqres = dec.sequence();
+                        newTarget = seqres.sr_target_highest_slotid;
+                        constexpr int revflags =
+                            SEQ4_STATUS_EXPIRED_ALL_STATE_REVOKED +
+                            SEQ4_STATUS_EXPIRED_SOME_STATE_REVOKED +
+                            SEQ4_STATUS_ADMIN_STATE_REVOKED +
+                            SEQ4_STATUS_RECALLABLE_STATE_REVOKED;
+                        if (seqres.sr_status_flags & revflags)
+                            revoked = true;
                         res(dec);
                     });
 
                 p.reset();
                 if (newTarget != targetHighestSlot_) {
                     lock.lock();
-                    while (slots_.size() <= newTarget)
-                        slots_.emplace_back(Slot{1, false});
+                    if (slots_.size() < newTarget + 1)
+                        slots_.resize(newTarget + 1);
                     targetHighestSlot_ = newTarget;
                     lock.unlock();
                 }
+                if (revoked)
+                    freeRevokedState();
                 return;
             }
             catch (nfsstat4 st) {
@@ -437,12 +456,15 @@ private:
     // Connect to server, establishing clientid and session
     void connect();
 
+    // Iterate over current state and identify any revoked state
+    void freeRevokedState();
+
     // Service incoming RPC messages on the back channel
     void handleCallbacks();
 
     struct Slot {
-        sequenceid4 sequence_;
-        bool busy_;
+        sequenceid4 sequence_ = 1;
+        bool busy_ = false;
     };
 
     std::mutex mutex_;
@@ -452,12 +474,13 @@ private:
     std::shared_ptr<IIdMapper> idmapper_;
     std::string tag_;
     client_owner4 clientOwner_;
-    clientid4 clientid_;
+    clientid4 clientid_ = 0;
+    sequenceid4 sequence_;             // sequence of the client pseudo slot
     sessionid4 sessionid_;
     std::vector<Slot> slots_;
-    int highestSlot_;                       // current highest slot in-use
-    int targetHighestSlot_;                 // server's target slot limit
-    std::condition_variable slotWait_;      // wait for free slot
+    int highestSlot_;                  // current highest slot in-use
+    int targetHighestSlot_;            // server's target slot limit
+    std::condition_variable slotWait_; // wait for free slot
     std::shared_ptr<NfsFile> root_;
     NfsFsinfo fsinfo_;
     detail::LRUCache<nfs_fh4, NfsFile, NfsFhHash> cache_;
@@ -469,6 +492,7 @@ private:
     // Callback service support
     std::shared_ptr<oncrpc::SocketManager> sockman_;
     std::shared_ptr<oncrpc::ServiceRegistry> svcreg_;
+    uint32_t cbprog_;
     std::thread cbthread_;
     NfsCallbackService cbsvc_;
 };

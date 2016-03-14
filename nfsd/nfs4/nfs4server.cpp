@@ -1,0 +1,2708 @@
+#include <pwd.h>
+#include <grp.h>
+#include <iomanip>
+#include <sstream>
+
+#include <fs++/filesys.h>
+#include <rpc++/cred.h>
+#include <gflags/gflags.h>
+#include <glog/logging.h>
+
+#include "nfs4server.h"
+
+using namespace filesys;
+using namespace filesys::nfs4;
+using namespace nfsd;
+using namespace nfsd::nfs4;
+using namespace oncrpc;
+using namespace std;
+using namespace chrono;
+
+DECLARE_int32(iosize);
+DECLARE_int32(grace_time);
+DECLARE_int32(lease_time);
+
+static nfsstat4 exportStatus(const system_error& e)
+{
+    static unordered_map<int, int> statusMap = {
+        { EPERM, NFS4ERR_PERM },
+        { ENOENT, NFS4ERR_NOENT },
+        { EIO, NFS4ERR_IO },
+        { ENXIO, NFS4ERR_NXIO },
+        { EACCES, NFS4ERR_ACCESS },
+        { EEXIST, NFS4ERR_EXIST },
+        { EXDEV, NFS4ERR_XDEV },
+        { ENODEV, NFS4ERR_XDEV },
+        { ENOTDIR, NFS4ERR_NOTDIR },
+        { EISDIR, NFS4ERR_ISDIR },
+        { EINVAL, NFS4ERR_INVAL },
+        { EFBIG, NFS4ERR_FBIG },
+        { ENOSPC, NFS4ERR_NOSPC },
+        { EROFS, NFS4ERR_ROFS },
+        { EMLINK, NFS4ERR_MLINK },
+        { ENAMETOOLONG, NFS4ERR_NAMETOOLONG },
+        { ENOTEMPTY, NFS4ERR_NOTEMPTY },
+        { EDQUOT, NFS4ERR_DQUOT },
+        { ESTALE, NFS4ERR_STALE },
+        { EOPNOTSUPP, NFS4ERR_NOTSUPP },
+    };
+    int error = e.code().value();
+    auto i = statusMap.find(error);
+    if (i != statusMap.end())
+           return nfsstat4(i->second);
+    else
+           return NFS4ERR_INVAL;
+}
+
+static shared_ptr<File> importFileHandle(const nfs_fh4& nfh)
+{
+    FileHandle fh;
+    try {
+        XdrMemory xm(const_cast<uint8_t*>(nfh.data()), nfh.size());
+        xdr(fh, static_cast<XdrSource*>(&xm));
+        if (fh.version != 1) {
+            LOG(ERROR) << "unexpected file handle version: "
+                       << fh.version << ", expected 1";
+            throw system_error(ESTALE, system_category());
+        }
+    }
+    catch (XdrError&) {
+        throw system_error(ESTALE, system_category());
+    }
+    return FilesystemManager::instance().find(fh);
+}
+
+static nfs_fh4 exportFileHandle(shared_ptr<File> file)
+{
+    FileHandle fh;
+    nfs_fh4 nfh;
+
+    file->handle(fh);
+    nfh.resize(XdrSizeof(fh));
+    XdrMemory xm(nfh.data(), nfh.size());
+    xdr(fh, static_cast<XdrSink*>(&xm));
+
+    return nfh;
+}
+
+static auto importTime(const nfstime4& t)
+{
+    auto d = seconds(t.seconds) + nanoseconds(t.nseconds);
+    return system_clock::time_point(duration_cast<system_clock::duration>(d));
+}
+
+static auto exportTime(system_clock::time_point time)
+{
+    auto d = time.time_since_epoch();
+    auto sec = duration_cast<seconds>(d);
+    auto nsec = duration_cast<nanoseconds>(d) - sec;
+    return nfstime4{uint32_t(sec.count()), uint32_t(nsec.count())};
+}
+
+NfsSession::NfsSession(
+    shared_ptr<NfsClient> client,
+    shared_ptr<oncrpc::Channel> chan,
+    const channel_attrs4& fca, const channel_attrs4& bca, uint32_t cbProg)
+    : client_(client),
+      id_(client->newSessionId()),
+      cbClient_(make_shared<oncrpc::Client>(cbProg, NFS_CB))
+{
+    channels_.push_back(chan);
+    backChannel_ = chan;
+    slots_.resize(fca.ca_maxrequests);
+    cbSlots_.resize(bca.ca_maxrequests);
+    cbHighestSlot_ = 0;
+    targetCbHighestSlot_ = bca.ca_maxrequests;
+}
+
+SEQUENCE4res NfsSession::sequence(
+    CompoundState& state, const SEQUENCE4args& args)
+{
+    unique_lock<mutex> lock(mutex_);
+
+    // Check that the channel is bound to this session
+    auto chan = CallContext::current().channel();
+    bool valid = false;
+    for (auto p: channels_) {
+        if (p.lock() == chan) {
+            valid = true;
+            break;
+        }
+    }
+    if (!valid) {
+        LOG(ERROR) << "Request received on channel not bound to session";
+        return SEQUENCE4res(NFS4ERR_CONN_NOT_BOUND_TO_SESSION);
+    }
+
+    auto slotp = slots_.data() + args.sa_slotid;
+    if (args.sa_slotid >= slots_.size())
+        return SEQUENCE4res(NFS4ERR_BADSLOT);
+    else if (args.sa_highest_slotid >= slots_.size())
+        return SEQUENCE4res(NFS4ERR_BAD_HIGH_SLOT);
+    else if (args.sa_sequenceid < slotp->sequence ||
+             args.sa_sequenceid > slotp->sequence + 1)
+        return SEQUENCE4res(NFS4ERR_SEQ_MISORDERED);
+    else if (slotp->busy)
+        return SEQUENCE4res(NFS4ERR_DELAY);
+    else {
+        uint32_t flags = 0;
+
+        if (client_.lock()->revokedStateCount() > 0) {
+            flags |= SEQ4_STATUS_EXPIRED_SOME_STATE_REVOKED;
+        }
+        if (backChannelState_ == NONE) {
+            flags |= SEQ4_STATUS_CB_PATH_DOWN_SESSION;
+        }
+
+        slotp->busy = true;
+        state.slot = slotp;
+        state.session = shared_from_this();
+        return SEQUENCE4res(
+            NFS4_OK, SEQUENCE4resok{
+                args.sa_sessionid,
+                slotp->sequence + 1,
+                args.sa_slotid,
+                args.sa_highest_slotid,
+                slotid4(slots_.size() - 1),
+                flags});
+    }
+}
+
+void NfsSession::addChannel(
+    shared_ptr<Channel> chan, int dir, bool use_rdma)
+{
+    unique_lock<mutex> lk(mutex_);
+
+    bool addChan = (dir & CDFC4_FORE) != 0;
+    vector<weak_ptr<Channel>> newChannels;
+    for (auto p: channels_) {
+        auto oldChan = p.lock();
+        if (oldChan) {
+            newChannels.push_back(oldChan);
+            if (chan == oldChan)
+                addChan = false;
+        }
+    }
+    if (addChan)
+        newChannels.push_back(chan);
+    channels_ = move(newChannels);
+    if (dir & CDFC4_BACK) {
+        // We need to test the new back channel
+        backChannel_ = chan;
+        backChannelState_ = UNCHECKED;
+    }
+}
+
+bool NfsSession::validChannel(shared_ptr<oncrpc::Channel> chan)
+{
+    unique_lock<mutex> lock(mutex_);
+    for (auto p: channels_) {
+        if (p.lock() == chan)
+            return true;
+    }
+    return false;
+}
+
+void NfsState::revoke()
+{
+    if (!revoked_) {
+        fs_.reset();
+        of_.reset();
+        revoked_ = true;
+    }
+}
+
+void NfsState::recall(shared_ptr<NfsSession> session)
+{
+    assert(type_ == DELEGATION);
+    if (!recalled_) {
+        VLOG(1) << "Recalling delegation: " << id_;
+        session->recall(id_, exportFileHandle(of_->file()));
+        recalled_ = true;
+    }
+}
+
+void NfsState::updateOpen(
+    int access, int deny, shared_ptr<filesys::OpenFile> of)
+{
+    // If the new access mode is less restrictive than the
+    // previous, we need to keep the new open owner
+    if ((access_ | access) != access_) {
+        of_ = of;
+    }
+
+    access_ |= access;
+    deny_ |= deny;
+    id_.seqid++;
+}
+
+void NfsState::updateDelegation(
+    int access,  shared_ptr<filesys::OpenFile> of)
+{
+    if (access_ != access) {
+        access_ = access;
+        of_ = of;
+        id_.seqid++;
+    }
+}
+
+void NfsFileState::addOpen(shared_ptr<NfsState> ns)
+{
+    unique_lock<mutex> lock(mutex_);
+    opens_.insert(ns);
+    updateShare(lock, ns);
+}
+
+void NfsFileState::removeOpen(shared_ptr<NfsState> ns)
+{
+    unique_lock<mutex> lock(mutex_);
+    opens_.erase(ns);
+    updateShare(lock);
+}
+
+void NfsFileState::addDelegation(shared_ptr<NfsState> ns)
+{
+    unique_lock<mutex> lock(mutex_);
+    delegations_.insert(ns);
+}
+
+void NfsFileState::removeDelegation(shared_ptr<NfsState> ns)
+{
+    unique_lock<mutex> lock(mutex_);
+    delegations_.erase(ns);
+}
+
+shared_ptr<NfsState> NfsFileState::findOpen(
+    unique_lock<mutex>& lock,
+    const filesys::nfs4::open_owner4& owner)
+{
+    for (auto ns: opens_)
+        if (ns->owner() == owner)
+            return ns;
+    return nullptr;
+}
+
+shared_ptr<NfsState> NfsFileState::findDelegation(
+    unique_lock<mutex>& lock,
+    const filesys::nfs4::open_owner4& owner)
+{
+    for (auto ns: delegations_)
+        if (ns->owner() == owner)
+            return ns;
+    return nullptr;
+}
+
+/// Return true if this owner can open with the given access and
+/// deny share reservation
+bool NfsFileState::checkShare(
+    const filesys::nfs4::open_owner4& owner, int access, int deny)
+{
+    unique_lock<mutex> lock(mutex_);
+
+    // If the requested reservation conflicts with the current state
+    // and that conflicting reservation is not owned by this owner,
+    // deny the reservation
+retry:
+    if ((access & deny_) || (deny & access_)) {
+        auto conflictingAccess = access & deny_;
+        auto conflictingDeny = deny & access_;
+        auto ns = findOpen(lock, owner);
+        if (ns) {
+            if ((conflictingAccess & ns->deny()) == conflictingAccess &&
+                (conflictingDeny & ns->access()) == conflictingDeny)
+                return true;
+        }
+        // Possibly revoke any conflicting state
+        vector<shared_ptr<NfsState>> toRevoke;
+        for (auto ns: opens_) {
+            auto client = ns->client();
+            if (client && client->expired() &&
+                ((access & ns->deny()) || (deny & ns->access()))) {
+                LOG(INFO) << "Revoking expired stateid: " << ns->id();
+                ns->client()->incrementRevoked();
+                revoke(lock, ns);
+                goto retry;
+            }
+        }
+        return false;
+    }
+    return true;
+}
+
+void NfsFileState::updateShare(
+    unique_lock<mutex>& lock, shared_ptr<NfsState> ns)
+{
+    access_ |= ns->access();
+    deny_ |= ns->deny();
+}
+
+void NfsFileState::updateShare(unique_lock<mutex>& lock)
+{
+    int a = 0, d = 0;
+    for (auto ns: opens_) {
+        a |= ns->access();
+        d |= ns->deny();
+
+        // We can stop if the newly calculated values are equal to
+        // the current values. Note that more restrictive values
+        // for access and deny are handled above in
+        // updateShare(shared_ptr<NfsState>)
+        if (a == access_ && d == deny_)
+            return;
+    }
+    access_ = a;
+    deny_ = d;
+}
+
+void NfsFileState::revoke(
+    std::unique_lock<std::mutex>& lock, std::shared_ptr<NfsState> ns)
+{
+    ns->revoke();
+    opens_.erase(ns);
+    updateShare(lock);
+}
+
+NfsClient::NfsClient(
+    clientid4 id, const client_owner4& owner,
+    const string& principal,
+    detail::Clock::time_point expiry)
+    : id_(id),
+      owner_(owner),
+      principal_(principal),
+      expiry_(expiry),
+      nextSessionIndex_(0),
+      nextStateIndex_(0)
+{
+    sequence_ = 0;
+    reply_ = CREATE_SESSION4res(NFS4ERR_SEQ_MISORDERED);
+}
+
+sessionid4 NfsClient::newSessionId()
+{
+    sessionid4 res;
+
+    XdrMemory xm(res.data(), res.size());
+    xdr(id_, static_cast<XdrSink*>(&xm));
+    uint64_t index = ++nextSessionIndex_;
+    xdr(index, static_cast<XdrSink*>(&xm));
+
+    return res;
+}
+
+stateid4 NfsClient::newStateId()
+{
+    stateid4 res;
+
+    res.seqid = 1;
+    XdrMemory xm(res.other.data(), res.other.size());
+    xdr(id_, static_cast<XdrSink*>(&xm));
+    uint32_t index = ++nextStateIndex_;
+    xdr(index, static_cast<XdrSink*>(&xm));
+
+    return res;
+}
+
+shared_ptr<NfsState> NfsClient::findState(
+    const CompoundState& state,
+    const stateid4& stateid,
+    bool allowRevoked)
+{
+    unique_lock<mutex> lock(mutex_);
+
+    const stateid4& id =
+        stateid == STATEID_LAST ? state.curr.stateid : stateid;
+
+    auto it = state_.find(id);
+    if (it == state_.end())
+        throw NFS4ERR_BAD_STATEID;
+
+    auto ns = it->second;
+    if (id.seqid == 0 || id.seqid == ns->id().seqid) {
+        if (ns->revoked() && !allowRevoked)
+            throw NFS4ERR_BAD_STATEID;
+        return ns;
+    }
+    if (id.seqid > ns->id().seqid)
+        throw NFS4ERR_BAD_STATEID;
+    throw NFS4ERR_OLD_STATEID;
+}
+
+void NfsClient::setReply(const CREATE_SESSION4res& reply)
+{
+    unique_lock<mutex> lock(mutex_);
+    sequence_++;
+    if (reply.csr_status == NFS4_OK) {
+        auto resok = reply.csr_resok4();
+        reply_ = CREATE_SESSION4res(NFS4_OK, move(resok));
+    }
+    else {
+        reply_ = CREATE_SESSION4res(reply.csr_status);
+    }
+}
+
+NfsServer::NfsServer(
+    const vector<int>& sec,
+    shared_ptr<IIdMapper> idmapper,
+    shared_ptr<detail::Clock> clock)
+    : sec_(sec),
+      idmapper_(idmapper),
+      clock_(clock)
+{
+    // Set the grace period expiry to the default lease_time value
+    graceExpiry_ = clock_->now() + seconds(FLAGS_grace_time);
+
+    char hostname[256];
+    if (::gethostname(hostname, sizeof(hostname)) < 0)
+        throw system_error(errno, system_category());
+    ostringstream ss;
+    ss << "unfsd" << ::getpid() << "@" << hostname;
+    auto s = ss.str();
+    owner_.so_major_id.resize(s.size());
+    copy_n(s.data(), s.size(), owner_.so_major_id.data());
+    owner_.so_minor_id = 1;
+
+    // Use the server state time as write verifier
+    auto d = duration_cast<nanoseconds>(system_clock::now().time_since_epoch());
+    *(uint64_t*) writeverf_.data() = d.count();
+
+    // Also use time in seconds as the base for generating new client IDs
+    nextClientId_ = uint64_t(d.count() / 1000000000) << 32;
+}
+
+NfsServer::NfsServer(const vector<int>& sec)
+    : NfsServer(sec, LocalIdMapper(), make_shared<detail::SystemClock>())
+{
+}
+
+void NfsServer::null()
+{
+}
+
+ACCESS4res NfsServer::access(
+    CompoundState& state,
+    const ACCESS4args& args)
+{
+    auto& cred = CallContext::current().cred();
+    VLOG(1) << "NfsServer::access(" << args.access << ")";
+
+    if (!state.curr.file)
+        return ACCESS4res(NFS4ERR_NOFILEHANDLE);
+    try {
+        static unordered_map<uint32_t, int> accmap = {
+            {ACCESS4_READ, int(AccessFlags::READ)},
+            {ACCESS4_LOOKUP, int(AccessFlags::EXECUTE)},
+            {ACCESS4_MODIFY, int(AccessFlags::WRITE)},
+            {ACCESS4_EXTEND, int(AccessFlags::WRITE)},
+            {ACCESS4_EXECUTE, int(AccessFlags::EXECUTE)},
+        };
+
+        // We don't support ACCESS4_DELETE - delete permission is granted
+        // by the directory containing the file.
+        uint32_t requested = args.access;
+        requested &= ~ACCESS4_DELETE;
+
+        // First try checking all the flags - if this succeeds, we are done
+        uint32_t access = requested, supported = 0;
+        int accmode = 0;
+        while (access) {
+            uint32_t abit = access & ~(access - 1);
+            access &= ~abit;
+            auto i = accmap.find(abit);
+            if (i != accmap.end()) {
+                accmode |= i->second;
+                supported |= abit;
+            }
+        }
+        if (state.curr.file->access(cred, accmode)) {
+            return ACCESS4res{NFS4_OK, ACCESS4resok{supported, args.access}};
+        }
+
+        // Otherwise, we need to check each bit separately
+        ACCESS4res res{NFS4_OK, ACCESS4resok{supported, 0}};
+        access = requested;
+        while (access) {
+            uint32_t abit = access & ~(access - 1);
+            access &= ~abit;
+            auto i = accmap.find(abit);
+            if (i != accmap.end() && state.curr.file->access(cred, i->second))
+                res.resok4().access |= abit;
+        }
+        return res;
+    }
+    catch (system_error& e) {
+        return ACCESS4res(exportStatus(e));
+    }
+}
+
+CLOSE4res NfsServer::close(
+    CompoundState& state,
+    const CLOSE4args& args)
+{
+    if (VLOG_IS_ON(1))
+        VLOG(1) << "NfsServer::close("
+                << args.seqid
+                << ", " << args.open_stateid << ")";
+
+    if (!state.curr.file)
+        return CLOSE4res(NFS4ERR_NOFILEHANDLE);
+    auto client = state.session->client();
+
+    try {
+        auto ns = client->findState(state, args.open_stateid);
+        if (ns->type() != NfsState::OPEN)
+            return CLOSE4res(NFS4ERR_BAD_STATEID);
+        client->clearState(args.open_stateid);
+        unique_lock<mutex> lock(mutex_);
+        auto fs = findState(lock, state.curr.file);
+        fs->removeOpen(ns);
+        if (!fs->hasState())
+            files_.erase(state.curr.file);
+        auto id = STATEID_INVALID;
+        return CLOSE4res(NFS4_OK, move(id));
+    }
+    catch (nfsstat4 status) {
+        return CLOSE4res(status);
+    }
+}
+
+COMMIT4res NfsServer::commit(
+    CompoundState& state,
+    const COMMIT4args& args)
+{
+    auto& cred = CallContext::current().cred();
+    if (VLOG_IS_ON(1))
+        VLOG(1) << "NfsServer::commit("
+                << args.offset
+                << ", " << args.count << ")";
+    try {
+        // XXX: offset, count
+        state.curr.file->open(cred, OpenFlags::WRITE)->flush();
+        return COMMIT4res(NFS4_OK, COMMIT4resok{writeverf_});
+    }
+    catch (system_error& e) {
+        return COMMIT4res(exportStatus(e));
+    }
+}
+
+CREATE4res NfsServer::create(
+    CompoundState& state,
+    const CREATE4args& args)
+{
+    auto& cred = CallContext::current().cred();
+    if (VLOG_IS_ON(1))
+        VLOG(1) << "NfsServer::create("
+                << args.objtype.type
+                << ", " << toString(args.objname) << ", ...)";
+
+    if (!state.curr.file)
+        return CREATE4res(NFS4ERR_NOFILEHANDLE);
+    try {
+        auto dir = state.curr.file;
+        CREATE4resok resok;
+        resok.cinfo.atomic = false;
+        resok.cinfo.before = dir->getattr()->change();
+        switch (args.objtype.type) {
+        case NF4DIR:
+            state.curr.file = state.curr.file->mkdir(
+                cred, toString(args.objname),
+                importAttr(args.createattrs, resok.attrset));
+            break;
+        case NF4LNK:
+            state.curr.file = state.curr.file->symlink(
+                cred, toString(args.objname),
+                toString(args.objtype.linkdata()),
+                importAttr(args.createattrs, resok.attrset));
+            break;
+        case NF4FIFO:
+            state.curr.file = state.curr.file->mkfifo(
+                cred, toString(args.objname),
+                importAttr(args.createattrs, resok.attrset));
+            break;
+        default:
+            return CREATE4res(NFS4ERR_BADTYPE);
+        }
+        state.curr.stateid = STATEID_ANON;
+        resok.cinfo.after = dir->getattr()->change();
+        return CREATE4res(NFS4_OK, move(resok));
+    }
+    catch (system_error& e) {
+        return CREATE4res(exportStatus(e));
+    }
+}
+
+DELEGPURGE4res NfsServer::delegpurge(
+    CompoundState& state,
+    const DELEGPURGE4args& args)
+{
+    return DELEGPURGE4res{NFS4ERR_NOTSUPP};
+}
+
+DELEGRETURN4res NfsServer::delegreturn(
+    CompoundState& state,
+    const DELEGRETURN4args& args)
+{
+    if (VLOG_IS_ON(1))
+        VLOG(1) << "NfsServer::delegreturn(" << args.deleg_stateid << ")";
+
+    if (!state.curr.file)
+        return DELEGRETURN4res{NFS4ERR_NOFILEHANDLE};
+    auto client = state.session->client();
+    try {
+        auto ns = client->findState(state, args.deleg_stateid);
+        if (ns->type() != NfsState::DELEGATION)
+            return DELEGRETURN4res{NFS4ERR_BAD_STATEID};
+        client->clearState(args.deleg_stateid);
+        unique_lock<mutex> lock(mutex_);
+        auto fs = findState(lock, state.curr.file);
+        fs->removeDelegation(ns);
+        if (!fs->hasState())
+            files_.erase(state.curr.file);
+        return DELEGRETURN4res{NFS4_OK};
+    }
+    catch (nfsstat4 status) {
+        return DELEGRETURN4res{status};
+    }
+}
+
+GETATTR4res NfsServer::getattr(
+    CompoundState& state,
+    const GETATTR4args& args)
+{
+    VLOG(1) << "NfsServer::getattr()";
+    if (state.curr.file) {
+        return GETATTR4res(
+            NFS4_OK,
+            GETATTR4resok{exportAttr(state.curr.file, args.attr_request)});
+    }
+    else {
+        return GETATTR4res(NFS4ERR_NOFILEHANDLE);
+    }
+}
+
+GETFH4res NfsServer::getfh(
+    CompoundState& state)
+{
+    VLOG(1) << "NfsServer::getfh()";
+    if (state.curr.file)
+        return GETFH4res(
+            NFS4_OK, GETFH4resok{exportFileHandle(state.curr.file)});
+    else
+        return GETFH4res(NFS4ERR_NOFILEHANDLE);
+}
+
+LINK4res NfsServer::link(
+    CompoundState& state,
+    const LINK4args& args)
+{
+    auto& cred = CallContext::current().cred();
+    if (VLOG_IS_ON(1))
+        VLOG(1) << "NfsServer::link("
+                << toString(args.newname) << ")";
+
+    if (!state.curr.file || !state.save.file)
+        return LINK4res(NFS4ERR_NOFILEHANDLE);
+    try {
+        LINK4resok resok;
+        resok.cinfo.atomic = false;
+        resok.cinfo.before = state.curr.file->getattr()->change();
+        state.curr.file->link(cred, toString(args.newname), state.save.file);
+        resok.cinfo.after = state.curr.file->getattr()->change();
+        return LINK4res(NFS4_OK, move(resok));
+    }
+    catch (system_error& e) {
+        return LINK4res(exportStatus(e));
+    }
+}
+
+LOCK4res NfsServer::lock(
+    CompoundState& state,
+    const LOCK4args& args)
+{
+    return LOCK4res(NFS4ERR_NOTSUPP);
+}
+
+LOCKT4res NfsServer::lockt(
+    CompoundState& state,
+    const LOCKT4args& args)
+{
+    return LOCKT4res(NFS4ERR_NOTSUPP);
+}
+
+LOCKU4res NfsServer::locku(
+    CompoundState& state,
+    const LOCKU4args& args)
+{
+    return LOCKU4res(NFS4ERR_NOTSUPP);
+}
+
+LOOKUP4res NfsServer::lookup(
+    CompoundState& state,
+    const LOOKUP4args& args)
+{
+    auto& cred = CallContext::current().cred();
+    if (VLOG_IS_ON(1))
+        VLOG(1) << "NfsServer::lookup("
+                << toString(args.objname) << ")";
+    if (!state.curr.file)
+        return LOOKUP4res{NFS4ERR_NOFILEHANDLE};
+    try {
+        state.curr.file = state.curr.file->lookup(cred, toString(args.objname));
+        state.curr.stateid = STATEID_ANON;
+        return LOOKUP4res{NFS4_OK};
+    }
+    catch (system_error& e) {
+        return LOOKUP4res{exportStatus(e)};
+    }
+}
+
+LOOKUPP4res NfsServer::lookupp(
+    CompoundState& state)
+{
+    auto& cred = CallContext::current().cred();
+    VLOG(1) << "NfsServer::lookupp()";
+    if (!state.curr.file)
+        return LOOKUPP4res{NFS4ERR_NOFILEHANDLE};
+    try {
+        state.curr.file = state.curr.file->lookup(cred, "..");
+        state.curr.stateid = STATEID_ANON;
+        return LOOKUPP4res{NFS4_OK};
+    }
+    catch (system_error& e) {
+        return LOOKUPP4res{exportStatus(e)};
+    }
+}
+
+NVERIFY4res NfsServer::nverify(
+    CompoundState& state,
+    const NVERIFY4args& args)
+{
+    VLOG(1) << "NfsServer::nverify(...)";
+    if (!state.curr.file)
+        return NVERIFY4res{NFS4ERR_NOFILEHANDLE};
+    auto status = verifyAttr(state.curr.file, args.obj_attributes);
+    if (status == NFS4ERR_NOT_SAME)
+        return NVERIFY4res{NFS4_OK};
+    else
+        return NVERIFY4res{status};
+}
+
+OPEN4res NfsServer::open(
+    CompoundState& state,
+    const OPEN4args& args)
+{
+    auto& cred = CallContext::current().cred();
+    if (VLOG_IS_ON(1)) {
+        string name = "<curfh>";
+        if (args.claim.claim == CLAIM_NULL)
+            name = toString(args.claim.file());
+        VLOG(1) << "NfsServer::open("
+                << name
+                << ", " << args.share_access
+                << ", " << args.share_deny
+                << ", " << args.owner
+                << ", ...)";
+    }
+    if (!state.curr.file)
+        return OPEN4res(NFS4ERR_NOFILEHANDLE);
+    try {
+        auto client = state.session->client();
+
+        // Client must specify either read or write or both
+        if (!(args.share_access & OPEN4_SHARE_ACCESS_BOTH))
+            return OPEN4res(NFS4ERR_INVAL);
+
+        auto share_access = args.share_access & OPEN4_SHARE_ACCESS_BOTH;
+        auto share_deny = args.share_deny & OPEN4_SHARE_DENY_BOTH;
+        auto want_deleg =
+            args.share_access & OPEN4_SHARE_ACCESS_WANT_DELEG_MASK;
+
+        int flags = 0;
+        const fattr4* attrp = nullptr;
+        const verifier4* verfp = nullptr;
+
+        if (share_access & OPEN4_SHARE_ACCESS_READ)
+            flags |= OpenFlags::READ;
+        if (share_access & OPEN4_SHARE_ACCESS_WRITE)
+            flags |= OpenFlags::WRITE;
+        if (args.openhow.opentype == OPEN4_CREATE) {
+            switch (args.openhow.how().mode) {
+            case GUARDED4:
+                flags |= OpenFlags::EXCLUSIVE;
+            case UNCHECKED4:
+                attrp = &args.openhow.how().createattrs();
+                break;
+
+            case EXCLUSIVE4:
+                verfp = &args.openhow.how().createverf();
+                break;
+
+            case EXCLUSIVE4_1:
+                verfp = &args.openhow.how().ch_createboth().cva_verf;
+                attrp = &args.openhow.how().ch_createboth().cva_attrs;
+                break;
+            }
+            if (!verfp)
+                flags |= OpenFlags::CREATE;
+        }
+
+        uint64_t verf = 0;
+        if (verfp) {
+            verf = *reinterpret_cast<const uint64_t*>(verfp->data());
+        }
+
+        // Serialize opens so that we can ensure that we handle any
+        // state conflicts correctly
+        unique_lock<mutex> lk(mutex_);
+
+        // See if the requested file exists so that we can check for conflicts
+        shared_ptr<File> dir = state.curr.file;
+        shared_ptr<File> file;
+        switch (args.claim.claim) {
+        case CLAIM_NULL: {
+            auto name = toString(args.claim.file());
+            try {
+                file = dir->lookup(cred, name);
+            }
+            catch (system_error&) {
+            }
+            break;
+        }
+
+        case CLAIM_FH:
+        case CLAIM_PREVIOUS:
+            file = state.curr.file;
+            break;
+
+        default:
+            LOG(ERROR) << "Unsupported open claim: " << args.claim.claim;
+            return OPEN4res(NFS4ERR_NOTSUPP);
+        }
+
+        shared_ptr<NfsFileState> fs;
+        if (file) {
+            fs = findState(lk, file);
+
+            // Check existing share reservations
+            if (!fs->checkShare(
+                    args.owner, share_access, share_deny))
+                return OPEN4res(NFS4ERR_SHARE_DENIED);
+
+            // Recall any conflicting delegations
+            bool recalledDelegations = false;
+            if (share_access & OPEN4_SHARE_ACCESS_WRITE) {
+                for (auto ns: fs->delegations()) {
+                    if (ns->owner() != args.owner) {
+                        ns->recall(state.session);
+                        recalledDelegations = true;
+                    }
+                }
+            }
+            if (share_access & OPEN4_SHARE_ACCESS_READ) {
+                for (auto ns: fs->delegations()) {
+                    if (ns->access() & OPEN4_SHARE_ACCESS_WRITE) {
+                        if (ns->owner() != args.owner) {
+                            ns->recall(state.session);
+                            recalledDelegations = true;
+                        }
+                    }
+                }
+            }
+
+            // If we issued any recalls, ask our caller to re-try after a
+            // short delay
+            if (recalledDelegations) {
+                VLOG(1) << "Delaying open due to recalls";
+                return OPEN4res(NFS4ERR_DELAY);
+            }
+        }
+
+        // There are no state conflicts so go head and open or create
+        // the file and apply any attribute changes
+        OPEN4resok resok;
+        resok.cinfo.atomic = false;
+        resok.cinfo.before = dir->getattr()->change();
+        shared_ptr<OpenFile> of;
+        bitmap4 attrsset;
+
+        switch (args.claim.claim) {
+        case CLAIM_NULL: {
+            if (inGracePeriod())
+                return OPEN4res(NFS4ERR_GRACE);
+
+            auto name = toString(args.claim.file());
+            auto attrcb =
+                attrp ? importAttr(*attrp, attrsset) : [](Setattr*){};
+
+            if (verfp) {
+                try {
+                    of = dir->open(cred, name, flags, [](auto){});
+                    if (of->file()->getattr()->createverf() != verf)
+                        throw system_error(EEXIST, system_category());
+                }
+                catch (system_error& e) {
+                    if (e.code().value() == ENOENT) {
+                        of = dir->open(
+                            cred, name, flags | OpenFlags::CREATE,
+                            [verf, &attrcb](auto sattr) {
+                                sattr->setCreateverf(verf);
+                                attrcb(sattr);
+                            });
+                    }
+                    else {
+                        throw;
+                    }
+                }
+            }
+            else {
+                of = dir->open(cred, name, flags, attrcb);
+            }
+            state.curr.file = of->file();
+            break;
+        }
+        case CLAIM_FH:
+            if (inGracePeriod())
+                return OPEN4res(NFS4ERR_GRACE);
+            of = dir->open(cred, flags);
+            break;
+
+        case CLAIM_PREVIOUS:
+            if (!inGracePeriod())
+                return OPEN4res(NFS4ERR_NO_GRACE);
+            if (args.claim.delegate_type() != OPEN_DELEGATE_NONE) {
+                LOG(ERROR) << "Unsupported delegate_type for CLAIM_PREVIOUS: "
+                           << args.claim.delegate_type();
+                return OPEN4res(NFS4ERR_RECLAIM_BAD);
+            }
+            of = dir->open(cred, flags);
+            break;
+
+        default:
+            LOG(ERROR) << "Unsupported open claim: " << args.claim.claim;
+            return OPEN4res(NFS4ERR_NOTSUPP);
+        }
+
+        // Find the state tracking object for the opened file if we
+        // don't already have it
+        if (file) {
+            assert(state.curr.file == file);
+        }
+        else {
+            fs = findState(lk, state.curr.file);
+        }
+
+        // Check for open upgrade
+        auto ns = fs->findOpen(args.owner);
+        if (ns) {
+            ns->updateOpen(share_access, share_deny, of);
+            fs->updateShare(ns);
+        }
+
+        // See if a delegation possible (and wanted)
+        bool issueDelegation = false;
+        open_delegation4 delegation = open_delegation4(OPEN_DELEGATE_NONE);
+        auto deleg = fs->findDelegation(args.owner);
+        switch (want_deleg) {
+        case OPEN4_SHARE_ACCESS_WANT_NO_PREFERENCE:
+            break;
+
+        case OPEN4_SHARE_ACCESS_WANT_NO_DELEG:
+            delegation = open_delegation4(
+                OPEN_DELEGATE_NONE_EXT,
+                open_none_delegation4(WND4_NOT_WANTED));
+            break;
+
+        case OPEN4_SHARE_ACCESS_WANT_CANCEL:
+            delegation = open_delegation4(
+                OPEN_DELEGATE_NONE_EXT,
+                open_none_delegation4(WND4_CANCELLED));
+            break;
+
+        case OPEN4_SHARE_ACCESS_WANT_READ_DELEG:
+        tryRead:
+            // If we already have a delegation, this may be a request
+            // for an atomic downgrade
+            if (deleg) {
+                issueDelegation = true;
+                deleg->updateDelegation(OPEN4_SHARE_ACCESS_READ, of);
+                VLOG(1) << "Downgrading to read delegation: " << deleg->id();
+            }
+            else {
+                // We can issue a read delegation if there are no
+                // existing write delegations or write opens.
+                issueDelegation = true;
+                for (auto ns: fs->delegations()) {
+                    if (ns->access() & OPEN4_SHARE_ACCESS_WRITE) {
+                        VLOG(1) << "Denying read delegation: "
+                                << "existing write delegation";
+                        delegation = open_delegation4(
+                            OPEN_DELEGATE_NONE_EXT,
+                            open_none_delegation4(WND4_CONTENTION, false));
+                        issueDelegation = false;
+                        break;
+                    }
+                }
+                for (auto ns: fs->opens()) {
+                    if (ns->access() & OPEN4_SHARE_ACCESS_WRITE) {
+                        VLOG(1) << "Denying read delegation: "
+                                << "existing write open";
+                        delegation = open_delegation4(
+                            OPEN_DELEGATE_NONE_EXT,
+                            open_none_delegation4(WND4_CONTENTION, false));
+                        issueDelegation = false;
+                        break;
+                    }
+                }
+            }
+            break;
+
+        case OPEN4_SHARE_ACCESS_WANT_WRITE_DELEG:
+            // If we already have a delegation, this may be a request
+            // for an atomic upgrade
+            if (deleg) {
+                issueDelegation = true;
+                deleg->updateDelegation(OPEN4_SHARE_ACCESS_WRITE, of);
+                VLOG(1) << "Upgrading to write delegation: " << deleg->id();
+            }
+            else {
+                /// We can issue a write delegation if there are no
+                /// existing delegations or opens at all
+                if (fs->delegations().size() == 0 && fs->opens().size() == 0)
+                    issueDelegation = true;
+                VLOG(1) << "Denying write delegation: "
+                        << "existing write open or delegation";
+                delegation = open_delegation4(
+                    OPEN_DELEGATE_NONE_EXT,
+                    open_none_delegation4(WND4_CONTENTION, false));
+            }
+            break;
+
+        case OPEN4_SHARE_ACCESS_WANT_ANY_DELEG:
+            // If we already have a delegation, just keep it as-is
+            if (deleg) {
+                issueDelegation = true;
+                break;
+            }
+            // Issue a write delegation if there are no existing
+            // delegations or opens, otherwise try to issue a read
+            // delegation
+            if (fs->delegations().size() == 0 && fs->opens().size() == 0) {
+                want_deleg = OPEN4_SHARE_ACCESS_WANT_WRITE_DELEG;
+                issueDelegation = true;
+            }
+            else {
+                want_deleg = OPEN4_SHARE_ACCESS_WANT_READ_DELEG;
+                goto tryRead;
+            }
+            break;
+
+        default:
+            delegation = open_delegation4(
+                OPEN_DELEGATE_NONE_EXT,
+                open_none_delegation4(WND4_NOT_WANTED));
+        }
+
+        // We only support delegating access to files
+        if (issueDelegation &&
+            state.curr.file->getattr()->type() != FileType::FILE) {
+            assert(!deleg);
+            issueDelegation = false;
+            if (state.curr.file->getattr()->type() == FileType::DIRECTORY)
+                delegation = open_delegation4(
+                    OPEN_DELEGATE_NONE_EXT,
+                    open_none_delegation4(WND4_IS_DIR));
+            else
+                delegation = open_delegation4(
+                    OPEN_DELEGATE_NONE_EXT,
+                    open_none_delegation4(WND4_NOT_SUPP_FTYPE));
+        }
+
+        // We can't issue any delegation if the back channel doesn't work
+        if (issueDelegation && !state.session->testBackchannel()) {
+            issueDelegation = false;
+        }
+
+        resok.cinfo.after = dir->getattr()->change();
+        if (!ns) {
+            ns = client->addOpen(
+                fs, args.owner, share_access, share_deny, of);
+        }
+        state.curr.stateid = ns->id();
+        fs->addOpen(ns);
+
+        VLOG(1) << "Returning open stateid: " << ns->id();
+        resok.stateid = ns->id();
+        // XXX: fix objfs to allow setting OPEN4_RESULT_PRESERVE_UNLINKED
+        resok.rflags = OPEN4_RESULT_LOCKTYPE_POSIX;
+        resok.attrset = move(attrsset);
+        if (issueDelegation) {
+            if (!deleg) {
+                assert(want_deleg == OPEN4_SHARE_ACCESS_WANT_READ_DELEG ||
+                       want_deleg == OPEN4_SHARE_ACCESS_WANT_WRITE_DELEG);
+                if (want_deleg == OPEN4_SHARE_ACCESS_WANT_READ_DELEG) {
+                    deleg = client->addDelegation(
+                        fs, args.owner, OPEN4_SHARE_ACCESS_READ, of);
+                    VLOG(1) << "Creating read delegation: " << deleg->id();
+                    delegation = open_delegation4(
+                        OPEN_DELEGATE_READ,
+                        open_read_delegation4{
+                            deleg->id(),
+                                false,
+                                nfsace4{ACE4_ACCESS_ALLOWED_ACE_TYPE, 0,
+                                    ACE4_GENERIC_READ,
+                                    toUtf8string("OWNER@")}});
+                }
+                else {
+                    deleg = client->addDelegation(
+                        fs, args.owner, OPEN4_SHARE_ACCESS_WRITE, of);
+                    VLOG(1) << "Creating write delegation: " << deleg->id();
+                    delegation = open_delegation4(
+                        OPEN_DELEGATE_WRITE,
+                        open_write_delegation4{
+                            deleg->id(),
+                                false,
+                                nfs_space_limit4(NFS_LIMIT_SIZE, ~0ul),
+                                nfsace4{ACE4_ACCESS_ALLOWED_ACE_TYPE, 0,
+                                    ACE4_GENERIC_WRITE,
+                                    toUtf8string("OWNER@")}});
+                }
+                fs->addDelegation(deleg);
+            }
+        }
+        else {
+            deleg.reset();
+        }
+        if (deleg) {
+            if (deleg->access() == OPEN4_SHARE_ACCESS_READ) {
+                delegation = open_delegation4(
+                    OPEN_DELEGATE_READ,
+                    open_read_delegation4{
+                        deleg->id(),
+                        false,
+                        nfsace4{ACE4_ACCESS_ALLOWED_ACE_TYPE, 0,
+                                ACE4_GENERIC_READ, toUtf8string("OWNER@")}});
+            }
+            else {
+                delegation = open_delegation4(
+                    OPEN_DELEGATE_WRITE,
+                    open_write_delegation4{
+                        deleg->id(),
+                        false,
+                        nfs_space_limit4(NFS_LIMIT_SIZE, ~0ul),
+                        nfsace4{ACE4_ACCESS_ALLOWED_ACE_TYPE, 0,
+                                ACE4_GENERIC_WRITE, toUtf8string("OWNER@")}});
+            }
+        }
+
+        resok.delegation = move(delegation);
+        return OPEN4res(NFS4_OK, move(resok));
+    }
+    catch (system_error& e) {
+        return OPEN4res(exportStatus(e));
+    }
+}
+
+OPENATTR4res NfsServer::openattr(
+    CompoundState& state,
+    const OPENATTR4args& args)
+{
+    return OPENATTR4res{NFS4ERR_NOTSUPP};
+}
+
+OPEN_CONFIRM4res NfsServer::open_confirm(
+    CompoundState& state,
+    const OPEN_CONFIRM4args& args)
+{
+    return OPEN_CONFIRM4res(NFS4ERR_NOTSUPP);
+}
+
+OPEN_DOWNGRADE4res NfsServer::open_downgrade(
+    CompoundState& state,
+    const OPEN_DOWNGRADE4args& args)
+{
+    return OPEN_DOWNGRADE4res(NFS4ERR_NOTSUPP);
+}
+
+PUTFH4res NfsServer::putfh(
+    CompoundState& state,
+    const PUTFH4args& args)
+{
+    if (VLOG_IS_ON(1))
+        VLOG(1) << "NfsServer::putfh(" << args.object << ")";
+    try {
+        state.curr.file = importFileHandle(args.object);
+        state.curr.stateid = STATEID_ANON;
+        return PUTFH4res{NFS4_OK};
+    }
+    catch (system_error& e) {
+        return PUTFH4res{exportStatus(e)};
+    }
+}
+
+PUTPUBFH4res NfsServer::putpubfh(
+    CompoundState& state)
+{
+    VLOG(1) << "NfsServer::putpubfh()";
+    state.curr.file = FilesystemManager::instance().begin()->second->root();
+    state.curr.stateid = STATEID_ANON;
+    return PUTPUBFH4res{NFS4_OK};
+}
+
+PUTROOTFH4res NfsServer::putrootfh(
+    CompoundState& state)
+{
+    VLOG(1) << "NfsServer::putrootfh()";
+    state.curr.file = FilesystemManager::instance().begin()->second->root();
+    state.curr.stateid = STATEID_ANON;
+    return PUTROOTFH4res{NFS4_OK};
+}
+
+READ4res NfsServer::read(
+    CompoundState& state,
+    const READ4args& args)
+{
+    if (VLOG_IS_ON(1))
+        VLOG(1) << "NfsServer::read("
+                << args.stateid
+                << ", " << args.offset
+                << ", " << args.count << ")";
+
+    if (!state.curr.file)
+        return READ4res(NFS4ERR_NOFILEHANDLE);
+
+    if (inGracePeriod())
+        return READ4res(NFS4ERR_GRACE);
+
+    auto client = state.session->client();
+    try {
+        shared_ptr<OpenFile> of;
+        if (args.stateid == STATEID_ANON) {
+            auto& cred = CallContext::current().cred();
+            auto fs = findState(state.curr.file);
+            if (fs->deny() & OPEN4_SHARE_ACCESS_READ)
+                return READ4res(NFS4ERR_PERM);
+            of = state.curr.file->open(cred, OpenFlags::READ);
+        }
+        else {
+            auto ns = client->findState(state, args.stateid);
+            if ((ns->access() & OPEN4_SHARE_ACCESS_READ) == 0)
+                return READ4res(NFS4ERR_OPENMODE);
+            of = ns->of();
+        }
+        bool eof;
+        auto data = of->read(args.offset, args.count, eof);
+        return READ4res(NFS4_OK, READ4resok{eof, data});
+    }
+    catch (nfsstat4 status) {
+        return READ4res(status);
+    }
+    catch (system_error& e) {
+        return READ4res(exportStatus(e));
+    }
+}
+
+READDIR4res NfsServer::readdir(
+    CompoundState& state,
+    const READDIR4args& args)
+{
+    auto& cred = CallContext::current().cred();
+    VLOG(1) << "NfsServer::readdir(...)";
+
+    if (!state.curr.file)
+        return READDIR4res(NFS4ERR_NOFILEHANDLE);
+
+    try {
+        // XXX: cookieverf
+        READDIR4res res;
+        res.set_status(NFS4_OK);
+        res.resok4().cookieverf = args.cookieverf;
+        res.resok4().reply.eof = true;
+        count4 replySize = XdrSizeof(res);
+        count4 dirSize = 0;
+        unique_ptr<entry4>* entryp = &res.resok4().reply.entries;
+        for (auto iter = state.curr.file->readdir(cred, args.cookie);
+            iter->valid(); iter->next()) {
+            // Skip "." and ".." entries
+            if (iter->name() == "." || iter->name() == "..")
+                continue;
+            auto entry = make_unique<entry4>();
+            entry->cookie = iter->seek();
+            entry->name = toUtf8string(iter->name());
+            auto file = iter->file();
+            entry->attrs = exportAttr(file, args.attr_request);
+
+            // Calculate the full entry size as well as the size of just
+            // the directory information
+            auto dirEntrySize =
+                XdrSizeof(entry->cookie) + XdrSizeof(entry->name);
+            auto entrySize = XdrSizeof(*entry);
+
+            // Apparently some broken clients set dircount to zero
+            if ((args.dircount == 0 || dirSize + dirEntrySize < args.dircount)
+                && replySize + entrySize < args.maxcount) {
+                *entryp = move(entry);
+                entryp = &(*entryp)->nextentry;
+                dirSize += dirEntrySize;
+                replySize += entrySize;
+            }
+            else {
+                res.resok4().reply.eof = false;
+                break;
+            }
+        }
+        return res;
+    }
+    catch (system_error& e) {
+        return READDIR4res(exportStatus(e));
+    }
+}
+
+READLINK4res NfsServer::readlink(
+    CompoundState& state)
+{
+    auto& cred = CallContext::current().cred();
+    VLOG(1) << "NfsServer::readlink()";
+
+    if (!state.curr.file)
+        return READLINK4res(NFS4ERR_NOFILEHANDLE);
+    try {
+        return READLINK4res(
+            NFS4_OK,
+            READLINK4resok{toUtf8string(state.curr.file->readlink(cred))});
+    }
+    catch (system_error& e) {
+        return READLINK4res(exportStatus(e));
+    }
+}
+
+REMOVE4res NfsServer::remove(
+    CompoundState& state,
+    const REMOVE4args& args)
+{
+    auto& cred = CallContext::current().cred();
+    if (VLOG_IS_ON(1))
+        VLOG(1) << "NfsServer::remove(" << toString(args.target) << ")";
+    if (!state.curr.file)
+        return REMOVE4res(NFS4ERR_NOFILEHANDLE);
+    try {
+        auto name = toString(args.target);
+        auto obj = state.curr.file->lookup(cred, name);
+        auto before = state.curr.file->getattr()->change();
+        if (obj->getattr()->type() == FileType::DIRECTORY)
+            state.curr.file->rmdir(cred, name);
+        else
+            state.curr.file->remove(cred, name);
+        auto after = state.curr.file->getattr()->change();
+        return REMOVE4res(NFS4_OK, REMOVE4resok{{false, before, after}});
+    }
+    catch (system_error& e) {
+        return REMOVE4res(exportStatus(e));
+    }
+}
+
+RENAME4res NfsServer::rename(
+    CompoundState& state,
+    const RENAME4args& args)
+{
+    auto& cred = CallContext::current().cred();
+    if (VLOG_IS_ON(1))
+        VLOG(1) << "NfsServer::rename("
+                << toString(args.oldname)
+                << ", " << toString(args.newname) << ")";
+
+    if (!state.curr.file || !state.save.file)
+        return RENAME4res(NFS4ERR_NOFILEHANDLE);
+    try {
+        auto oldname = toString(args.oldname);
+        auto newname = toString(args.newname);
+        RENAME4resok resok;
+        resok.source_cinfo.atomic = false;
+        resok.source_cinfo.before = state.save.file->getattr()->change();
+        resok.target_cinfo.atomic = false;
+        resok.target_cinfo.before = state.curr.file->getattr()->change();
+        state.curr.file->rename(cred, newname, state.save.file, oldname);
+        resok.source_cinfo.after = state.save.file->getattr()->change();
+        resok.target_cinfo.after = state.curr.file->getattr()->change();
+        return RENAME4res(NFS4_OK, move(resok));
+    }
+    catch (system_error& e) {
+        return RENAME4res(exportStatus(e));
+    }
+}
+
+RENEW4res NfsServer::renew(
+    CompoundState& state,
+    const RENEW4args& args)
+{
+    return RENEW4res{NFS4ERR_NOTSUPP};
+}
+
+RESTOREFH4res NfsServer::restorefh(
+    CompoundState& state)
+{
+    VLOG(1) << "NfsServer::restorefh()";
+    if (state.save.file) {
+        state.curr = state.save;
+        return RESTOREFH4res{NFS4_OK};
+    }
+    else {
+        return RESTOREFH4res{NFS4ERR_NOFILEHANDLE};
+    }
+}
+
+SAVEFH4res NfsServer::savefh(
+    CompoundState& state)
+{
+    VLOG(1) << "NfsServer::savefh()";
+    if (state.curr.file) {
+        state.save = state.curr;
+        return SAVEFH4res{NFS4_OK};
+    }
+    else {
+        return SAVEFH4res{NFS4ERR_NOFILEHANDLE};
+    }
+}
+
+SECINFO4res NfsServer::secinfo(
+    CompoundState& state,
+    const SECINFO4args& args)
+{
+    return SECINFO4res(NFS4ERR_NOTSUPP);
+}
+
+SETATTR4res NfsServer::setattr(
+    CompoundState& state,
+    const SETATTR4args& args)
+{
+    auto& cred = CallContext::current().cred();
+    if (VLOG_IS_ON(1))
+        VLOG(1) << "NfsServer::setattr("
+                << args.stateid << ", ...)";
+    if (!state.curr.file)
+        return SETATTR4res{NFS4ERR_NOFILEHANDLE};
+    try {
+        if (args.stateid != STATEID_ANON) {
+            // Make sure the stateid is valid
+            state.session->client()->findState(state, args.stateid);
+        }
+        // XXX lookup stateid
+        bitmap4 attrsset;
+        state.curr.file->setattr(
+            cred, importAttr(args.obj_attributes, attrsset));
+        return SETATTR4res{NFS4_OK, move(attrsset)};
+    }
+    catch (nfsstat4 status) {
+        return SETATTR4res{status};
+    }
+    catch (system_error& e) {
+        return SETATTR4res{exportStatus(e)};
+    }
+}
+
+SETCLIENTID4res NfsServer::setclientid(
+    CompoundState& state,
+    const SETCLIENTID4args& args)
+{
+    return SETCLIENTID4res(NFS4ERR_NOTSUPP);
+}
+
+SETCLIENTID_CONFIRM4res NfsServer::setclientid_confirm(
+    CompoundState& state,
+    const SETCLIENTID_CONFIRM4args& args)
+{
+    return SETCLIENTID_CONFIRM4res{NFS4ERR_NOTSUPP};
+}
+
+VERIFY4res NfsServer::verify(
+    CompoundState& state,
+    const VERIFY4args& args)
+{
+    VLOG(1) << "NfsServer::verify(...)";
+    if (!state.curr.file)
+        return VERIFY4res{NFS4ERR_NOFILEHANDLE};
+    auto status = verifyAttr(state.curr.file, args.obj_attributes);
+    if (status == NFS4ERR_SAME)
+        return VERIFY4res{NFS4_OK};
+    else
+        return VERIFY4res{status};
+}
+
+WRITE4res NfsServer::write(
+    CompoundState& state,
+    const WRITE4args& args)
+{
+    if (VLOG_IS_ON(1))
+        VLOG(1) << "NfsServer::write("
+                << args.stateid
+                << ", " << args.offset
+                << ", " << args.stable << ", ...)";
+
+    if (!state.curr.file)
+        return WRITE4res(NFS4ERR_NOFILEHANDLE);
+
+    if (inGracePeriod())
+        return WRITE4res(NFS4ERR_GRACE);
+
+    auto client = state.session->client();
+    try {
+        shared_ptr<OpenFile> of;
+        if (args.stateid == STATEID_ANON) {
+            auto& cred = CallContext::current().cred();
+            auto fs = findState(state.curr.file);
+            if (fs->deny() & OPEN4_SHARE_ACCESS_WRITE)
+                return WRITE4res(NFS4ERR_PERM);
+            of = state.curr.file->open(cred, OpenFlags::WRITE);
+        }
+        else {
+            auto ns = client->findState(state, args.stateid);
+            if ((ns->access() & OPEN4_SHARE_ACCESS_WRITE) == 0)
+                return WRITE4res(NFS4ERR_OPENMODE);
+            of = ns->of();
+        }
+        auto n = of->write(args.offset, args.data);
+        stable_how4 stable = UNSTABLE4;
+        if (args.stable > UNSTABLE4) {
+            of->flush();
+            stable = FILE_SYNC4;
+        }
+        return WRITE4res(NFS4_OK, WRITE4resok{n, stable, writeverf_});
+    }
+    catch (nfsstat4 status) {
+        return WRITE4res(status);
+    }
+}
+
+RELEASE_LOCKOWNER4res NfsServer::release_lockowner(
+    CompoundState& state,
+    const RELEASE_LOCKOWNER4args& args)
+{
+    return RELEASE_LOCKOWNER4res{NFS4ERR_NOTSUPP};
+}
+
+BACKCHANNEL_CTL4res NfsServer::backchannel_ctl(
+    CompoundState& state,
+    const BACKCHANNEL_CTL4args& args)
+{
+    return BACKCHANNEL_CTL4res{NFS4ERR_NOTSUPP};
+}
+
+BIND_CONN_TO_SESSION4res NfsServer::bind_conn_to_session(
+    CompoundState& state,
+    const BIND_CONN_TO_SESSION4args& args)
+{
+    VLOG(1) << "NfsServer::bind_conn_to_session("
+            << args.bctsa_sessid
+            << ", " << args.bctsa_dir
+            << ", " << args.bctsa_use_conn_in_rdma_mode << ")";
+    auto it = sessionsById_.find(args.bctsa_sessid);
+    if (it == sessionsById_.end())
+        return BIND_CONN_TO_SESSION4res(NFS4ERR_BADSESSION);
+    auto chan = CallContext::current().channel();
+    it->second->addChannel(
+        chan, args.bctsa_dir, args.bctsa_use_conn_in_rdma_mode);
+    return BIND_CONN_TO_SESSION4res(NFS4_OK);
+}
+
+EXCHANGE_ID4res NfsServer::exchange_id(
+    CompoundState& state,
+    const EXCHANGE_ID4args& args)
+{
+    if (VLOG_IS_ON(1))
+        VLOG(1) << "NfsServer::exchange_id("
+                << args.eia_clientowner
+                << ", " << args.eia_flags << ", ...)";
+retry:
+    unique_lock<mutex> lock(mutex_);
+    auto& ctx = CallContext::current();
+    auto& owner = args.eia_clientowner;
+    shared_ptr<NfsClient> client;
+    auto range = clientsByOwnerId_.equal_range(owner.co_ownerid);
+
+    if (args.eia_state_protect.spa_how != SP4_NONE) {
+        // The client MUST send the EXCHANGE_ID request with
+        // RPCSEC_GSS and a service of RPC_GSS_SVC_INTEGRITY or
+        // RPC_GSS_SVC_PRIVACY
+        if (ctx.flavor() != RPCSEC_GSS_KRB5I &&
+            ctx.flavor() != RPCSEC_GSS_KRB5P) {
+            return EXCHANGE_ID4res(NFS4ERR_INVAL);
+        }
+    }
+
+    if (args.eia_state_protect.spa_how == SP4_SSV) {
+        return EXCHANGE_ID4res(NFS4ERR_NOTSUPP);
+    }
+
+    if (!(args.eia_flags & EXCHGID4_FLAG_UPD_CONFIRMED_REC_A)) {
+        if (range.first == clientsByOwnerId_.end()) {
+            // Case 1: New Owner ID
+            VLOG(1) << "New client: " << args.eia_clientowner;
+            auto id = nextClientId_++;
+            client = make_shared<NfsClient>(
+                id, args.eia_clientowner, ctx.principal(), leaseExpiry());
+            clientsById_[id] = client;
+            clientsByOwnerId_.insert(
+                make_pair(args.eia_clientowner.co_ownerid, client));
+        }
+        else {
+            // We have a match by ownerid - see if we have a confirmed
+            // client. We can have at most one confirmed client for any
+            // given ownerid.
+            for (auto it = range.first; it != range.second; ++it) {
+                if (it->second->confirmed()) {
+                    client = it->second;
+                    if (client->owner() == args.eia_clientowner) {
+                        // Case 2: Non-Update on Existing Client ID
+                        VLOG(1) << "Existing confirmed client: "
+                                << args.eia_clientowner;
+                    }
+                    else if (client->principal() != ctx.principal()) {
+                        // Case 3: Client Collision
+                        //
+                        // If the old client has no state, just delete
+                        // it and retry
+                        VLOG(1) << "Client collision: "
+                                << args.eia_clientowner;
+                        if (!client->hasState()) {
+                            for (auto it = range.first; it != range.second;
+                                 ++it) {
+                                clientsById_.erase(it->second->id());
+                            }
+                            clientsByOwnerId_.erase(range.first, range.second);
+                            goto retry;
+                        }
+                        return EXCHANGE_ID4res(NFS4ERR_CLID_INUSE);
+                    }
+                    else {
+                        // Case 5: Client Restart
+                        //
+                        // Delete any existing unconfirmed client
+                        // record - there can be at most one of these
+                        VLOG(1) << "Client restart: "
+                                << args.eia_clientowner;
+                        for (auto it = range.first; it != range.second;
+                             ++it) {
+                            if (!it->second->confirmed()) {
+                                clientsById_.erase(it->second->id());
+                                clientsByOwnerId_.erase(it);
+                                break;
+                            }
+                        }
+
+                        // Add a new unconfirmed record alongside the
+                        // old confirmed one. If the client
+                        // successfully creates a session, we will
+                        // delete the old client and release its state
+                        auto id = nextClientId_++;
+                        client = make_shared<NfsClient>(
+                            id, args.eia_clientowner, ctx.principal(),
+                            leaseExpiry());
+                        clientsById_[id] = client;
+                        clientsByOwnerId_.insert(
+                            make_pair(args.eia_clientowner.co_ownerid, client));
+                    }
+                    break;
+                }
+            }
+            if (!client) {
+                // Case 4: Replacement of Unconfirmed Record
+                VLOG(1) << "Replacing unconfirmed client: "
+                        << args.eia_clientowner;
+                for (auto it = range.first; it != range.second;
+                     ++it) {
+                    clientsById_.erase(it->second->id());
+                }
+                clientsByOwnerId_.erase(range.first, range.second);
+                goto retry;
+            }
+        }
+    }
+    else {
+        if (range.first != clientsByOwnerId_.end()) {
+            for (auto it = range.first; it != range.second; ++it) {
+                if (it->second->confirmed()) {
+                    client = it->second;
+                    if (client->owner() == args.eia_clientowner) {
+                        // Case 6: Update
+                        // XXX: perform update here
+                        VLOG(1) << "Client update: "
+                                << args.eia_clientowner;
+                    }
+                    else {
+                        // Case 8: Update but Wrong Verifier
+                        LOG(ERROR) << "Bad client verifier in update: "
+                                   << args.eia_clientowner;
+                        return EXCHANGE_ID4res(NFS4ERR_NOT_SAME);
+                    }
+                    break;
+                }
+            }
+            if (!client) {
+                // Case 7: Update but No Confirmed Record
+                LOG(ERROR) << "Unknown client for update: "
+                           << args.eia_clientowner;
+                return EXCHANGE_ID4res(NFS4ERR_NOENT);
+            }
+        }
+    }
+    assert(client);
+
+    state_protect4_r spr;
+    if (args.eia_state_protect.spa_how == SP4_NONE) {
+        spr = state_protect4_r(SP4_NONE);
+    }
+    else {
+        // XXX: check spa_mach_ops
+        auto ops = args.eia_state_protect.spa_mach_ops();
+        spr = state_protect4_r(SP4_MACH_CRED, move(ops));
+    }
+
+    VLOG(1) << "Returning clientid: " << hex << client->id();
+    return EXCHANGE_ID4res(
+        NFS4_OK,
+        EXCHANGE_ID4resok{
+            client->id(),
+            client->sequence() + 1,
+            0,          // XXX flags
+            move(spr),
+            owner_,
+            {},         // server scope
+            {}          // server impl id
+        });
+}
+
+CREATE_SESSION4res NfsServer::create_session(
+    CompoundState& state,
+    const CREATE_SESSION4args& args)
+{
+    VLOG(1) << "NfsServer::create_session("
+            << hex << args.csa_clientid
+            << ", " << args.csa_sequence
+            << ", " << args.csa_flags << ", ...)";
+
+    unique_lock<mutex> lock(mutex_);
+    auto& ctx = CallContext::current();
+
+    auto it = clientsById_.find(args.csa_clientid);
+    if (it == clientsById_.end()) {
+        LOG(ERROR) << "Unknown client: " << hex << args.csa_clientid;
+        return CREATE_SESSION4res(NFS4ERR_STALE_CLIENTID);
+    }
+    auto client = it->second;
+
+    if (args.csa_sequence == client->sequence()) {
+        auto& reply = client->reply();
+        if (reply.csr_status == NFS4_OK) {
+            auto resok = reply.csr_resok4();
+            return CREATE_SESSION4res(NFS4_OK, move(resok));
+        }
+        else {
+            return CREATE_SESSION4res(reply.csr_status);
+        }
+    }
+
+    if (args.csa_sequence != client->sequence() + 1)
+        return CREATE_SESSION4res(NFS4ERR_SEQ_MISORDERED);
+
+    if (client->principal() != ctx.principal())
+        return CREATE_SESSION4res(NFS4ERR_CLID_INUSE);
+
+    if (!client->confirmed()) {
+        // First purge any state associated with any old confirmed
+        // client with matching ownerid
+        auto range = clientsByOwnerId_.equal_range(client->owner().co_ownerid);
+        for (auto it = range.first; it != range.second; ++it) {
+            if (it->second->confirmed()) {
+                VLOG(1) << "Purging state for old clientid: "
+                        << hex << it->second->id();
+                it->second->releaseState();
+                clientsById_.erase(it->second->id());
+                clientsByOwnerId_.erase(it);
+                break;
+            }
+        }
+        VLOG(1) << "Confirming new clientid: " << hex << client->id();
+        client->setConfirmed();
+    }
+
+    auto flags = args.csa_flags & CREATE_SESSION4_FLAG_CONN_BACK_CHAN;
+    auto fca = args.csa_fore_chan_attrs;
+    fca.ca_headerpadsize = 0;
+    if (fca.ca_maxrequests > 8*thread::hardware_concurrency())
+        fca.ca_maxrequests = 8*thread::hardware_concurrency();
+    auto bca = args.csa_back_chan_attrs;
+    bca.ca_headerpadsize = 0;
+
+    ctx.channel()->setCloseOnIdle(false);
+    ctx.channel()->setBufferSize(fca.ca_maxresponsesize);
+    auto session = make_shared<NfsSession>(
+        client, ctx.channel(), fca, bca, args.csa_cb_program);
+    sessionsById_[session->id()] = session;
+    client->addSession(session);
+
+    CREATE_SESSION4res res(
+        NFS4_OK,
+        CREATE_SESSION4resok{
+            session->id(), client->sequence() + 1, flags, fca, bca});
+    client->setReply(res);
+    return res;
+}
+
+DESTROY_SESSION4res NfsServer::destroy_session(
+    CompoundState& state,
+    const DESTROY_SESSION4args& args)
+{
+    VLOG(1) << "NfsServer::destroy_session("
+            << args.dsa_sessionid << ")";
+
+    unique_lock<mutex> lock(mutex_);
+    auto it = sessionsById_.find(args.dsa_sessionid);
+    if (it == sessionsById_.end()) {
+        LOG(ERROR) << "Session not found: " << args.dsa_sessionid;
+        return DESTROY_SESSION4res{NFS4ERR_BADSESSION};
+    }
+    auto session = it->second;
+
+    // If the destroy_session appears in a compound starting with
+    // sequence and the sequence specifies the session to be
+    // destroyed, it must be the last op in the compound.
+    //
+    // Note: if the destroy_session is last in the compound, the
+    // shared_ptr in our compound state record will hold onto the
+    // memory for the session (and its reply cache) until the compound
+    // completes.
+    if (state.session == session && state.opindex != state.opcount - 1)
+        return DESTROY_SESSION4res{NFS4ERR_BADSESSION};
+
+    auto chan = CallContext::current().channel();
+    if (!session->validChannel(chan))
+        return DESTROY_SESSION4res{NFS4ERR_CONN_NOT_BOUND_TO_SESSION};
+    auto client = session->client();
+    client->removeSession(session);
+    sessionsById_.erase(it);
+    return DESTROY_SESSION4res{NFS4_OK};
+}
+
+FREE_STATEID4res NfsServer::free_stateid(
+    CompoundState& state,
+    const FREE_STATEID4args& args)
+{
+    VLOG(1) << "NfsServer::free_stateid(" << args.fsa_stateid << ")";
+    auto client = state.session->client();
+    try {
+        auto ns = client->findState(state, args.fsa_stateid, true);
+        client->clearState(args.fsa_stateid);
+        return FREE_STATEID4res{NFS4_OK};
+    }
+    catch (nfsstat4 stat) {
+        return FREE_STATEID4res{stat};
+    }
+}
+
+GET_DIR_DELEGATION4res NfsServer::get_dir_delegation(
+    CompoundState& state,
+    const GET_DIR_DELEGATION4args& args)
+{
+    return GET_DIR_DELEGATION4res(NFS4ERR_NOTSUPP);
+}
+
+GETDEVICEINFO4res NfsServer::getdeviceinfo(
+    CompoundState& state,
+    const GETDEVICEINFO4args& args)
+{
+    return GETDEVICEINFO4res(NFS4ERR_NOTSUPP);
+}
+
+GETDEVICELIST4res NfsServer::getdevicelist(
+    CompoundState& state,
+    const GETDEVICELIST4args& args)
+{
+    return GETDEVICELIST4res(NFS4ERR_NOTSUPP);
+}
+
+LAYOUTCOMMIT4res NfsServer::layoutcommit(
+    CompoundState& state,
+    const LAYOUTCOMMIT4args& args)
+{
+    return LAYOUTCOMMIT4res(NFS4ERR_NOTSUPP);
+}
+
+LAYOUTGET4res NfsServer::layoutget(
+    CompoundState& state,
+    const LAYOUTGET4args& args)
+{
+    return LAYOUTGET4res(NFS4ERR_NOTSUPP);
+}
+
+LAYOUTRETURN4res NfsServer::layoutreturn(
+    CompoundState& state,
+    const LAYOUTRETURN4args& args)
+{
+    return LAYOUTRETURN4res(NFS4ERR_NOTSUPP);
+}
+
+SECINFO_NO_NAME4res NfsServer::secinfo_no_name(
+    CompoundState& state,
+    const SECINFO_NO_NAME4args& args)
+{
+    return SECINFO_NO_NAME4res(NFS4ERR_NOTSUPP);
+}
+
+SEQUENCE4res NfsServer::sequence(
+    CompoundState& state,
+    const SEQUENCE4args& args)
+{
+    // Normal sequence handling is elsewhere - this can only be called
+    // if there is a sequence op not at the state of the compound
+    return SEQUENCE4res(NFS4ERR_SEQUENCE_POS);
+}
+
+SET_SSV4res NfsServer::set_ssv(
+    CompoundState& state,
+    const SET_SSV4args& args)
+{
+    return SET_SSV4res(NFS4ERR_NOTSUPP);
+}
+
+TEST_STATEID4res NfsServer::test_stateid(
+    CompoundState& state,
+    const TEST_STATEID4args& args)
+{
+    VLOG(1) << "NfsServer::test_stateid(...)";
+    auto client = state.session->client();
+    vector<nfsstat4> res;
+    for (auto& id: args.ts_stateids) {
+        try {
+            client->findState(state, id);
+            res.push_back(NFS4_OK);
+        }
+        catch (nfsstat4 stat) {
+            res.push_back(stat);
+        }
+    }
+    return TEST_STATEID4res(NFS4_OK, TEST_STATEID4resok{res});
+}
+
+WANT_DELEGATION4res NfsServer::want_delegation(
+    CompoundState& state,
+    const WANT_DELEGATION4args& args)
+{
+    return WANT_DELEGATION4res(NFS4ERR_NOTSUPP);
+}
+
+DESTROY_CLIENTID4res NfsServer::destroy_clientid(
+    CompoundState& state,
+    const DESTROY_CLIENTID4args& args)
+{
+    VLOG(1) << "NfsServer::destroy_clientid("
+            << hex << args.dca_clientid << ")";
+
+    unique_lock<mutex> lock(mutex_);
+    auto it = clientsById_.find(args.dca_clientid);
+    if (it == clientsById_.end())
+        return DESTROY_CLIENTID4res{NFS4ERR_STALE_CLIENTID};
+    auto client = it->second;
+    if (client->hasState() || client->sessionCount() > 0) {
+        // Note: this also covers the case where destroy_clientid is
+        // in a compound starting with sequence and that sequence
+        // refers to a session of the clientid being destroyed.
+        if (client->hasState())
+            LOG(ERROR) << "Can't destroy client with state, clientid: "
+                       << client->id();
+        if (client->sessionCount() > 0)
+            LOG(ERROR) << "Can't destroy client with sessions, clientid: "
+                       << client->id();
+        return DESTROY_CLIENTID4res{NFS4ERR_CLIENTID_BUSY};
+    }
+    destroyClient(lock, client);
+    return DESTROY_CLIENTID4res{NFS4_OK};
+}
+
+RECLAIM_COMPLETE4res NfsServer::reclaim_complete(
+    CompoundState& state,
+    const RECLAIM_COMPLETE4args& args)
+{
+    VLOG(1) << "NfsServer::reclaim_complete(" << args.rca_one_fs << ")";
+    return RECLAIM_COMPLETE4res{NFS4_OK};
+}
+
+void NfsServer::dispatch(oncrpc::CallContext&& ctx)
+{
+    switch (ctx.proc()) {
+    case NFSPROC4_NULL:
+        null();
+        ctx.sendReply([](auto){});
+        break;
+
+    case NFSPROC4_COMPOUND:
+        compound(move(ctx));
+        break;
+    }
+}
+
+static bool isSingleton(nfs_opnum4 op)
+{
+    switch (op) {
+    case OP_EXCHANGE_ID:
+    case OP_CREATE_SESSION:
+    case OP_BIND_CONN_TO_SESSION:
+    case OP_DESTROY_SESSION:
+    case OP_DESTROY_CLIENTID:
+        return true;
+    default:
+        return false;
+    }
+}
+
+void NfsServer::compound(oncrpc::CallContext&& ctx)
+{
+    static map<int, string> flavors {
+        { AUTH_NONE, "none" },
+        { AUTH_SYS, "sys" },
+        { RPCSEC_GSS_KRB5, "krb5" },
+        { RPCSEC_GSS_KRB5I, "krb5i" },
+        { RPCSEC_GSS_KRB5P, "krb5p" },
+    };
+
+    // Check the auth flavor is allowed
+    auto flavor = ctx.flavor();
+    bool validFlavor = false;
+    for (auto sec: sec_) {
+        if (sec == flavor) {
+            validFlavor = true;
+            break;
+        }
+    }
+    if (!validFlavor) {
+        auto p = flavors.find(flavor);
+        string s = p == flavors.end() ? to_string(flavor) : p->second;
+        LOG(ERROR) << "NfsServer: auth too weak: " << s;
+        ctx.authError(AUTH_TOOWEAK);
+        return;
+    }
+
+    ctx.sendReply(
+        [this, &ctx](oncrpc::XdrSink* xresults)
+        {
+            ctx.getArgs(
+                [this, xresults](oncrpc::XdrSource* xargs)
+                {
+                    string tag;
+                    uint32_t minorversion;
+                    int opcount;
+                    xdr(tag, xargs);
+                    xdr(minorversion, xargs);
+                    xdr(opcount, xargs);
+                    if (minorversion != 1) {
+                        xdr(NFS4ERR_MINOR_VERS_MISMATCH, xresults);
+                        xdr(tag, xresults);
+                        xdr(0, xresults);
+                        return;
+                    }
+
+                    CompoundState state;
+                    state.opindex = 0;
+                    state.opcount = opcount;
+
+                    // The first opcode must be sequence or a valid
+                    // singleton op
+                    nfs_opnum4 op;
+                    xdr(op, xargs);
+                    bool validSingleton = isSingleton(op);
+                    if (op != OP_SEQUENCE && !validSingleton) {
+                        xdr(NFS4ERR_OP_NOT_IN_SESSION, xresults);
+                        xdr(tag, xresults);
+                        xdr(1, xresults);
+                        xdr(op, xresults);
+                        xdr(NFS4ERR_OP_NOT_IN_SESSION, xresults);
+                        return;
+                    }
+
+                    // If the first op is not sequence, it must be a singleton
+                    if (validSingleton) {
+                        if (opcount != 1) {
+                            xdr(NFS4ERR_NOT_ONLY_OP, xresults);
+                            xdr(tag, xresults);
+                            xdr(1, xresults);
+                            xdr(op, xresults);
+                            xdr(NFS4ERR_NOT_ONLY_OP, xresults);
+                            return;
+                        }
+
+                        oncrpc::XdrWord* statusp =
+                            xresults->writeInline<oncrpc::XdrWord>(
+                                sizeof(oncrpc::XdrWord));
+                        xdr(tag, xresults);
+                        xdr(1, xresults);
+                        xdr(op, xresults);
+                        *statusp = dispatchop(op, state, xargs, xresults);
+                        return;
+                    }
+
+                    SEQUENCE4args seqargs;
+                    SEQUENCE4res seqres;
+                    oncrpc::XdrSink* xreply = xresults;
+                    xdr(seqargs, xargs);
+
+                    shared_ptr<NfsSession> session;
+                    unique_lock<mutex> lock(mutex_);
+                    auto p = sessionsById_.find(seqargs.sa_sessionid);
+                    lock.unlock();
+                    if (p != sessionsById_.end()) {
+                        session = p->second;
+                        seqres = session->sequence(state, seqargs);
+                    }
+                    else {
+                        LOG(ERROR) << "Request received for unknown session: "
+                                   << seqargs.sa_sessionid;
+                        seqres = SEQUENCE4res(NFS4ERR_BADSESSION);
+                    }
+                    if (state.session) {
+                        state.session->client()->setExpiry(leaseExpiry());
+                    }
+                    if (state.slot) {
+                        if (seqargs.sa_sequenceid == state.slot->sequence) {
+                            state.slot->reply->copyTo(xresults);
+                            return;
+                        }
+                        state.slot->sequence++;
+                        auto& ctx = CallContext::current();
+                        state.slot->reply = make_unique<oncrpc::Message>(
+                            ctx.channel()->bufferSize());
+                        xreply = state.slot->reply.get();
+                    }
+
+                    oncrpc::XdrWord* statusp =
+                        xreply->writeInline<oncrpc::XdrWord>(
+                            sizeof(oncrpc::XdrWord));
+                    assert(statusp != nullptr);
+                    *statusp = seqres.sr_status;
+                    xdr(tag, xreply);
+                    oncrpc::XdrWord* opcountp =
+                        xreply->writeInline<oncrpc::XdrWord>(
+                            sizeof(oncrpc::XdrWord));
+                    assert(opcountp != nullptr);
+                    *opcountp = 1;
+                    xdr(OP_SEQUENCE, xreply);
+                    xdr(seqres, xreply);
+                    if (seqres.sr_status == NFS4_OK) {
+                        for (int i = 1; i < opcount; i++) {
+                            nfs_opnum4 op;
+                            nfsstat4 stat;
+
+                            xdr(op, xargs);
+                            *opcountp = i + 1;
+                            xdr(op, xreply);
+
+                            if (op == OP_SEQUENCE) {
+                                stat = NFS4ERR_SEQUENCE_POS;
+                                xdr(stat, xreply);
+                                break;
+                            }
+                            state.opindex = i;
+                            stat = dispatchop(op, state, xargs, xreply);
+                            if (stat != NFS4_OK) {
+                                *statusp = stat;
+                                break;
+                            }
+                        }
+                    }
+                    if (xreply != xresults) {
+                        xreply->flush();
+                        state.slot->busy = false;
+                        state.slot->reply->copyTo(xresults);
+                    }
+                });
+        });
+}
+
+nfsstat4 NfsServer::dispatchop(
+    nfs_opnum4 op, CompoundState& state,
+    oncrpc::XdrSource* xargs, oncrpc::XdrSink* xresults)
+{
+#define OP2(OPNAME, METHOD, STATUS)             \
+    case OP_##OPNAME: {                         \
+        OPNAME##4args args;                     \
+        try {                                   \
+            xdr(args, xargs);                   \
+        }                                       \
+        catch (XdrError& e) {                   \
+            xdr(NFS4ERR_BADXDR, xresults);      \
+            return NFS4ERR_BADXDR;              \
+        }                                       \
+        OPNAME##4res res = METHOD(state, args); \
+        xdr(res, xresults);                     \
+        return res.STATUS;                      \
+    }
+
+#define OP(OPNAME, METHOD) OP2(OPNAME, METHOD, status);
+
+#define OPnoargs(OPNAME, METHOD)                \
+    case OP_##OPNAME: {                         \
+        OPNAME##4res res = METHOD(state);       \
+        xdr(res, xresults);                     \
+        return res.status;                      \
+    }
+
+    switch (op) {
+        OP(ACCESS, access);
+        OP(CLOSE, close);
+        OP(COMMIT, commit);
+        OP(CREATE, create);
+        OP(DELEGPURGE, delegpurge);
+        OP(DELEGRETURN, delegreturn);
+        OP(GETATTR, getattr);
+        OPnoargs(GETFH, getfh);
+        OP(LINK, link);
+        OP(LOCK, lock);
+        OP(LOCKT, lockt);
+        OP(LOCKU, locku);
+        OP(LOOKUP, lookup);
+        OPnoargs(LOOKUPP, lookupp);
+        OP(NVERIFY, nverify);
+        OP(OPEN, open);
+        OP(OPENATTR, openattr);
+        OP(OPEN_CONFIRM, open_confirm);
+        OP(OPEN_DOWNGRADE, open_downgrade);
+        OP(PUTFH, putfh);
+        OPnoargs(PUTPUBFH, putpubfh);
+        OPnoargs(PUTROOTFH, putrootfh);
+        OP(READ, read);
+        OP(READDIR, readdir);
+        OPnoargs(READLINK, readlink);
+        OP(REMOVE, remove);
+        OP(RENAME, rename);
+        OP(RENEW, renew);
+        OPnoargs(RESTOREFH, restorefh);
+        OPnoargs(SAVEFH, savefh);
+        OP(SECINFO, secinfo);
+        OP(SETATTR, setattr);
+        OP(SETCLIENTID, setclientid);
+        OP(SETCLIENTID_CONFIRM, setclientid_confirm);
+        OP(VERIFY, verify);
+        OP(WRITE, write);
+        OP(RELEASE_LOCKOWNER, release_lockowner);
+        OP2(BACKCHANNEL_CTL, backchannel_ctl, bcr_status);
+        OP2(BIND_CONN_TO_SESSION, bind_conn_to_session, bctsr_status);
+        OP2(EXCHANGE_ID, exchange_id, eir_status);
+        OP2(CREATE_SESSION, create_session, csr_status);
+        OP2(DESTROY_SESSION, destroy_session, dsr_status);
+        OP2(FREE_STATEID, free_stateid, fsr_status);
+        OP2(GET_DIR_DELEGATION, get_dir_delegation, gddr_status);
+        OP2(GETDEVICEINFO, getdeviceinfo, gdir_status);
+        OP2(GETDEVICELIST, getdevicelist, gdlr_status);
+        OP2(LAYOUTCOMMIT, layoutcommit, locr_status);
+        OP2(LAYOUTGET, layoutget, logr_status);
+        OP2(LAYOUTRETURN, layoutreturn, lorr_status);
+        OP(SECINFO_NO_NAME, secinfo_no_name);
+        OP2(SEQUENCE, sequence, sr_status);
+        OP2(SET_SSV, set_ssv, ssr_status);
+        OP2(TEST_STATEID, test_stateid, tsr_status);
+        OP2(WANT_DELEGATION, want_delegation, wdr_status);
+        OP2(DESTROY_CLIENTID, destroy_clientid, dcr_status);
+        OP2(RECLAIM_COMPLETE, reclaim_complete, rcr_status);
+
+    default:
+        xdr(NFS4ERR_OP_ILLEGAL, xresults);
+        return NFS4ERR_OP_ILLEGAL;
+    }
+#undef OP
+}
+
+detail::Clock::time_point NfsServer::leaseExpiry()
+{
+    // Add a few seconds to the reported lease_time value
+    return clock_->now() + seconds(FLAGS_lease_time + 15);
+}
+
+int NfsServer::expireClients()
+{
+    unique_lock<mutex> lock(mutex_);
+    auto now = clock_->now();
+    int expired = 0;
+
+    // Our expiry policy has several phases.
+    //
+    // 1: Any client which has not renewed its lease within the
+    // lease_time and which has no state is purged.
+    //
+    // 2: An expired client which has no unrevoked state is purged
+    // after 5*lease_time from its last renewal.
+    //
+    // 3: An expired client with unrevoked state is kept but if any
+    // other client makes a request which conflicts with its state,
+    // then that state entry is revoked.
+    //
+    // 3: A client which still has unrevoked state after 20*lease_time
+    // from its last renewal has all its immediately revoked and is
+    // purged.
+restart:
+    for (auto& e: clientsById_) {
+        auto client = e.second;
+        if (client->expiry() < now) {
+            // Set the client's expired flag - this will be reset if
+            // it renews
+            client->setExpired();
+            if (!client->hasState()) {
+                LOG(INFO) << "Expiring client with no state, clientid: "
+                          << hex << client->id();
+                destroyClient(lock, client);
+                expired++;
+                goto restart;
+            }
+        }
+        if (client->expiry() + seconds(4*FLAGS_lease_time) < now &&
+            !client->hasUnrevokedState()) {
+            LOG(INFO) << "Expiring client with revoked state, clientid: "
+                      << hex << client->id();
+            destroyClient(lock, client);
+            expired++;
+            goto restart;
+        }
+        if (client->expiry() + seconds(19*FLAGS_lease_time) < now) {
+            LOG(INFO) << "Expiring client with unrevoked state, clientid: "
+                      << hex << client->id();
+            destroyClient(lock, client);
+            expired++;
+            goto restart;
+        }
+    }
+
+    if (expired > 0) {
+        // After expiry processing, it is possible that we may have
+        // NfsFileState instances which can also be expired
+        vector<shared_ptr<File>> toExpire;
+        for (auto& e: files_)
+            if (!e.second->hasState())
+                toExpire.push_back(e.first);
+        for (auto& f: toExpire)
+            files_.erase(f);
+    }
+
+    return expired;
+}
+
+void NfsServer::destroyClient(
+    unique_lock<mutex>& lock, shared_ptr<NfsClient> client)
+{
+    for (auto& session: client->sessions()) {
+        sessionsById_.erase(session->id());
+    }
+    client->revokeState();
+    auto range = clientsByOwnerId_.equal_range(client->owner().co_ownerid);
+    clientsById_.erase(client->id());
+    clientsByOwnerId_.erase(range.first, range.second);
+}
+
+function<void(Setattr*)> NfsServer::importAttr(
+    const fattr4& attr, bitmap4& attrsset)
+{
+    return [&](auto sattr)
+    {
+        NfsAttr xattr;
+        xattr.decode(attr);
+        if (isset(attr.attrmask, FATTR4_MODE)) {
+            set(attrsset, FATTR4_MODE);
+            sattr->setMode(xattr.mode_);
+        }
+        if (isset(attr.attrmask, FATTR4_OWNER)) {
+            set(attrsset, FATTR4_OWNER);
+            sattr->setUid(idmapper_->toUid(toString(xattr.owner_)));
+        }
+        if (isset(attr.attrmask, FATTR4_OWNER_GROUP)) {
+            set(attrsset, FATTR4_OWNER_GROUP);
+            sattr->setGid(idmapper_->toUid(toString(xattr.owner_group_)));
+        }
+        if (isset(attr.attrmask, FATTR4_SIZE)) {
+            set(attrsset, FATTR4_SIZE);
+            sattr->setSize(xattr.size_);
+        }
+        if (isset(attr.attrmask, FATTR4_TIME_ACCESS_SET)) {
+            set(attrsset, FATTR4_TIME_ACCESS_SET);
+            switch (xattr.time_access_set_) {
+            case SET_TO_SERVER_TIME4:
+                sattr->setAtime(system_clock::now());
+                break;
+            case SET_TO_CLIENT_TIME4:
+                sattr->setAtime(importTime(xattr.time_access_));
+                break;
+            }
+        }
+        if (isset(attr.attrmask, FATTR4_TIME_MODIFY_SET)) {
+            set(attrsset, FATTR4_TIME_MODIFY_SET);
+            switch (xattr.time_modify_set_) {
+            case SET_TO_SERVER_TIME4:
+                sattr->setMtime(system_clock::now());
+                break;
+            case SET_TO_CLIENT_TIME4:
+                sattr->setMtime(importTime(xattr.time_modify_));
+                break;
+            }
+        }
+    };
+}
+
+static auto exportType(FileType type)
+{
+    switch (type) {
+    case FileType::FILE:
+        return NF4REG;
+    case FileType::DIRECTORY:
+        return NF4DIR;
+    case FileType::BLOCKDEV:
+        return NF4BLK;
+    case FileType::CHARDEV:
+        return NF4CHR;
+    case FileType::SYMLINK:
+        return NF4LNK;
+    case FileType::SOCKET:
+        return NF4SOCK;
+    case FileType::FIFO:
+        return NF4FIFO;
+    }
+}
+
+fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)
+{
+    auto& cred = CallContext::current().cred();
+    NfsAttr xattr;
+    auto attr = file->getattr();
+    shared_ptr<Fsattr> fsattr;
+    int i = 0;
+    for (auto word: wanted) {
+        while (word) {
+            int j = firstSetBit(word);
+            word ^= (1 << j);
+            switch (i + j) {
+            case FATTR4_SUPPORTED_ATTRS:
+                set(xattr.supported_attrs_, FATTR4_SUPPORTED_ATTRS);
+                set(xattr.supported_attrs_, FATTR4_CHANGE);
+                set(xattr.supported_attrs_, FATTR4_FILEHANDLE);
+                set(xattr.supported_attrs_, FATTR4_TYPE);
+                set(xattr.supported_attrs_, FATTR4_MODE);
+                set(xattr.supported_attrs_, FATTR4_NUMLINKS);
+                set(xattr.supported_attrs_, FATTR4_OWNER);
+                set(xattr.supported_attrs_, FATTR4_OWNER_GROUP);
+                set(xattr.supported_attrs_, FATTR4_SIZE);
+                set(xattr.supported_attrs_, FATTR4_SPACE_USED);
+                set(xattr.supported_attrs_, FATTR4_FSID);
+                set(xattr.supported_attrs_, FATTR4_FILEID);
+                set(xattr.supported_attrs_, FATTR4_TIME_ACCESS);
+                set(xattr.supported_attrs_, FATTR4_TIME_CREATE);
+                set(xattr.supported_attrs_, FATTR4_TIME_MODIFY);
+                set(xattr.supported_attrs_, FATTR4_TIME_METADATA);
+                break;
+            case FATTR4_CHANGE:
+                xattr.change_ = attr->change();
+                break;
+            case FATTR4_FILEHANDLE:
+                xattr.filehandle_ = exportFileHandle(file);
+                break;
+            case FATTR4_TYPE:
+                xattr.type_ = exportType(attr->type());
+                break;
+            case FATTR4_MODE:
+                xattr.mode_ = attr->mode();
+                break;
+            case FATTR4_NUMLINKS:
+                xattr.numlinks_ = attr->nlink();
+                break;
+            case FATTR4_OWNER:
+                xattr.owner_ =
+                    toUtf8string(idmapper_->fromUid(attr->uid()));
+                break;
+            case FATTR4_OWNER_GROUP:
+                xattr.owner_group_ =
+                    toUtf8string(idmapper_->fromGid(attr->gid()));
+                break;
+            case FATTR4_SIZE:
+                xattr.size_ = attr->size();
+                break;
+            case FATTR4_SPACE_USED:
+                xattr.space_used_ = attr->used();
+                break;
+            case FATTR4_FSID:
+                // XXX
+                xattr.fsid_.major = 0;
+                xattr.fsid_.minor = 0;
+                break;
+            case FATTR4_FILEID:
+                xattr.fileid_ = attr->fileid();
+                break;
+            case FATTR4_TIME_ACCESS:
+                xattr.time_access_ = exportTime(attr->atime());
+                break;
+            case FATTR4_TIME_CREATE:
+                xattr.time_create_ = exportTime(attr->birthtime());
+                break;
+            case FATTR4_TIME_MODIFY:
+                xattr.time_modify_ = exportTime(attr->mtime());
+                break;
+            case FATTR4_TIME_METADATA:
+                xattr.time_metadata_ = exportTime(attr->ctime());
+                break;
+            case FATTR4_FILES_AVAIL:
+                if (!fsattr)
+                    fsattr = file->fsstat(cred);
+                xattr.files_total_ = fsattr->afiles();
+                break;
+            case FATTR4_FILES_FREE:
+                if (!fsattr)
+                    fsattr = file->fsstat(cred);
+                xattr.files_total_ = fsattr->ffiles();
+                break;
+            case FATTR4_FILES_TOTAL:
+                if (!fsattr)
+                    fsattr = file->fsstat(cred);
+                xattr.files_total_ = fsattr->tfiles();
+                break;
+            case FATTR4_SPACE_AVAIL:
+                if (!fsattr)
+                    fsattr = file->fsstat(cred);
+                xattr.space_total_ = fsattr->abytes();
+                break;
+            case FATTR4_SPACE_FREE:
+                if (!fsattr)
+                    fsattr = file->fsstat(cred);
+                xattr.space_total_ = fsattr->fbytes();
+                break;
+            case FATTR4_SPACE_TOTAL:
+                if (!fsattr)
+                    fsattr = file->fsstat(cred);
+                xattr.space_total_ = fsattr->tbytes();
+                break;
+            case FATTR4_MAXREAD:
+                xattr.maxread_ = FLAGS_iosize;
+                break;
+            case FATTR4_MAXWRITE:
+                xattr.maxwrite_ = FLAGS_iosize;
+                break;
+            case FATTR4_LEASE_TIME:
+                xattr.lease_time_ = FLAGS_lease_time;
+                break;
+            default:
+                // Don't set the bit in attrmask_
+                continue;
+            }
+            set(xattr.attrmask_, i + j);
+        }
+        i += 32;
+    }
+    fattr4 res;
+    xattr.encode(res);
+    return res;
+}
+
+nfsstat4 NfsServer::verifyAttr(shared_ptr<File> file, const fattr4& check)
+{
+    NfsAttr xattr;
+    xattr.decode(check);
+    auto attr = file->getattr();
+    int i = 0;
+    for (auto word: check.attrmask) {
+        while (word) {
+            int j = firstSetBit(word);
+            word ^= (1 << j);
+            switch (i + j) {
+            case FATTR4_SUPPORTED_ATTRS: {
+                bitmap4 v;
+                set(v, FATTR4_SUPPORTED_ATTRS);
+                set(v, FATTR4_CHANGE);
+                set(v, FATTR4_FILEHANDLE);
+                set(v, FATTR4_TYPE);
+                set(v, FATTR4_MODE);
+                set(v, FATTR4_NUMLINKS);
+                set(v, FATTR4_OWNER);
+                set(v, FATTR4_OWNER_GROUP);
+                set(v, FATTR4_SIZE);
+                set(v, FATTR4_SPACE_USED);
+                set(v, FATTR4_FSID);
+                set(v, FATTR4_FILEID);
+                set(v, FATTR4_TIME_ACCESS);
+                set(v, FATTR4_TIME_CREATE);
+                set(v, FATTR4_TIME_MODIFY);
+                set(v, FATTR4_TIME_METADATA);
+                if (v != xattr.supported_attrs_)
+                    return NFS4ERR_NOT_SAME;
+                break;
+            }
+            case FATTR4_CHANGE:
+                if (xattr.change_ != attr->change())
+                    return NFS4ERR_NOT_SAME;
+                break;
+            case FATTR4_FILEHANDLE:
+                if (xattr.filehandle_ != exportFileHandle(file))
+                    return NFS4ERR_NOT_SAME;
+                break;
+            case FATTR4_TYPE:
+                if (xattr.type_ != exportType(attr->type()))
+                    return NFS4ERR_NOT_SAME;
+                break;
+            case FATTR4_MODE:
+                if (xattr.mode_ != attr->mode())
+                    return NFS4ERR_NOT_SAME;
+                break;
+            case FATTR4_NUMLINKS:
+                if (xattr.numlinks_ != attr->nlink())
+                    return NFS4ERR_NOT_SAME;
+                break;
+            case FATTR4_OWNER:
+                if (xattr.owner_ !=
+                    toUtf8string(idmapper_->fromUid(attr->uid())))
+                    return NFS4ERR_NOT_SAME;
+                break;
+            case FATTR4_OWNER_GROUP:
+                if (xattr.owner_group_ !=
+                    toUtf8string(idmapper_->fromGid(attr->gid())))
+                    return NFS4ERR_NOT_SAME;
+                break;
+            case FATTR4_SIZE:
+                if (xattr.size_ != attr->size())
+                    return NFS4ERR_NOT_SAME;
+                break;
+            case FATTR4_SPACE_USED:
+                if (xattr.space_used_ != attr->used())
+                    return NFS4ERR_NOT_SAME;
+                break;
+            case FATTR4_FSID:
+                // XXX
+                if (xattr.fsid_.major != 0 || xattr.fsid_.minor != 0)
+                    return NFS4ERR_NOT_SAME;
+                break;
+            case FATTR4_FILEID:
+                if (xattr.fileid_ != attr->fileid())
+                    return NFS4ERR_NOT_SAME;
+                break;
+            case FATTR4_TIME_ACCESS:
+                if (xattr.time_access_ != exportTime(attr->atime()))
+                    return NFS4ERR_NOT_SAME;
+                break;
+            case FATTR4_TIME_CREATE:
+                if (xattr.time_create_ != exportTime(attr->birthtime()))
+                    return NFS4ERR_NOT_SAME;
+                break;
+            case FATTR4_TIME_MODIFY:
+                if (xattr.time_modify_ != exportTime(attr->mtime()))
+                    return NFS4ERR_NOT_SAME;
+                break;
+            case FATTR4_TIME_METADATA:
+                if (xattr.time_metadata_ != exportTime(attr->ctime()))
+                    return NFS4ERR_NOT_SAME;
+                break;
+            case FATTR4_LEASE_TIME:
+                if (xattr.lease_time_ != FLAGS_lease_time)
+                    return NFS4ERR_NOT_SAME;
+                break;
+            default:
+                return NFS4ERR_INVAL;
+            }
+        }
+        i += 32;
+    }
+    return NFS4ERR_SAME;
+}
+
+void NfsServer::setRecallHook(
+    const filesys::nfs4::sessionid4& sessionid,
+    std::function<void(const stateid4&, const nfs_fh4&)> hook)
+{
+    sessionsById_[sessionid]->setRecallHook(hook);
+}

@@ -1,15 +1,15 @@
-// -*- c++ -*-
 #pragma once
 
 namespace oncrpc {
 class ServiceRegistry;
 }
 
+
 namespace nfsd {
 
 class ThreadPool;
 
-namespace nfs3 {
+namespace nfs4 {
 
 void init(
     std::shared_ptr<oncrpc::ServiceRegistry> svcreg,

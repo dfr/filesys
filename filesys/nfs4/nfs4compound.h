@@ -310,7 +310,11 @@ public:
             cachethis);
     }
 
-    // test_stateid
+    void test_stateid(const std::vector<stateid4>& stateids)
+    {
+        add(OP_TEST_STATEID, stateids);
+    }
+
     // want_delegation
 
     void destroy_clientid(clientid4 clientid)
@@ -437,7 +441,7 @@ public:
             xdr(denied, xdrs_);
             throw denied;
         }
-        throw mapStatus(st);
+        throw st;
     }
 
     stateid4 locku()
@@ -558,9 +562,8 @@ public:
             xdr(client_using, xdrs_);
             LOG(FATAL) << "Client ID in use by " << client_using.na_r_netid
                        << ":" << client_using.na_r_addr;
-            throw std::system_error(EINVAL, std::system_category());
         }
-        throw mapStatus(st);
+        throw st;
     }
 
     void setclientid_confirm()
@@ -625,7 +628,11 @@ public:
         return get<SEQUENCE4resok>(OP_SEQUENCE);
     }
 
-    // test_stateid
+    TEST_STATEID4resok test_stateid()
+    {
+        return get<TEST_STATEID4resok>(OP_TEST_STATEID);
+    }
+
     // want_delegation
 
     void destroy_clientid()
@@ -634,6 +641,151 @@ public:
     }
 
     // reclaim_complete
+
+private:
+    const std::string& tag_;
+    oncrpc::XdrSource* xdrs_;
+    nfsstat4 status_;
+    int opcount_ = 0;
+    int count_;
+};
+
+class CallbackRequestEncoder
+{
+public:
+    CallbackRequestEncoder(const std::string& tag, oncrpc::XdrSink* xdrs)
+        : tag_(tag),
+          xdrs_(xdrs)
+    {
+        xdr(tag_, xdrs_);
+        xdr(1, xdrs_);
+        xdr(0, xdrs_);
+        opcountp_ = xdrs_->writeInline<oncrpc::XdrWord>(
+            sizeof(oncrpc::XdrWord));
+        assert(opcountp_ != nullptr);
+        opcount_ = 0;
+    }
+
+    ~CallbackRequestEncoder()
+    {
+        *opcountp_ = opcount_;
+    }
+
+    void add(nfs_cb_opnum4 op)
+    {
+        xdr(reinterpret_cast<uint32_t&>(op), xdrs_);
+        opcount_++;
+    }
+
+    template <typename... Args>
+        void add(nfs_cb_opnum4 op, const Args&... args)
+    {
+        xdr(reinterpret_cast<uint32_t&>(op), xdrs_);
+        encodeArgs(args...);
+        opcount_++;
+    }
+
+    void encodeArgs()
+    {
+    }
+
+    template <typename T, typename... Rest>
+    void encodeArgs(const T& arg, const Rest&... rest)
+    {
+        xdr(arg, xdrs_);
+        encodeArgs(rest...);
+    }
+
+    void getattr(const nfs_fh4& fh, const bitmap4& attr_request)
+    {
+        add(OP_CB_GETATTR, fh, attr_request);
+    }
+
+    void recall(const stateid4& stateid, bool truncate, const nfs_fh4& fh)
+    {
+        add(OP_CB_RECALL, stateid, truncate, fh);
+    }
+
+    void sequence(
+        const sessionid4& session, sequenceid4 sequence,
+        slotid4 slotid, slotid4 highest_slotid, bool cachethis,
+        std::vector<referring_call_list4> referring_call_lists)
+    {
+        add(OP_CB_SEQUENCE, session, sequence, slotid, highest_slotid,
+            cachethis, referring_call_lists);
+    }
+
+private:
+    const std::string& tag_;
+    oncrpc::XdrSink* xdrs_;
+    oncrpc::XdrWord* opcountp_;
+    int opcount_;
+};
+
+class CallbackReplyDecoder
+{
+public:
+    CallbackReplyDecoder(const std::string& tag, oncrpc::XdrSource* xdrs)
+        : tag_(tag),
+          xdrs_(xdrs)
+    {
+        std::string rtag;
+        xdr(status_, xdrs_);
+        xdr(rtag, xdrs_);
+        if (rtag != tag_) {
+            LOG(FATAL) << "Unexpected tag \"" << rtag << "\" in COMPOUND4res";
+        }
+        xdr(count_, xdrs_);
+    }
+
+    auto status() const { return status_; }
+
+    nfsstat4 status(nfs_cb_opnum4 op)
+    {
+        if (opcount_ >= count_) {
+            LOG(FATAL) << "No reply for op index: " << opcount_;
+        }
+        nfs_cb_opnum4 rop;
+        xdr(reinterpret_cast<uint32_t&>(rop), xdrs_);
+        if (rop != op) {
+            LOG(FATAL) << "Unexpected op in CB_COMPOUND4res";
+        }
+        nfsstat4 status;
+        xdr(status, xdrs_);
+        opcount_++;
+
+        return status;
+    }
+
+    void check(nfs_cb_opnum4 op)
+    {
+        auto st = status(op);
+        if (st != NFS4_OK)
+            throw st;
+    }
+
+    template <typename ResokType> auto get(nfs_cb_opnum4 op)
+    {
+        check(op);
+        ResokType resok;
+        xdr(resok, xdrs_);
+        return resok;
+    }
+
+    CB_GETATTR4resok getattr()
+    {
+        return get<CB_GETATTR4resok>(OP_CB_GETATTR);
+    }
+
+    void recall()
+    {
+        check(OP_CB_RECALL);
+    }
+
+    CB_SEQUENCE4resok sequence()
+    {
+        return get<CB_SEQUENCE4resok>(OP_CB_SEQUENCE);
+    }
 
 private:
     const std::string& tag_;

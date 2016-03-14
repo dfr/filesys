@@ -19,37 +19,43 @@ static shared_ptr<NfsServer> nfsService;
 static void bindProgram(
     shared_ptr<Channel> chan, uint32_t prog, uint32_t vers, const AddressInfo& ai)
 {
-    // portmapper V2
-    Portmap pmap(chan);
-    mapping mapping;
-    mapping.prog = prog;
-    mapping.vers = vers;
-    mapping.prot = IPPROTO_TCP;
-    mapping.port = ai.port();
-    pmap.unset(mapping);
-    pmap.set(mapping);
+    try {
+        // portmapper V2
+        Portmap pmap(chan);
+        mapping mapping;
+        mapping.prog = prog;
+        mapping.vers = vers;
+        mapping.prot = IPPROTO_TCP;
+        mapping.port = ai.port();
+        pmap.unset(mapping);
+        pmap.set(mapping);
 
-    // rpcbind V3
-    RpcBind rpcbind(chan);
-    rpcb binding;
-    binding.r_prog = prog;
-    binding.r_vers = vers;
-    binding.r_netid = "";
-    binding.r_addr = "";
-    binding.r_owner = ::getenv("USER");
-    rpcbind.unset(binding);
-    binding.r_netid = ai.netid();
-    binding.r_addr = ai.uaddr();
-    rpcbind.set(binding);
+        // rpcbind V3
+        RpcBind rpcbind(chan);
+        rpcb binding;
+        binding.r_prog = prog;
+        binding.r_vers = vers;
+        binding.r_netid = "";
+        binding.r_addr = "";
+        binding.r_owner = ::getenv("USER");
+        rpcbind.unset(binding);
+        binding.r_netid = ai.netid();
+        binding.r_addr = ai.uaddr();
+        rpcbind.set(binding);
 
-    LOG(INFO) << "Registered: "
-              << binding.r_prog
-              << "," <<binding.r_vers
-              << "," << binding.r_addr;
+        LOG(INFO) << "Registered: "
+                  << binding.r_prog
+                  << "," <<binding.r_vers
+                  << "," << binding.r_addr;
+    }
+    catch (RpcError& e) {
+        LOG(ERROR) << "RPC error contacting rpcbind: " << e.what();
+    }
 }
 
 void nfsd::nfs3::init(
     shared_ptr<ServiceRegistry> svcreg,
+    shared_ptr<ThreadPool> threadpool,
     const vector<int>& sec,
     const vector<AddressInfo>& addrs)
 {

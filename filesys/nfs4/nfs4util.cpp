@@ -26,6 +26,7 @@ system_error filesys::nfs4::mapStatus(nfsstat4 stat)
         { NFS4ERR_DQUOT, EDQUOT },
         { NFS4ERR_STALE, ESTALE },
         { NFS4ERR_NOTSUPP, EOPNOTSUPP },
+        { NFS4ERR_SHARE_DENIED, EPERM }
     };
     auto i = statusMap.find(int(stat));
     if (i != statusMap.end())

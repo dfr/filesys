@@ -38,7 +38,18 @@ NfsFilesystem::NfsFilesystem(
         svcreg_ = make_shared<oncrpc::ServiceRegistry>();
         chan->setServiceRegistry(svcreg_);
     }
-    cbsvc_.bind(svcreg_);
+    cbprog_ = NFS4_CALLBACK;
+    for (;;) {
+        try {
+            auto p = svcreg_->lookup(cbprog_, NFS_CB);
+            cbprog_++;
+            continue;
+        }
+        catch (oncrpc::ProgramUnavailable&) {
+            break;
+        }
+    }
+    cbsvc_.bind(cbprog_, svcreg_);
     cbthread_ = thread([this, chan](){ handleCallbacks(); });
 
     // First we need to create a new session
@@ -101,7 +112,7 @@ NfsFilesystem::root()
             });
 
         root_ = find(move(rootfh), move(rootattr));
-        
+
         fsinfo_.maxread = root_->attr().maxread_;
         fsinfo_.maxwrite = root_->attr().maxwrite_;
 
@@ -138,27 +149,34 @@ NfsFilesystem::unmount()
     unique_lock<mutex> lock(mutex_);
 
     // Destroy the session and client
-    compoundNoSequence(
-        [this](auto& enc)
-        {
-            enc.destroy_session(sessionid_);
-        },
-        [](auto& dec)
-        {
-            dec.destroy_session();
-        });
-    compoundNoSequence(
-        [this](auto& enc)
-        {
-            enc.destroy_clientid(clientid_);
-        },
-        [](auto& dec)
-        {
-            dec.destroy_clientid();
-        });
+    try {
+        compoundNoSequence(
+            [this](auto& enc)
+            {
+                enc.destroy_session(sessionid_);
+            },
+            [](auto& dec)
+            {
+                dec.destroy_session();
+            });
+        compoundNoSequence(
+            [this](auto& enc)
+            {
+                enc.destroy_clientid(clientid_);
+            },
+            [](auto& dec)
+            {
+                dec.destroy_clientid();
+            });
+    }
+    catch (nfsstat4 stat) {
+        // Suppress errors from expired client state
+        if (stat != NFS4ERR_BADSESSION)
+            throw;
+    }
 
     sockman_->stop();
-    cbsvc_.unbind(svcreg_);
+    cbsvc_.unbind(cbprog_, svcreg_);
     chan_.reset();
     cbthread_.join();
 }
@@ -219,53 +237,84 @@ NfsFilesystem::addDelegation(
 void
 NfsFilesystem::connect()
 {
-    sequenceid4 sequence;
-    compoundNoSequence(
-        [this](auto& enc)
-        {
-            enc.exchange_id(clientOwner_, 0, state_protect4_a(SP4_NONE), {});
-        },
-        [this, &sequence](auto& dec)
-        {
-            auto resok = dec.exchange_id();
-            clientid_ = resok.eir_clientid;
-            sequence = resok.eir_sequenceid;
-        });
+    bool recovery = false;
 
-    LOG(INFO) << "clientid: " << hex << clientid_
-              << ", sequence: " << sequence;
+retry:
+    if (!clientid_) {
+        compoundNoSequence(
+            [this](auto& enc)
+            {
+                enc.exchange_id(clientOwner_, 0, state_protect4_a(SP4_NONE), {});
+            },
+            [this](auto& dec)
+            {
+                auto resok = dec.exchange_id();
+                clientid_ = resok.eir_clientid;
+                sequence_ = resok.eir_sequenceid;
+            });
 
-    auto slotCount = thread::hardware_concurrency();
+        LOG(INFO) << "clientid: " << hex << clientid_
+                  << ", sequence: " << sequence_;
+    }
 
-    compoundNoSequence(
-        [this, sequence, slotCount](auto& enc)
-        {
-            vector<callback_sec_parms4> sec_parms;
-            sec_parms.emplace_back(AUTH_NONE);
-            enc.create_session(
-                clientid_, sequence,
-                CREATE_SESSION4_FLAG_CONN_BACK_CHAN,
-                channel_attrs4{0, 65536, 65536, 65536, 32, slotCount, {}},
-                channel_attrs4{0, 65536, 65536, 65536, 32, slotCount, {}},
-                NFS4_CALLBACK,
-                sec_parms);
-        },
-        [this](auto& dec)
-        {
-            auto resok = dec.create_session();
-            sessionid_ = resok.csr_sessionid;
-            highestSlot_ = 0;
-            targetHighestSlot_ = resok.csr_fore_chan_attrs.ca_maxrequests;
-            slots_.clear();
-            for (int i = 0; i < targetHighestSlot_; i++)
-                slots_.emplace_back(Slot{1, false});
-        });
+    try {
+        auto slotCount = thread::hardware_concurrency();
 
-    LOG(INFO) << "sessionid: " << sessionid_;
+        compoundNoSequence(
+            [this, slotCount](auto& enc)
+            {
+                vector<callback_sec_parms4> sec_parms;
+                sec_parms.emplace_back(AUTH_NONE);
+                enc.create_session(
+                    clientid_, sequence_,
+                    CREATE_SESSION4_FLAG_CONN_BACK_CHAN,
+                    channel_attrs4{0, 65536, 65536, 65536, 32, slotCount, {}},
+                    channel_attrs4{0, 65536, 65536, 65536, 32, slotCount, {}},
+                    cbprog_,
+                    sec_parms);
+            },
+            [this](auto& dec)
+            {
+                auto resok = dec.create_session();
+                sessionid_ = resok.csr_sessionid;
+                highestSlot_ = 0;
+                targetHighestSlot_ = resok.csr_fore_chan_attrs.ca_maxrequests;
+                slots_.clear();
+                slots_.resize(targetHighestSlot_);
+            });
+        sequence_++;
 
-    cbsvc_.setSlots(slotCount);
+        LOG(INFO) << "sessionid: " << sessionid_;
+        cbsvc_.setSlots(slotCount);
+    }
+    catch (nfsstat4 stat) {
+        if (stat == NFS4ERR_STALE_CLIENTID) {
+            // We need to create a new client and recover state
+            clientid_ = 0;
+            recovery = true;
+            goto retry;
+        }
+    }
 
-    // XXX recover delegations and opens here
+    if (recovery) {
+        LOG(INFO) << "recovering state";
+        auto lock = cache_.lock();
+        for (auto& e: cache_) {
+            e.second->recover();
+        }
+    }
+}
+
+void
+NfsFilesystem::freeRevokedState()
+{
+    auto lock = cache_.lock(try_to_lock);
+    if (lock) {
+        LOG(INFO) << "freeing revoked state";
+        for (auto& e: cache_) {
+            e.second->testState();
+        }
+    }
 }
 
 void

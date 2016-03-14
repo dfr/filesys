@@ -103,6 +103,8 @@ struct OpenFlags
     static constexpr int CREATE = 4;
     static constexpr int TRUNCATE = 8;
     static constexpr int EXCLUSIVE = 16;
+    static constexpr int SHLOCK = 32;
+    static constexpr int EXLOCK = 64;
 };
 
 /// File modes
