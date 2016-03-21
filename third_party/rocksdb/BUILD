@@ -7,6 +7,7 @@ cc_library(
     copts = [
         "-Ithird_party/rocksdb/upstream",
         "-DROCKSDB_PLATFORM_POSIX",
+	"-msse4.2",
     ] + select({
         "//:darwin": ["-DOS_MACOSX"],
         "//:freebsd": ["-DOS_FREEBSD"],
