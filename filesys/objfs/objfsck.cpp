@@ -41,7 +41,7 @@ void ObjfsCheck::check()
     iterator->seek(start);
     while (iterator->valid(end)) {
         KeyType k(iterator->key());
-        auto id = k.fileid();
+        auto id = k.id();
         ObjFileMeta meta;
         auto val = iterator->value();
         oncrpc::XdrMemory xm(val->data(), val->size());

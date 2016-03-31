@@ -37,58 +37,7 @@ struct PosixAttr {
 	unsigned hyper atime; /* time of last access */
 	unsigned hyper mtime; /* time of last modification */
 	unsigned hyper ctime; /* time of last change */
-    unsigned hyper birthtime; /* birth time */
-};
-
-/*
- * File data location
- */
-enum DataLocationType {
-    LOC_EMBEDDED = 0,   /* embedded in metadata */
-    LOC_FILE = 1,       /* local file */
-    LOC_DB = 2,         /* local database */
-    LOC_NFS = 3,        /* nfs data server */
-};
-
-/*
- * Data embedded in file metadata
- */
-struct EmbeddedDataLocation {
-    opaque data<>;
-};
-
-/*
- * Data in local posix file
- */
-struct FileDataLocation {
-    string filename<>;
-};
-
-/*
- * Data in local object database
- */
- struct DBDataLocation
- {
-     unsigned blockSize;
- };
-
-/*
- * Data on remote NFS file server
- */
-struct NfsDataLocation {
-    string uaddr<>;
-    opaque handle<>;
-};
-
-union DataLocation switch (DataLocationType type) {
-case LOC_EMBEDDED:
-    EmbeddedDataLocation embedded;
-case LOC_FILE:
-    FileDataLocation file;
-case LOC_DB:
-    DBDataLocation db;
-case LOC_NFS:
-    NfsDataLocation nfs;
+        unsigned hyper birthtime; /* birth time */
 };
 
 /*
@@ -99,7 +48,7 @@ struct ObjFileMeta
     int vers;               /* = 1 */
     unsigned hyper fileid;
     PosixAttr attr;
-    DataLocation location;
+    opaque extra<>;
 };
 
 struct DirectoryEntry

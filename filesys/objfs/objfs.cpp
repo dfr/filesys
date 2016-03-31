@@ -74,7 +74,7 @@ ObjFilesystem::root()
             return root_;
         }
         try {
-            root_ = make_shared<ObjFile>(shared_from_this(), FileId(1));
+            root_ = makeNewFile(FileId(1));
         }
         catch (system_error& e) {
             // It would be nice to move this to the constructor but
@@ -91,7 +91,7 @@ ObjFilesystem::root()
             meta.attr.mtime = time.count();
             meta.attr.ctime = time.count();
             meta.attr.birthtime = time.count();
-            root_ = make_shared<ObjFile>(shared_from_this(), move(meta));
+            root_ = makeNewFile(move(meta));
             add(root_);
 
             // Write the root directory metadata and directory entries for
@@ -134,7 +134,7 @@ ObjFilesystem::find(FileId fileid)
         fileid,
         [](auto) {},
         [this](auto id) {
-            return make_shared<ObjFile>(shared_from_this(), FileId(id));
+            return makeNewFile(FileId(id));
         });
     static int count = 0;
     count++;
@@ -145,6 +145,25 @@ ObjFilesystem::find(FileId fileid)
                   << "%";
     }
     return res;
+}
+
+shared_ptr<ObjFile>
+ObjFilesystem::makeNewFile(FileId fileid)
+{
+    return make_shared<ObjFile>(shared_from_this(), fileid);
+}
+
+shared_ptr<ObjFile>
+ObjFilesystem::makeNewFile(ObjFileMetaImpl&& meta)
+{
+    return make_shared<ObjFile>(shared_from_this(), move(meta));
+}
+
+shared_ptr<OpenFile>
+ObjFilesystem::makeNewOpenFile(
+    const Credential& cred, shared_ptr<ObjFile> file)
+{
+    return make_shared<ObjOpenFile>(cred, file);
 }
 
 void

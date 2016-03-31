@@ -40,8 +40,6 @@ ObjFile::ObjFile(shared_ptr<ObjFilesystem> fs, ObjFileMetaImpl&& meta)
 
 ObjFile::~ObjFile()
 {
-    if (fd_ >= 0)
-        ::close(fd_);
 }
 
 shared_ptr<Filesystem> ObjFile::fs()
@@ -91,34 +89,14 @@ void ObjFile::setattr(const Credential& cred, function<void(Setattr*)> cb)
     ObjSetattr sattr(cred, meta_.attr);
     cb(&sattr);
     meta_.attr.ctime = getTime();
+    auto fs = fs_.lock();
+    auto trans = fs->db()->beginTransaction();
     if (meta_.attr.size < oldSize) {
-        switch (meta_.location.type) {
-        case LOC_DB: {
-            // If the file is truncated, purge any data after the new size.
-            auto blockSize = meta_.location.db().blockSize;
-            auto blockMask = blockSize - 1;
-            auto fs = fs_.lock();
-
-            DataKeyType start(
-                fileid(), (meta_.attr.size + blockMask) & ~blockMask);
-            DataKeyType end(fileid(), ~0ull);
-
-            auto iterator = fs->dataNS()->iterator();
-            auto trans = fs->db()->beginTransaction();
-            iterator->seek(start);
-            while (iterator->valid(end)) {
-                trans->remove(fs->dataNS(), iterator->key());
-                iterator->next();
-            }
-            fs->db()->commit(move(trans));
-            break;
-        }
-        default:
-            // Handle LOC_FILE and LOC_NFS
-            break;
-        }
+        // Purge any data after the new size.
+        truncate(trans.get(), meta_.attr.size);
     }
-    writeMeta();
+    writeMeta(trans.get());
+    fs->db()->commit(move(trans));
 }
 
 shared_ptr<File> ObjFile::lookup(const Credential& cred, const string& name)
@@ -141,11 +119,7 @@ shared_ptr<OpenFile> ObjFile::open(
             if (e.code().value() != ENOENT)
                 throw;
             file = createNewFile(
-                lock, cred, PT_REG, name, cb, [this](auto, auto newFile) {
-                auto& loc =  newFile->meta_.location;
-                loc.set_type(LOC_DB);
-                loc.db().blockSize = fs_.lock()->blockSize();
-            });
+                lock, cred, PT_REG, name, cb, [](auto, auto){});
             created = true;
         }
         if ((flags & OpenFlags::EXCLUSIVE) && !created)
@@ -154,7 +128,7 @@ shared_ptr<OpenFile> ObjFile::open(
     else {
         file = lookupInternal(lock, cred, name);
     }
-    return make_shared<ObjOpenFile>(cred, file);
+    return fs_.lock()->makeNewOpenFile(cred, file);
 }
 
 shared_ptr<OpenFile> ObjFile::open(const Credential& cred, int flags)
@@ -165,7 +139,7 @@ shared_ptr<OpenFile> ObjFile::open(const Credential& cred, int flags)
     if (flags & OpenFlags::WRITE)
         accmode |= AccessFlags::WRITE;
     checkAccess(cred, accmode);
-    return make_shared<ObjOpenFile>(cred, shared_from_this());
+    return fs_.lock()->makeNewOpenFile(cred, shared_from_this());
 }
 
 string ObjFile::readlink(const Credential& cred)
@@ -175,10 +149,9 @@ string ObjFile::readlink(const Credential& cred)
         throw system_error(EINVAL, system_category());
     checkAccess(cred, AccessFlags::READ);
 
-    assert(meta_.location.type == LOC_EMBEDDED);
-    meta_.attr.ctime = meta_.attr.atime = getTime();
+    updateAccessTime();
     writeMeta();
-    auto& val = meta_.location.embedded().data;
+    auto& val = meta_.extra;
     return string(reinterpret_cast<const char*>(val.data()), val.size());
 }
 
@@ -202,7 +175,7 @@ shared_ptr<File> ObjFile::symlink(
     return createNewFile(lock, cred, PT_LNK, name, cb,
         [this, data](auto trans, auto newFile) {
             newFile->meta_.attr.size = data.size();
-            auto& val = newFile->meta_.location.embedded().data;
+            auto& val = newFile->meta_.extra;
             val.resize(data.size());
             copy_n(
                 reinterpret_cast<const uint8_t*>(data.data()),
@@ -351,7 +324,7 @@ shared_ptr<DirectoryIterator> ObjFile::readdir(
     if (meta_.attr.type != PT_DIR)
         throw system_error(ENOTDIR, system_category());
     checkAccess(cred, AccessFlags::READ);
-    meta_.attr.ctime = meta_.attr.atime = getTime();
+    updateAccessTime();
     writeMeta();
     return make_shared<ObjDirectoryIterator>(
         fs_.lock(), FileId(meta_.fileid), seek);
@@ -450,22 +423,7 @@ void ObjFile::unlink(
         else {
             VLOG(2) << "deleting fileid: " << id;
             // Purge file data
-            switch (file->meta_.location.type) {
-            case LOC_DB: {
-                auto iterator = fs->dataNS()->iterator();
-                DataKeyType start(file->fileid(), 0);
-                DataKeyType end(file->fileid(), ~0ull);
-                iterator->seek(start);
-                while (iterator->valid(end)) {
-                    trans->remove(fs->dataNS(), iterator->key());
-                    iterator->next();
-                }
-                break;
-            }
-            default:
-                // XXX: handle LOC_FILE and LOC_NFS
-                break;
-            }
+            file->truncate(trans, 0);
             trans->remove(fs->defaultNS(), KeyType(id));
             fs->remove(file->fileid());
         }
@@ -529,7 +487,7 @@ shared_ptr<ObjFile> ObjFile::createNewFile(
     attrCb(&sattr);
 
     // Create the new file and add to our cache
-    auto newFile = make_shared<ObjFile>(fs, move(meta));
+    auto newFile = fs->makeNewFile(move(meta));
     fs->add(newFile);
 
     // Write a single transaction which increments ObjFilesystem::nextId,
@@ -566,6 +524,35 @@ uint64_t ObjFile::getTime()
         fs_.lock()->clock()->now().time_since_epoch()).count();
 }
 
+void ObjFile::updateAccessTime()
+{
+    meta_.attr.ctime = meta_.attr.atime = getTime();
+}
+
+void ObjFile::updateModifyTime()
+{
+    meta_.attr.ctime = meta_.attr.mtime = getTime();
+}
+
+void ObjFile::truncate(Transaction* trans, uint64_t newSize)
+{
+    // If the file size is reduced, purge any data after the new size.
+    auto fs = fs_.lock();
+    auto blockSize = fs->blockSize();
+    auto blockMask = blockSize - 1;
+
+    DataKeyType start(
+        fileid(), (newSize + blockMask) & ~blockMask);
+    DataKeyType end(fileid(), ~0ull);
+
+    auto iterator = fs->dataNS()->iterator();
+    iterator->seek(start);
+    while (iterator->valid(end)) {
+        trans->remove(fs->dataNS(), iterator->key());
+        iterator->next();
+    }
+}
+
 ObjOpenFile::~ObjOpenFile()
 {
     if (fd_ >= 0)
@@ -577,90 +564,54 @@ shared_ptr<Buffer> ObjOpenFile::read(
 {
     unique_lock<mutex> lock(file_->mutex_);
     file_->checkAccess(cred_, AccessFlags::READ);
-    auto& meta = file_->meta_;
-    meta.attr.ctime = meta.attr.atime = file_->getTime();
+    file_->updateAccessTime();
     file_->writeMeta();
+    auto& meta = file_->meta();
 
-    switch (meta.location.type) {
-    case LOC_EMBEDDED: {
-        const auto& data = meta.location.embedded().data;
-        if (offset >= data.size()) {
-            eof = true;
-            return make_shared<oncrpc::Buffer>(0);
-        }
-        if (offset + len > data.size()) {
-            len = data.size() - offset;
-        }
-        auto res = make_shared<Buffer>(len);
-        copy_n(&data[offset], len, res->data());
-        eof = false;
-        return res;
+    auto fs = file_->fs_.lock();
+    auto blockSize = fs->blockSize();
+    auto bn = offset / blockSize;
+    auto boff = offset % blockSize;
+    eof = false;
+    if (offset >= meta.attr.size) {
+        eof = true;
+        return make_shared<oncrpc::Buffer>(0);
     }
-    case LOC_FILE: {
-        if (fd_ < 0) {
-            fd_ = ::open(meta.location.file().filename.c_str(), O_RDWR);
-            if (fd_ < 0 && errno == EACCES)
-                fd_ = ::open(meta.location.file().filename.c_str(), O_RDONLY);
-            if (fd_ < 0)
-                throw system_error(errno, system_category());
-        }
-        auto res = make_shared<Buffer>(len);
-        auto n = ::pread(fd_, res->data(), len, offset);
-        if (n < 0)
-            throw system_error(errno, system_category());
-        if (n < len)
-            res = make_shared<Buffer>(res, 0, n);
-        return res;
+    if (offset + len >= meta.attr.size) {
+        eof = true;
+        len = meta.attr.size - offset;
     }
-    case LOC_DB: {
-        auto blockSize = meta.location.db().blockSize;
-        auto bn = offset / blockSize;
-        auto boff = offset % blockSize;
-        auto fs = file_->fs_.lock();
-        eof = false;
-        if (offset >= meta.attr.size) {
-            eof = true;
-            return make_shared<oncrpc::Buffer>(0);
-        }
-        if (offset + len >= meta.attr.size) {
-            eof = true;
-            len = meta.attr.size - offset;
-        }
 
-        // Read one block at a time and copy out to buffer
-        auto res = make_shared<oncrpc::Buffer>(len);
-        for (int i = 0; i < len; ) {
-            auto off = bn * blockSize;
-            try {
-                // If the block exists copy out to buffer
-                auto block = fs->dataNS()->get(
-                    DataKeyType(file_->fileid(), off));
-                auto blen = block->size() - boff;
-                if (i + blen > len) {
-                    blen = len - i;
-                }
-                copy_n(block->data() + boff, blen, res->data() + i);
-                i += blen;
+    // Read one block at a time and copy out to buffer
+    auto res = make_shared<oncrpc::Buffer>(len);
+    for (int i = 0; i < len; ) {
+        auto off = bn * blockSize;
+        try {
+            // If the block exists copy out to buffer
+            auto block = fs->dataNS()->get(
+                DataKeyType(file_->fileid(), off));
+            auto blen = block->size() - boff;
+            if (i + blen > len) {
+                blen = len - i;
             }
-            catch (system_error&) {
-                // otherwise copy zeros
-                auto blen = blockSize - boff;
-                if (i + blen > len) {
-                    blen = len - i;
-                }
-                fill_n(res->data() + i, blen, 0);
-                i += blen;
+            copy_n(block->data() + boff, blen, res->data() + i);
+            i += blen;
+        }
+        catch (system_error&) {
+            // otherwise copy zeros
+            auto blen = blockSize - boff;
+            if (i + blen > len) {
+                blen = len - i;
             }
-
-            boff = 0;
-            bn++;
+            fill_n(res->data() + i, blen, 0);
+            i += blen;
         }
 
-        return res;
+        boff = 0;
+        bn++;
     }
-    default:
-        assert(false);
-    }
+
+    return res;
 }
 
 uint32_t ObjOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
@@ -669,73 +620,67 @@ uint32_t ObjOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
     file_->checkAccess(cred_, AccessFlags::WRITE);
     auto& meta = file_->meta_;
 
-    switch (meta.location.type) {
-    case LOC_DB: {
-        auto blockSize = meta.location.db().blockSize;
-        auto bn = offset / blockSize;
-        auto boff = offset % blockSize;
-        auto len = data->size();
-        auto fs = file_->fs_.lock();
-        auto trans = fs->db()->beginTransaction();
-        meta.attr.ctime = meta.attr.mtime = file_->getTime();
-        if (offset + len > meta.attr.size) {
-            meta.attr.size = offset + len;
-        }
-        file_->writeMeta(trans.get());
+    auto fs = file_->fs_.lock();
+    auto blockSize = fs->blockSize();
+    auto bn = offset / blockSize;
+    auto boff = offset % blockSize;
+    auto len = data->size();
+    auto trans = fs->db()->beginTransaction();
+    meta.attr.ctime = meta.attr.mtime = file_->getTime();
+    if (offset + len > meta.attr.size) {
+        meta.attr.size = offset + len;
+    }
+    file_->writeMeta(trans.get());
 
-        // Write one block at a time, merging if necessary
-        for (int i = 0; i < len; ) {
-            auto off = bn * blockSize;
-            auto blen = blockSize - boff;
-            if (i + blen > len)
-                blen = len - i;
-            // If we need to merge, read the existing block
+    // Write one block at a time, merging if necessary
+    for (int i = 0; i < len; ) {
+        auto off = bn * blockSize;
+        auto blen = blockSize - boff;
+        if (i + blen > len)
+            blen = len - i;
+        // If we need to merge, read the existing block
+        shared_ptr<Buffer> block;
+        DataKeyType key(file_->fileid(), off);
+        if (boff > 0 ||
+            (blen < blockSize && off + blen < meta.attr.size)) {
+            try {
+                auto oldBlock = fs->dataNS()->get(key);
+                block = make_shared<Buffer>(blockSize);
+                copy_n(oldBlock->data(), oldBlock->size(), block->data());
+            }
+            catch (system_error&) {
+                block = make_shared<Buffer>(blockSize);
+                fill_n(block->data(), blockSize, 0);
+            }
+            copy_n(data->data() + i, blen, block->data() + boff);
+            trans->put(
+                fs->dataNS(), DataKeyType(file_->fileid(), off), block);
+        }
+        else {
             shared_ptr<Buffer> block;
-            DataKeyType key(file_->fileid(), off);
-            if (boff > 0 ||
-                (blen < blockSize && off + blen < meta.attr.size)) {
-                try {
-                    auto oldBlock = fs->dataNS()->get(key);
-                    block = make_shared<Buffer>(blockSize);
-                    copy_n(oldBlock->data(), oldBlock->size(), block->data());
-                }
-                catch (system_error&) {
-                    block = make_shared<Buffer>(blockSize);
-                    fill_n(block->data(), blockSize, 0);
-                }
-                copy_n(data->data() + i, blen, block->data() + boff);
-                trans->put(
-                    fs->dataNS(), DataKeyType(file_->fileid(), off), block);
+            if (blen == blockSize) {
+                block = make_shared<Buffer>(data, i, i + blen);
             }
             else {
-                shared_ptr<Buffer> block;
-                if (blen == blockSize) {
-                    block = make_shared<Buffer>(data, i, i + blen);
-                }
-                else {
-                    block = make_shared<Buffer>(blockSize);
-                    copy_n(data->data() + i, blen, block->data());
-                    fill_n(block->data() + blen, blockSize - blen, 0);
-                }
-                trans->put(
-                    fs->dataNS(), DataKeyType(file_->fileid(), off), block);
+                block = make_shared<Buffer>(blockSize);
+                copy_n(data->data() + i, blen, block->data());
+                fill_n(block->data() + blen, blockSize - blen, 0);
             }
-
-            // Set up for the next block - note that only the first block can
-            // be at a non-zero offset within the block
-            i += blen;
-            boff = 0;
-            bn++;
+            trans->put(
+                fs->dataNS(), DataKeyType(file_->fileid(), off), block);
         }
-        needFlush_ = true;
-        lock.unlock();
 
-        fs->db()->commit(move(trans));
-        return len;
+        // Set up for the next block - note that only the first block can
+        // be at a non-zero offset within the block
+        i += blen;
+        boff = 0;
+        bn++;
     }
-    default:
-        throw system_error(EINVAL, system_category());
-    }
+    needFlush_ = true;
+    lock.unlock();
+
+    fs->db()->commit(move(trans));
+    return len;
 }
 
 void ObjOpenFile::flush()

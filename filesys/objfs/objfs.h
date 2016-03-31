@@ -104,14 +104,13 @@ struct ObjFileMetaImpl: public ObjFileMeta
         attr.mtime = 0;
         attr.ctime = 0;
         attr.birthtime = 0;
-        location.set_type(LOC_EMBEDDED);
-        location.embedded().data.clear();
     }
     ObjFileMetaImpl(ObjFileMeta&& other)
     {
+        vers = 1;
         fileid = other.fileid;
         attr = other.attr;
-        location = std::move(other.location);
+        extra = std::move(other.extra);
     }
 };
 
@@ -122,6 +121,11 @@ public:
     ObjFile(std::shared_ptr<ObjFilesystem>, FileId fileid);
     ObjFile(std::shared_ptr<ObjFilesystem>, ObjFileMetaImpl&& meta);
     ~ObjFile() override;
+
+    std::unique_lock<std::mutex> lock()
+    {
+        return std::unique_lock<std::mutex>(mutex_);
+    }
 
     // File overrides
     std::shared_ptr<Filesystem> fs() override;
@@ -158,7 +162,9 @@ public:
         const Credential& cred, std::uint64_t seek) override;
     std::shared_ptr<Fsattr> fsstat(const Credential& cred) override;
 
+    std::shared_ptr<ObjFilesystem> ofs() const { return fs_.lock(); }
     FileId fileid() const { return FileId(meta_.fileid); }
+    auto& meta() const { return meta_; }
     std::shared_ptr<ObjFile> lookupInternal(
         std::unique_lock<std::mutex>& lock,
         const Credential& cred, const std::string& name);
@@ -183,12 +189,15 @@ public:
     void checkAccess(const Credential& cred, int accmode);
     void checkSticky(const Credential& cred, ObjFile* file);
     uint64_t getTime();
+    void updateAccessTime();
+    void updateModifyTime();
+    virtual void truncate(
+        keyval::Transaction* trans, std::uint64_t newSize);
 
-private:
+protected:
     std::mutex mutex_;
     std::weak_ptr<ObjFilesystem> fs_;
     ObjFileMetaImpl meta_;
-    int fd_ = -1;
 };
 
 class ObjOpenFile: public OpenFile
@@ -279,12 +288,16 @@ public:
     }
 
     std::shared_ptr<ObjFile> find(FileId fileid);
+    virtual std::shared_ptr<ObjFile> makeNewFile(FileId fileid);
+    virtual std::shared_ptr<ObjFile> makeNewFile(ObjFileMetaImpl&& meta);
+    virtual std::shared_ptr<OpenFile> makeNewOpenFile(
+        const Credential& cred, std::shared_ptr<ObjFile> file);
     void remove(FileId fileid);
     void add(std::shared_ptr<ObjFile> file);
     void writeMeta(keyval::Transaction* trans);
     void setFsid();
 
-private:
+protected:
     std::mutex mutex_;
     std::shared_ptr<detail::Clock> clock_;
     std::unique_ptr<keyval::Database> db_;
