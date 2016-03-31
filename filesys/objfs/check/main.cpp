@@ -6,7 +6,6 @@
 #include <glog/logging.h>
 
 #include "filesys/objfs/objfsck.h"
-#include "filesys/objfs/rocksdbi.h"
 
 using namespace filesys;
 using namespace filesys::objfs;
@@ -23,5 +22,5 @@ int main(int argc, char** argv)
     if (argc != 2)
         usage();
 
-    ObjfsCheck(make_unique<RocksDatabase>(argv[1])).check();
+    ObjfsCheck(keyval::make_rocksdb(argv[1])).check();
 }

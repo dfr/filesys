@@ -8,8 +8,8 @@ cc_library(
         "//rpcxx",
         "//filesys:hdrs",
         "//filesys:access",
+        "//keyval",
         "//third_party/glog",
-        "//third_party/rocksdb",
     ],
     visibility = ["//visibility:public"]
 )
@@ -25,9 +25,9 @@ cc_binary(
     srcs = glob(["check/*.cpp", "rocksdbi.*"]),
     deps = [
         ":objfs",
+        "//keyval",
         "//rpcxx",
         "//third_party/glog",
-        "//third_party/rocksdb",
     ],
 )
 

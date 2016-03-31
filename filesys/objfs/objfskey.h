@@ -1,3 +1,6 @@
+// -*- c++ -*-
+#pragma once
+
 namespace filesys {
 namespace objfs {
 
@@ -5,22 +8,21 @@ namespace objfs {
 /// metadata. The fileid is encoded big endian to group consecutive fileids
 struct KeyType {
     KeyType(std::uint64_t id)
-        : buf_(sizeof(std::uint64_t))
+        : buf_(std::make_shared<oncrpc::Buffer>(sizeof(std::uint64_t)))
     {
         std::uint64_t n = id;
         for (int i = 0; i < sizeof(n); i++) {
-            buf_.data()[i] = (n >> 56) & 0xff;
+            buf_->data()[i] = (n >> 56) & 0xff;
             n <<= 8;
         }
     }
 
     KeyType(std::shared_ptr<oncrpc::Buffer> buf)
-        : buf_(buf->size())
+        : buf_(buf)
     {
-        std::copy_n(buf->data(), buf->size(), buf_.data());
     }
 
-    operator const oncrpc::Buffer&() const
+    operator std::shared_ptr<oncrpc::Buffer>() const
     {
         return buf_;
     }
@@ -29,13 +31,13 @@ struct KeyType {
     {
         std::uint64_t n = 0;
         for (int i = 0; i < sizeof(n); i++) {
-            n = (n << 8) + buf_.data()[i];
+            n = (n << 8) + buf_->data()[i];
         }
         return n;
     }
 
 private:
-    oncrpc::Buffer buf_;
+    std::shared_ptr<oncrpc::Buffer> buf_;
 };
 
 /// Key type for directory entries - we append the name to the fileid
@@ -44,25 +46,24 @@ private:
 struct DirectoryKeyType
 {
     DirectoryKeyType(std::uint64_t id, std::string name)
-        : buf_(sizeof(std::uint64_t) + name.size())
+        : buf_(std::make_shared<oncrpc::Buffer>(sizeof(std::uint64_t) + name.size()))
     {
         std::uint64_t n = id;
         for (int i = 0; i < sizeof(n); i++) {
-            buf_.data()[i] = (n >> 56) & 0xff;
+            buf_->data()[i] = (n >> 56) & 0xff;
             n <<= 8;
         }
         std::copy_n(
             reinterpret_cast<const uint8_t*>(name.data()), name.size(),
-            buf_.data() + sizeof(uint64_t));
+            buf_->data() + sizeof(uint64_t));
     }
 
     DirectoryKeyType(std::shared_ptr<oncrpc::Buffer> buf)
-        : buf_(buf->size())
+        : buf_(buf)
     {
-        std::copy_n(buf->data(), buf->size(), buf_.data());
     }
 
-    operator const oncrpc::Buffer&() const
+    operator std::shared_ptr<oncrpc::Buffer>() const
     {
         return buf_;
     }
@@ -71,7 +72,7 @@ struct DirectoryKeyType
     {
         std::uint64_t n = 0;
         for (int i = 0; i < sizeof(n); i++) {
-            n = (n << 8) + buf_.data()[i];
+            n = (n << 8) + buf_->data()[i];
         }
         return n;
     }
@@ -79,12 +80,12 @@ struct DirectoryKeyType
     std::string name() const
     {
         return std::string(
-            reinterpret_cast<const char*>(buf_.data() + sizeof(uint64_t)),
-            buf_.size() - sizeof(uint64_t));
+            reinterpret_cast<const char*>(buf_->data() + sizeof(uint64_t)),
+            buf_->size() - sizeof(uint64_t));
     }
 
 private:
-    oncrpc::Buffer buf_;
+    std::shared_ptr<oncrpc::Buffer> buf_;
 };
 
 /// Key type for file data and block map - we index by fileid and byte offset,
@@ -92,27 +93,27 @@ private:
 /// block map
 struct DataKeyType {
     DataKeyType(std::uint64_t id, std::uint64_t off)
-        : buf_(2*sizeof(std::uint64_t))
+        : buf_(std::make_shared<oncrpc::Buffer>(2*sizeof(std::uint64_t)))
     {
         std::uint64_t n = id;
         for (int i = 0; i < sizeof(n); i++) {
-            buf_.data()[i] = (n >> 56) & 0xff;
+            buf_->data()[i] = (n >> 56) & 0xff;
             n <<= 8;
         }
         n = off;
         for (int i = 0; i < sizeof(n); i++) {
-            buf_.data()[8+i] = (n >> 56) & 0xff;
+            buf_->data()[8+i] = (n >> 56) & 0xff;
             n <<= 8;
         }
     }
 
     DataKeyType(std::shared_ptr<oncrpc::Buffer> buf)
-        : buf_(buf->size())
+        : buf_(buf)
     {
-        std::copy_n(buf->data(), buf->size(), buf_.data());
+        std::copy_n(buf->data(), buf->size(), buf_->data());
     }
 
-    operator const oncrpc::Buffer&() const
+    operator std::shared_ptr<oncrpc::Buffer>() const
     {
         return buf_;
     }
@@ -121,7 +122,7 @@ struct DataKeyType {
     {
         std::uint64_t n = 0;
         for (int i = 0; i < sizeof(n); i++) {
-            n = (n << 8) + buf_.data()[i];
+            n = (n << 8) + buf_->data()[i];
         }
         return n;
     }
@@ -130,13 +131,13 @@ struct DataKeyType {
     {
         std::uint64_t n = 0;
         for (int i = 0; i < sizeof(n); i++) {
-            n = (n << 8) + buf_.data()[8+i];
+            n = (n << 8) + buf_->data()[8+i];
         }
         return n;
     }
 
 private:
-    oncrpc::Buffer buf_;
+    std::shared_ptr<oncrpc::Buffer> buf_;
 };
 
 }

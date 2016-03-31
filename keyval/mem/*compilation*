@@ -1,0 +1,14 @@
+-*- mode: compilation; default-directory: "~/src/filesys/keyval/mem/" -*-
+Compilation started at Wed Mar 30 15:47:05
+
+bazel build //keyval/mem
+____Loading...
+____Found 1 target...
+blaze: Entering directory `/home/dfr/.cache/bazel/_bazel_dfr/4043b8da0f9ea29025282ee2e9ad41b9/filesys/'
+blaze: Leaving directory `/home/dfr/.cache/bazel/_bazel_dfr/4043b8da0f9ea29025282ee2e9ad41b9/filesys/'
+Target //keyval/mem:mem up-to-date:
+  bazel-bin/keyval/mem/libmem.a
+  bazel-bin/keyval/mem/libmem.so
+____Elapsed time: 0.562s, Critical Path: 0.48s
+
+Compilation finished at Wed Mar 30 15:47:05

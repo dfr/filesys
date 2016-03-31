@@ -1,6 +1,9 @@
+// -*- c++ -*-
 #pragma once
 
 #include <map>
+
+#include <kv++/keyval.h>
 
 #include "filesys/objfs/objfsproto.h"
 #include "filesys/objfs/objfskey.h"
@@ -8,12 +11,10 @@
 namespace filesys {
 namespace objfs {
 
-class Database;
-
 class ObjfsCheck
 {
 public:
-    ObjfsCheck(std::unique_ptr<Database>&& db)
+    ObjfsCheck(std::unique_ptr<keyval::Database>&& db)
         : db_(std::move(db))
     {
     }
@@ -38,7 +39,7 @@ private:
             return f.name;
     }
 
-    std::unique_ptr<Database> db_;
+    std::unique_ptr<keyval::Database> db_;
     std::map<std::uint64_t, state> files_;
 };
 

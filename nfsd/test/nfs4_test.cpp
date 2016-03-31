@@ -55,8 +55,8 @@ public:
         clock_ = make_shared<detail::MockClock>();
 
         // Create a scratch filesystem to 'export'
-        system("rm -rf ./testdb");
-        objfs_ = fsman_.mount<ObjFilesystem>("/", "testdb", clock_);
+        objfs_ = fsman_.mount<ObjFilesystem>(
+            "/", keyval::make_memdb(), clock_);
         Credential cred(0, 0, {}, true);
         objfs_->root()->setattr(cred, setMode777);
         blockSize_ = objfs_->blockSize();

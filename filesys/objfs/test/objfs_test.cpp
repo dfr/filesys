@@ -6,6 +6,7 @@
 
 using namespace filesys;
 using namespace filesys::objfs;
+using namespace keyval;
 using namespace std;
 
 class ObjfsTest
@@ -14,9 +15,8 @@ public:
     ObjfsTest()
     {
         Credential cred(0, 0, {}, true);
-        system("rm -rf ./testdb");
         clock_ = make_shared<detail::MockClock>();
-        fs_ = make_shared<ObjFilesystem>("testdb", clock_);
+        fs_ = make_shared<ObjFilesystem>(make_memdb(), clock_);
         blockSize_ = fs_->blockSize();
         fs_->root()->setattr(cred, setMode777);
     }

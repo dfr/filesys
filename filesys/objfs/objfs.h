@@ -3,9 +3,9 @@
 
 #include <fs++/filesys.h>
 #include <fs++/lrucache.h>
+#include <kv++/keyval.h>
 #include "filesys/objfs/objfsproto.h"
 #include "filesys/objfs/objfskey.h"
-#include "filesys/objfs/dbi.h"
 
 namespace filesys {
 namespace objfs {
@@ -163,12 +163,14 @@ public:
         std::unique_lock<std::mutex>& lock,
         const Credential& cred, const std::string& name);
     void writeMeta();
-    void writeMeta(Transaction* trans);
+    void writeMeta(keyval::Transaction* trans);
     void writeDirectoryEntry(
-        Transaction* trans, const std::string& name, FileId id);
-    void link(Transaction* trans, const std::string& name, ObjFile* file,
+        keyval::Transaction* trans, const std::string& name, FileId id);
+    void link(
+        keyval::Transaction* trans, const std::string& name, ObjFile* file,
         bool saveMeta);
-    void unlink(Transaction* trans, const std::string& name, ObjFile* file,
+    void unlink(
+        keyval::Transaction* trans, const std::string& name, ObjFile* file,
         bool saveMeta);
     std::shared_ptr<ObjFile> createNewFile(
         std::unique_lock<std::mutex>& lock,
@@ -176,7 +178,8 @@ public:
         PosixType type,
         const std::string& name,
         std::function<void(Setattr*)> attrCb,
-        std::function<void(Transaction*, std::shared_ptr<ObjFile>)> writeCb);
+        std::function<void(
+            keyval::Transaction*, std::shared_ptr<ObjFile>)> writeCb);
     void checkAccess(const Credential& cred, int accmode);
     void checkSticky(const Credential& cred, ObjFile* file);
     uint64_t getTime();
@@ -231,7 +234,7 @@ private:
     void decodeEntry();
 
     std::shared_ptr<ObjFilesystem> fs_;
-    std::unique_ptr<Iterator> iterator_;
+    std::unique_ptr<keyval::Iterator> iterator_;
     uint64_t seek_;
     DirectoryKeyType start_;
     DirectoryKeyType end_;
@@ -243,9 +246,9 @@ class ObjFilesystem: public Filesystem,
                      public std::enable_shared_from_this<ObjFilesystem>
 {
 public:
-    ObjFilesystem(const std::string& filename);
+    ObjFilesystem(std::unique_ptr<keyval::Database> db);
     ObjFilesystem(
-        const std::string& filename,
+        std::unique_ptr<keyval::Database> db,
         std::shared_ptr<detail::Clock> clock);
     ~ObjFilesystem() override;
 
@@ -260,7 +263,7 @@ public:
 
     auto clock() const { return clock_; }
 
-    Database* db() const
+    keyval::Database* db() const
     {
         return db_.get();
     }
@@ -278,16 +281,16 @@ public:
     std::shared_ptr<ObjFile> find(FileId fileid);
     void remove(FileId fileid);
     void add(std::shared_ptr<ObjFile> file);
-    void writeMeta(Transaction* trans);
+    void writeMeta(keyval::Transaction* trans);
     void setFsid();
 
 private:
     std::mutex mutex_;
     std::shared_ptr<detail::Clock> clock_;
-    std::unique_ptr<Database> db_;
-    Namespace* defaultNS_;
-    Namespace* directoriesNS_;
-    Namespace* dataNS_;
+    std::unique_ptr<keyval::Database> db_;
+    std::shared_ptr<keyval::Namespace> defaultNS_;
+    std::shared_ptr<keyval::Namespace> directoriesNS_;
+    std::shared_ptr<keyval::Namespace> dataNS_;
     ObjFilesystemMeta meta_;
     std::atomic<std::uint64_t> nextId_;
     FilesystemId fsid_;

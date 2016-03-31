@@ -8,6 +8,7 @@
 
 using namespace filesys;
 using namespace filesys::objfs;
+using namespace keyval;
 using namespace std;
 using namespace chrono;
 
@@ -15,7 +16,7 @@ ObjFile::ObjFile(shared_ptr<ObjFilesystem> fs, FileId fileid)
     : fs_(fs)
 {
     KeyType key(fileid);
-    auto buf = fs->db()->get(fs->defaultNS(), key);
+    auto buf = fs->defaultNS()->get(key);
     try {
         oncrpc::XdrMemory xm(buf->data(), buf->size());
         xdr(meta_, static_cast<oncrpc::XdrSource*>(&xm));
@@ -78,7 +79,7 @@ shared_ptr<Getattr> ObjFile::getattr()
         auto fs = fs_.lock();
         DataKeyType start(fileid(), 0);
         DataKeyType end(fileid(), ~0ull);
-        return fs->db()->spaceUsed(fs->dataNS(), start, end);
+        return fs->dataNS()->spaceUsed(start, end);
     };
     return make_shared<ObjGetattr>(fileid(), meta_.attr, used);
 }
@@ -102,11 +103,11 @@ void ObjFile::setattr(const Credential& cred, function<void(Setattr*)> cb)
                 fileid(), (meta_.attr.size + blockMask) & ~blockMask);
             DataKeyType end(fileid(), ~0ull);
 
-            auto iterator = fs->db()->iterator(fs->dataNS());
+            auto iterator = fs->dataNS()->iterator();
             auto trans = fs->db()->beginTransaction();
             iterator->seek(start);
             while (iterator->valid(end)) {
-                trans->remove(fs->dataNS(), *iterator->key());
+                trans->remove(fs->dataNS(), iterator->key());
                 iterator->next();
             }
             fs->db()->commit(move(trans));
@@ -373,7 +374,7 @@ shared_ptr<ObjFile> ObjFile::lookupInternal(
     checkAccess(cred, AccessFlags::EXECUTE);
     auto fs = fs_.lock();
     DirectoryKeyType key(fileid(), name);
-    auto val = fs->db()->get(fs->directoriesNS(), key);
+    auto val = fs->directoriesNS()->get(key);
     DirectoryEntry entry;
     oncrpc::XdrMemory xm(val->data(), val->size());
     xdr(entry, static_cast<oncrpc::XdrSource*>(&xm));
@@ -390,26 +391,25 @@ void ObjFile::writeMeta()
 
 void ObjFile::writeMeta(Transaction* trans)
 {
-    oncrpc::XdrMemory xm(512);
+    auto buf = make_shared<Buffer>(oncrpc::XdrSizeof(meta_));
+    oncrpc::XdrMemory xm(buf->data(), buf->size());
     xdr(meta_, static_cast<oncrpc::XdrSink*>(&xm));
     auto fs = fs_.lock();
-    trans->put(
-        fs->defaultNS(),
-        KeyType(fileid()),
-        oncrpc::Buffer(xm.writePos(), xm.buf()));
+    trans->put(fs->defaultNS(), KeyType(fileid()), buf);
 }
 
 void ObjFile::writeDirectoryEntry(
     Transaction* trans, const string& name, FileId id)
 {
-    oncrpc::XdrMemory xm(512);
-    DirectoryKeyType key(fileid(), name);
     DirectoryEntry entry;
+    auto buf = make_shared<Buffer>(oncrpc::XdrSizeof(entry));
+    oncrpc::XdrMemory xm(buf->data(), buf->size());
+    DirectoryKeyType key(fileid(), name);
     entry.fileid = id;
     xdr(entry, static_cast<oncrpc::XdrSink*>(&xm));
     auto fs = fs_.lock();
     auto h = fs->directoriesNS();
-    trans->put(h, key, oncrpc::Buffer(xm.writePos(), xm.buf()));
+    trans->put(h, key, buf);
 }
 
 void ObjFile::link(
@@ -452,12 +452,12 @@ void ObjFile::unlink(
             // Purge file data
             switch (file->meta_.location.type) {
             case LOC_DB: {
-                auto iterator = fs->db()->iterator(fs->dataNS());
+                auto iterator = fs->dataNS()->iterator();
                 DataKeyType start(file->fileid(), 0);
                 DataKeyType end(file->fileid(), ~0ull);
                 iterator->seek(start);
                 while (iterator->valid(end)) {
-                    trans->remove(fs->dataNS(), *iterator->key());
+                    trans->remove(fs->dataNS(), iterator->key());
                     iterator->next();
                 }
                 break;
@@ -633,8 +633,8 @@ shared_ptr<Buffer> ObjOpenFile::read(
             auto off = bn * blockSize;
             try {
                 // If the block exists copy out to buffer
-                auto block = fs->db()->get(
-                    fs->dataNS(), DataKeyType(file_->fileid(), off));
+                auto block = fs->dataNS()->get(
+                    DataKeyType(file_->fileid(), off));
                 auto blen = block->size() - boff;
                 if (i + blen > len) {
                     blen = len - i;
@@ -690,20 +690,22 @@ uint32_t ObjOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
             if (i + blen > len)
                 blen = len - i;
             // If we need to merge, read the existing block
-            unique_ptr<Buffer> block;
+            shared_ptr<Buffer> block;
             DataKeyType key(file_->fileid(), off);
             if (boff > 0 ||
                 (blen < blockSize && off + blen < meta.attr.size)) {
                 try {
-                    block = fs->db()->get(fs->dataNS(), key);
+                    auto oldBlock = fs->dataNS()->get(key);
+                    block = make_shared<Buffer>(blockSize);
+                    copy_n(oldBlock->data(), oldBlock->size(), block->data());
                 }
                 catch (system_error&) {
-                    block = make_unique<Buffer>(blockSize);
+                    block = make_shared<Buffer>(blockSize);
                     fill_n(block->data(), blockSize, 0);
                 }
                 copy_n(data->data() + i, blen, block->data() + boff);
                 trans->put(
-                    fs->dataNS(), DataKeyType(file_->fileid(), off), *block);
+                    fs->dataNS(), DataKeyType(file_->fileid(), off), block);
             }
             else {
                 shared_ptr<Buffer> block;
@@ -716,7 +718,7 @@ uint32_t ObjOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
                     fill_n(block->data() + blen, blockSize - blen, 0);
                 }
                 trans->put(
-                    fs->dataNS(), DataKeyType(file_->fileid(), off), *block);
+                    fs->dataNS(), DataKeyType(file_->fileid(), off), block);
             }
 
             // Set up for the next block - note that only the first block can

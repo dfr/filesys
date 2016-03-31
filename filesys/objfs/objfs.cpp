@@ -7,27 +7,25 @@
 #include <glog/logging.h>
 
 #include "objfs.h"
-#include "rocksdbi.h"
 
 using namespace filesys;
 using namespace filesys::objfs;
+using namespace keyval;
 using namespace std;
 
 static std::random_device rnd;
 
 ObjFilesystem::ObjFilesystem(
-    const std::string& filename, std::shared_ptr<detail::Clock> clock)
-    : clock_(clock)
+    unique_ptr<Database> db, std::shared_ptr<detail::Clock> clock)
+    : clock_(clock),
+      db_(move(db))
 {
-    db_ = make_unique<RocksDatabase>(filename);
-
-    auto namespaces = db_->open({"default", "directories", "data"});
-    defaultNS_ = namespaces[0];
-    directoriesNS_ = namespaces[1];
-    dataNS_ = namespaces[2];
+    defaultNS_ = db_->getNamespace("default");
+    directoriesNS_ = db_->getNamespace("directories");
+    dataNS_ = db_->getNamespace("data");
 
     try {
-        auto buf = db_->get(defaultNS(), KeyType(FileId(0)));
+        auto buf = defaultNS_->get(KeyType(FileId(0)));
         oncrpc::XdrMemory xm(buf->data(), buf->size());
         xdr(meta_, static_cast<oncrpc::XdrSource*>(&xm));
         if (meta_.vers != 1) {
@@ -55,8 +53,8 @@ ObjFilesystem::ObjFilesystem(
     setFsid();
 }
 
-ObjFilesystem::ObjFilesystem(const std::string& filename)
-    : ObjFilesystem(filename, make_shared<detail::SystemClock>())
+ObjFilesystem::ObjFilesystem(unique_ptr<Database> db)
+    : ObjFilesystem(move(db), make_shared<detail::SystemClock>())
 {
 }
 
@@ -172,7 +170,7 @@ ObjFilesystem::writeMeta(Transaction* trans)
     trans->put(
         defaultNS(),
         KeyType(FileId(0)),
-        oncrpc::Buffer(xm.writePos(), xm.buf()));
+        make_shared<oncrpc::Buffer>(xm.writePos(), xm.buf()));
 }
 
 void
@@ -186,7 +184,8 @@ pair<shared_ptr<Filesystem>, string>
 ObjFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
 {
     UrlParser p(url);
-    return make_pair(fsman->mount<ObjFilesystem>(p.path, p.path), ".");
+    return make_pair(
+        fsman->mount<ObjFilesystem>(p.path, make_rocksdb(p.path)), ".");
 };
 
 void filesys::objfs::init(FilesystemManager* fsman)

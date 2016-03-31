@@ -8,7 +8,7 @@ using namespace std;
 ObjDirectoryIterator::ObjDirectoryIterator(
     std::shared_ptr<ObjFilesystem> fs, FileId fileid, uint64_t seek)
     : fs_(fs),
-      iterator_(fs->db()->iterator(fs->directoriesNS())),
+      iterator_(fs->directoriesNS()->iterator()),
       seek_(seek + 1),
       start_(fileid, ""),
       end_(FileId(fileid + 1), "")

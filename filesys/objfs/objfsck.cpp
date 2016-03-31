@@ -6,21 +6,20 @@
 #include <glog/logging.h>
 
 #include "objfsck.h"
-#include "filesys/objfs/rocksdbi.h"
 
 using namespace filesys;
 using namespace filesys::objfs;
+using namespace keyval;
 using namespace std;
 
 void ObjfsCheck::check()
 {
-    auto namespaces = db_->open({"default", "directories", "data"});
-    auto defaultNS = namespaces[0];
-    auto directoriesNS = namespaces[1];
-    auto dataNS = namespaces[2];
+    auto defaultNS = db_->getNamespace("default");
+    auto directoriesNS = db_->getNamespace("directories");
+    auto dataNS = db_->getNamespace("data");
     ObjFilesystemMeta fsmeta;
     try {
-        auto buf = db_->get(defaultNS, KeyType(0));
+        auto buf = defaultNS->get(KeyType(0));
         oncrpc::XdrMemory xm(buf->data(), buf->size());
         xdr(fsmeta, static_cast<oncrpc::XdrSource*>(&xm));
         if (fsmeta.vers != 1) {
@@ -38,7 +37,7 @@ void ObjfsCheck::check()
     }
 
     KeyType start(1), end(~0ul);
-    auto iterator = db_->iterator(defaultNS);
+    auto iterator = defaultNS->iterator();
     iterator->seek(start);
     while (iterator->valid(end)) {
         KeyType k(iterator->key());
@@ -55,7 +54,7 @@ void ObjfsCheck::check()
     iterator.reset();
 
     DirectoryKeyType dirstart(1, ""), dirend(~0ul, "");
-    iterator = db_->iterator(directoriesNS);
+    iterator = directoriesNS->iterator();
     iterator->seek(dirstart);
     while (iterator->valid(dirend)) {
         DirectoryKeyType k(iterator->key());
@@ -84,7 +83,7 @@ void ObjfsCheck::check()
     iterator.reset();
 
     DataKeyType datastart(1, 0), dataend(~0ul, 0);
-    iterator = db_->iterator(dataNS);
+    iterator = dataNS->iterator();
     iterator->seek(datastart);
     uint64_t lastOffset = 0;
     uint64_t lastFileid = 0;
