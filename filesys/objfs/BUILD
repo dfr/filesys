@@ -2,12 +2,13 @@ cc_library(
     name = "objfs",
     copts = ["-std=c++14"],
     srcs = glob(["*.cpp"]) + [":proto"],
-    hdrs = ["objfs.h"],
+    hdrs = ["objfs.h", "objfskey.h"],
     deps = [
         ":hdrs",
         "//rpcxx",
         "//filesys:hdrs",
         "//filesys:access",
+        "//filesys:urlparser",
         "//keyval",
         "//third_party/glog",
     ],
@@ -37,6 +38,7 @@ genrule(
     outs = ["objfsproto.h"],
     tools = ["//rpcxx/utils/rpcgen"],
     cmd = "$(location //rpcxx/utils/rpcgen) -tx -n filesys::objfs $(SRCS) > $(OUTS)",
+    visibility = ["//visibility:public"]
 )
 
 test_suite(

@@ -24,6 +24,16 @@ cc_library(
 )
 
 cc_library(
+    name = "urlparser",
+    copts = ["-std=c++14"],
+    srcs = ["urlparser.cpp"],
+    deps = [
+        ":hdrs",
+    ],
+    visibility = ["//visibility:public"]
+)
+
+cc_library(
     name = "hdrs",
     hdrs = glob(["include/fs++/*.h"]),
     includes = ["include"],

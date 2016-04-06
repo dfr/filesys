@@ -8,6 +8,7 @@ cc_library(
     deps = [
         "//filesys:hdrs",
 	"//filesys:access",
+        "//filesys:urlparser",
         "//rpcxx",
         "//third_party/glog:glog"
     ],

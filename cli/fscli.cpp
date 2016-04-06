@@ -117,18 +117,18 @@ int main(int argc, char** argv)
     for (int i = 1; i < argc; i++) {
 	string url = argv[i];
 	string path = "/";
-	auto j = url.find('=');
-	if (j != string::npos) {
-	    path = url.substr(0, j);
-	    url = url.substr(j + 1);
-	}
 
 	UrlParser p(url);
-	auto fac = fsman.find(p.scheme);
-	if (!fac) {
-	    cerr << url << ": unsupported url scheme" << endl;
-	    return 1;
-	}
+        auto it = p.query.find("path");
+        if (it != p.query.end()) {
+            path = it->second;
+        }
+
+        auto fac = fsman.find(p.scheme);
+        if (!fac) {
+            cerr << url << ": unsupported url scheme" << endl;
+            return 1;
+        }
 
 	auto mnt = fac->mount(&fsman, url);
 	pfs->add(path, mnt.first);
