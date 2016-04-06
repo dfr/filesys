@@ -9,9 +9,9 @@
 namespace filesys {
 namespace detail {
 
-/// A cache mapping instances of ID to shared_ptr<FILE> entries
-template <typename ID, typename FILE, typename HASH = std::hash<ID>>
-class FileCache
+/// A cache mapping instances of ID to shared_ptr<OBJ> entries
+template <typename ID, typename OBJ, typename HASH = std::hash<ID>>
+class LRUCache
 {
 public:
 
@@ -19,7 +19,7 @@ public:
     /// the update callback with the existing entry, otherwize the ctor
     /// callback is called to create a new entry.
     template <typename UPDATE, typename CTOR>
-    std::shared_ptr<FILE> find(const ID& fileid, UPDATE update, CTOR ctor)
+    std::shared_ptr<OBJ> find(const ID& fileid, UPDATE update, CTOR ctor)
     {
         std::unique_lock<std::mutex> lock(mutex_);
         auto i = cache_.find(fileid);
@@ -41,7 +41,7 @@ public:
     }
 
     /// Add an entry to the cache
-    void add(const ID& fileid, std::shared_ptr<FILE> file)
+    void add(const ID& fileid, std::shared_ptr<OBJ> file)
     {
         add(std::unique_lock<std::mutex>(mutex_), fileid, file);
     }
@@ -84,7 +84,7 @@ public:
 private:
 
     void add(std::unique_lock<std::mutex>&& lock,
-        const ID& fileid, std::shared_ptr<FILE> file)
+        const ID& fileid, std::shared_ptr<OBJ> file)
     {
         assert(lock);
         assert(cache_.find(fileid) == cache_.end());
@@ -107,7 +107,7 @@ private:
     }
 
     static constexpr int DEFAULT_SIZE_LIMIT = 1024;
-    typedef std::list<std::pair<ID, std::shared_ptr<FILE>>> lruT;
+    typedef std::list<std::pair<ID, std::shared_ptr<OBJ>>> lruT;
 
     // should be shared_timed_mutex but its missing on OS X
     std::mutex mutex_;

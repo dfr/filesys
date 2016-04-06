@@ -2,7 +2,7 @@
 #include <memory>
 #include <thread>
 
-#include <fs++/filecache.h>
+#include <fs++/lrucache.h>
 #include <gmock/gmock.h>
 
 using namespace filesys::detail;
@@ -30,7 +30,7 @@ struct FileCacheTest: public ::testing::Test
         return make_shared<File>(id);
     }
 
-    FileCache<int, File> cache;
+    LRUCache<int, File> cache;
     MockCallbacks cb;
     function<void(shared_ptr<File>)> update = bind(&MockCallbacks::update, &cb, _1);
     function<shared_ptr<File>(int)> ctor = bind(&MockCallbacks::ctor, &cb, _1);

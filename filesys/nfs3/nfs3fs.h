@@ -1,7 +1,7 @@
 #pragma once
 
-#include <fs++/filecache.h>
 #include <fs++/filesys.h>
+#include <fs++/lrucache.h>
 #include <fs++/proto/nfs_prot.h>
 
 namespace filesys {
@@ -249,7 +249,7 @@ private:
     nfs_fh3 rootfh_;
     std::shared_ptr<File> root_;
     NfsFsinfo fsinfo_;
-    detail::FileCache<nfs_fh3, NfsFile, NfsFhHash> cache_;
+    detail::LRUCache<nfs_fh3, NfsFile, NfsFhHash> cache_;
 };
 
 class NfsFilesystemFactory: public FilesystemFactory

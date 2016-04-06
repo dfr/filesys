@@ -1,8 +1,8 @@
 // -*- c++ -*-
 #pragma once
 
-#include <fs++/filecache.h>
 #include <fs++/filesys.h>
+#include <fs++/lrucache.h>
 #include "filesys/objfs/objfsproto.h"
 #include "filesys/objfs/objfskey.h"
 #include "filesys/objfs/dbi.h"
@@ -280,7 +280,7 @@ private:
     std::atomic<std::uint64_t> nextId_;
     FilesystemId fsid_;
     std::shared_ptr<ObjFile> root_;
-    detail::FileCache<std::uint64_t, ObjFile> cache_;
+    detail::LRUCache<std::uint64_t, ObjFile> cache_;
 };
 
 class ObjFilesystemFactory: public FilesystemFactory

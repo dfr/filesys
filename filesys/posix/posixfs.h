@@ -7,8 +7,8 @@
 #include <sys/mount.h>
 #include <sys/stat.h>
 
-#include <fs++/filecache.h>
 #include <fs++/filesys.h>
+#include <fs++/lrucache.h>
 
 namespace filesys {
 namespace posix {
@@ -224,7 +224,7 @@ private:
     int rootfd_;
     FileId rootid_;
     FilesystemId fsid_;
-    detail::FileCache<std::uint64_t, PosixFile> cache_;
+    detail::LRUCache<std::uint64_t, PosixFile> cache_;
 };
 
 class PosixFilesystemFactory: public FilesystemFactory
