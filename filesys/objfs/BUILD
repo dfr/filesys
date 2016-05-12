@@ -30,6 +30,7 @@ cc_binary(
         "//rpcxx",
         "//third_party/glog",
     ],
+    visibility = ["//visibility:public"],
 )
 
 genrule(

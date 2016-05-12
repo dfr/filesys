@@ -7,7 +7,8 @@ cc_binary(
         "//third_party/glog",
         "//third_party/gflags"
     ],
-    linkstatic = 1
+    linkstatic = 1,
+    visibility = ["//visibility:public"],
 )
 
 test_suite(

@@ -8,7 +8,8 @@ cc_binary(
         ":threadpool",
         "//rpcxx",
         "//filesys",
-    ]
+    ],
+    visibility = ["//visibility:public"],
 )
 
 cc_library(
