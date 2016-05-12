@@ -50,7 +50,7 @@ public:
             auto stat = mnt.second->fsstat(state.cred());
             tf(mnt.first,
                humanizeNumber(stat->tbytes()),
-               humanizeNumber(stat->fbytes()),
+               humanizeNumber(stat->tbytes() - stat->fbytes()),
                humanizeNumber(stat->abytes()));
         }
     }
