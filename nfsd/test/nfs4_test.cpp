@@ -592,6 +592,7 @@ TEST_F(Nfs4Test, RevokeExpiredState)
     // Make a second NfsFilesystem to try to open the file and revoke
     // the state entry. The file without a deny reservation should not
     // be revoked since it doesn't conflict
+    auto save = FLAGS_clientowner;
     FLAGS_clientowner = "fs2";
     auto fs2 = make_shared<NfsFilesystem>(chan_, client_, clock_, idmapper_);
     auto of3 = fs2->root()->open(
@@ -601,6 +602,8 @@ TEST_F(Nfs4Test, RevokeExpiredState)
     of3.reset();
     of4.reset();
     fs2->unmount();
+    fs2.reset();
+    FLAGS_clientowner = save;
 
     // Force the original client to notice that it has lost state,
     // exercising test_stateid and free_stateid
