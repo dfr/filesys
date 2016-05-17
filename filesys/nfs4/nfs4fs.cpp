@@ -85,6 +85,13 @@ NfsFilesystem::NfsFilesystem(
 
 NfsFilesystem::~NfsFilesystem()
 {
+    if (chan_)
+        disconnect();
+
+    sockman_->stop();
+    cbsvc_.unbind(cbprog_, svcreg_);
+    chan_.reset();
+    cbthread_.join();
 }
 
 shared_ptr<File>
@@ -146,39 +153,7 @@ NfsFilesystem::unmount()
     // XXX we should keep track of NfsOpenFile instances and
     // force-close them here
 
-    unique_lock<mutex> lock(mutex_);
-
-    // Destroy the session and client
-    try {
-        compoundNoSequence(
-            [this](auto& enc)
-            {
-                enc.destroy_session(sessionid_);
-            },
-            [](auto& dec)
-            {
-                dec.destroy_session();
-            });
-        compoundNoSequence(
-            [this](auto& enc)
-            {
-                enc.destroy_clientid(clientid_);
-            },
-            [](auto& dec)
-            {
-                dec.destroy_clientid();
-            });
-    }
-    catch (nfsstat4 stat) {
-        // Suppress errors from expired client state
-        if (stat != NFS4ERR_BADSESSION)
-            throw;
-    }
-
-    sockman_->stop();
-    cbsvc_.unbind(cbprog_, svcreg_);
-    chan_.reset();
-    cbthread_.join();
+    disconnect();
 }
 
 shared_ptr<NfsFile>
@@ -303,6 +278,42 @@ retry:
             e.second->recover();
         }
     }
+}
+
+void
+NfsFilesystem::disconnect()
+{
+    unique_lock<mutex> lock(mutex_);
+
+    // Destroy the session and client
+    try {
+        compoundNoSequence(
+            [this](auto& enc)
+            {
+                enc.destroy_session(sessionid_);
+            },
+            [](auto& dec)
+            {
+                dec.destroy_session();
+            });
+        compoundNoSequence(
+            [this](auto& enc)
+            {
+                enc.destroy_clientid(clientid_);
+            },
+            [](auto& dec)
+            {
+                dec.destroy_clientid();
+            });
+    }
+    catch (nfsstat4 stat) {
+        // Suppress errors from expired client state
+        if (stat != NFS4ERR_BADSESSION)
+            throw;
+    }
+    catch (system_error&) {
+    }
+    chan_.reset();
 }
 
 void

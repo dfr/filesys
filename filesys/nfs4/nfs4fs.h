@@ -456,6 +456,9 @@ private:
     // Connect to server, establishing clientid and session
     void connect();
 
+    // Disconnect from the server, cleaning up clientid and session
+    void disconnect();
+
     // Iterate over current state and identify any revoked state
     void freeRevokedState();
 
