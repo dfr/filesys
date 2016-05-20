@@ -16,7 +16,8 @@ using namespace std;
 static std::random_device rnd;
 
 ObjFilesystem::ObjFilesystem(
-    unique_ptr<Database> db, std::shared_ptr<detail::Clock> clock)
+    unique_ptr<Database> db, shared_ptr<detail::Clock> clock,
+    uint64_t blockSize)
     : clock_(clock),
       db_(move(db))
 {
@@ -43,7 +44,7 @@ ObjFilesystem::ObjFilesystem(
         meta_.vers = 1;
         for (auto& v: meta_.fsid.data)
             v = rnd();
-        meta_.blockSize = 4096;
+        meta_.blockSize = blockSize;
         meta_.nextId = 2;
         nextId_ = meta_.nextId;
         auto trans = db_->beginTransaction();
@@ -53,8 +54,8 @@ ObjFilesystem::ObjFilesystem(
     setFsid();
 }
 
-ObjFilesystem::ObjFilesystem(unique_ptr<Database> db)
-    : ObjFilesystem(move(db), make_shared<detail::SystemClock>())
+ObjFilesystem::ObjFilesystem(unique_ptr<Database> db, uint64_t blockSize)
+    : ObjFilesystem(move(db), make_shared<detail::SystemClock>(), blockSize)
 {
 }
 
@@ -130,21 +131,12 @@ ObjFilesystem::find(const FileHandle& fh)
 shared_ptr<ObjFile>
 ObjFilesystem::find(FileId fileid)
 {
-    auto res = cache_.find(
+    return cache_.find(
         fileid,
         [](auto) {},
         [this](auto id) {
             return makeNewFile(FileId(id));
         });
-    static int count = 0;
-    count++;
-    if (count > 10000) {
-        count = 0;
-        LOG(INFO) << "fileid cache hit rate: "
-                  << 100.0 * cache_.hits() / (cache_.hits() + cache_.misses())
-                  << "%";
-    }
-    return res;
 }
 
 shared_ptr<ObjFile>

@@ -79,7 +79,8 @@ shared_ptr<Getattr> ObjFile::getattr()
         DataKeyType end(fileid(), ~0ull);
         return fs->dataNS()->spaceUsed(start, end);
     };
-    return make_shared<ObjGetattr>(fileid(), meta_.attr, used);
+    auto blockSize = fs_.lock()->blockSize();
+    return make_shared<ObjGetattr>(fileid(), meta_.attr, blockSize, used);
 }
 
 void ObjFile::setattr(const Credential& cred, function<void(Setattr*)> cb)
@@ -91,9 +92,9 @@ void ObjFile::setattr(const Credential& cred, function<void(Setattr*)> cb)
     meta_.attr.ctime = getTime();
     auto fs = fs_.lock();
     auto trans = fs->db()->beginTransaction();
-    if (meta_.attr.size < oldSize) {
+    if (meta_.attr.size != oldSize) {
         // Purge any data after the new size.
-        truncate(trans.get(), meta_.attr.size);
+        truncate(cred, trans.get(), meta_.attr.size);
     }
     writeMeta(trans.get());
     fs->db()->commit(move(trans));
@@ -110,8 +111,8 @@ shared_ptr<OpenFile> ObjFile::open(
 {
     unique_lock<mutex> lock(mutex_);
     shared_ptr<ObjFile> file;
+    bool created = false;
     if (flags & OpenFlags::CREATE) {
-        bool created = false;
         try {
             file = lookupInternal(lock, cred, name);
         }
@@ -127,6 +128,19 @@ shared_ptr<OpenFile> ObjFile::open(
     }
     else {
         file = lookupInternal(lock, cred, name);
+    }
+    if (!created && (flags & OpenFlags::TRUNCATE)) {
+        if (file->meta_.attr.size > 0) {
+            unique_lock<mutex> lock(file->mutex_);
+            file->meta_.attr.size = 0;
+            file->meta_.attr.ctime = getTime();
+            auto fs = fs_.lock();
+            auto trans = fs->db()->beginTransaction();
+            // Purge file contents
+            file->truncate(cred, trans.get(), 0);
+            file->writeMeta(trans.get());
+            fs->db()->commit(move(trans));
+        }
     }
     return fs_.lock()->makeNewOpenFile(cred, file);
 }
@@ -204,7 +218,7 @@ void ObjFile::remove(const Credential& cred, const string& name)
 
     auto fs = fs_.lock();
     auto trans = fs->db()->beginTransaction();
-    unlink(trans.get(), name, file.get(), true);
+    unlink(cred, trans.get(), name, file.get(), true);
     fs->db()->commit(move(trans));
 }
 
@@ -220,7 +234,7 @@ void ObjFile::rmdir(const Credential& cred, const string& name)
 
     auto fs = fs_.lock();
     auto trans = fs->db()->beginTransaction();
-    unlink(trans.get(), name, file.get(), true);
+    unlink(cred, trans.get(), name, file.get(), true);
     fs->db()->commit(move(trans));
 }
 
@@ -263,7 +277,7 @@ void ObjFile::rename(
         // Atomically delete target file if it exists
         VLOG(2) << "rename: target name " << toName << " exists";
         checkSticky(cred, tofile.get());
-        unlink(trans.get(), toName, tofile.get(), false);
+        unlink(cred, trans.get(), toName, tofile.get(), false);
     }
 
     // Write directory entries and adjust sizes. We don't call unlink here
@@ -400,7 +414,8 @@ void ObjFile::link(
 }
 
 void ObjFile::unlink(
-    Transaction* trans, const string& name, ObjFile* file, bool saveMeta)
+    const Credential& cred, Transaction* trans,
+    const string& name, ObjFile* file, bool saveMeta)
 {
     auto id = file->fileid();
     auto fs = fs_.lock();
@@ -423,7 +438,7 @@ void ObjFile::unlink(
         else {
             VLOG(2) << "deleting fileid: " << id;
             // Purge file data
-            file->truncate(trans, 0);
+            file->truncate(cred, trans, 0);
             trans->remove(fs->defaultNS(), KeyType(id));
             fs->remove(file->fileid());
         }
@@ -534,7 +549,8 @@ void ObjFile::updateModifyTime()
     meta_.attr.ctime = meta_.attr.mtime = getTime();
 }
 
-void ObjFile::truncate(Transaction* trans, uint64_t newSize)
+void ObjFile::truncate(
+    const Credential& cred, Transaction* trans, uint64_t newSize)
 {
     // If the file size is reduced, purge any data after the new size.
     auto fs = fs_.lock();
@@ -545,11 +561,28 @@ void ObjFile::truncate(Transaction* trans, uint64_t newSize)
         fileid(), (newSize + blockMask) & ~blockMask);
     DataKeyType end(fileid(), ~0ull);
 
-    auto iterator = fs->dataNS()->iterator();
-    iterator->seek(start);
+    auto iterator = fs->dataNS()->iterator(start);
     while (iterator->valid(end)) {
         trans->remove(fs->dataNS(), iterator->key());
         iterator->next();
+    }
+
+    // If there is a block containing newSize, zero out the tail of
+    // the block so that if the file is extended again in the future,
+    // we don't expose old contents
+    auto bn = newSize / blockSize;
+    auto boff = newSize % blockSize;
+    auto off = bn * blockSize;
+    DataKeyType key(fileid(), off);
+    try {
+        auto oldBlock = fs->dataNS()->get(key);
+        auto block = make_shared<Buffer>(blockSize);
+        assert(boff <= oldBlock->size());
+        copy_n(oldBlock->data(), boff, block->data());
+        fill_n(block->data() + boff, blockSize - boff, 0);
+        trans->put(fs->dataNS(), key, block);
+    }
+    catch (system_error&) {
     }
 }
 
@@ -616,23 +649,20 @@ shared_ptr<Buffer> ObjOpenFile::read(
 
 uint32_t ObjOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
 {
-    unique_lock<mutex> lock(file_->mutex_);
-    file_->checkAccess(cred_, AccessFlags::WRITE);
-    auto& meta = file_->meta_;
-
     auto fs = file_->fs_.lock();
     auto blockSize = fs->blockSize();
+
+    file_->checkAccess(cred_, AccessFlags::WRITE);
+
+    auto& meta = file_->meta_;
     auto bn = offset / blockSize;
     auto boff = offset % blockSize;
     auto len = data->size();
     auto trans = fs->db()->beginTransaction();
-    meta.attr.ctime = meta.attr.mtime = file_->getTime();
-    if (offset + len > meta.attr.size) {
-        meta.attr.size = offset + len;
-    }
-    file_->writeMeta(trans.get());
 
-    // Write one block at a time, merging if necessary
+    // Write one block at a time, merging if necessary. We don't hold
+    // the lock to avoid serialising writes - if two threads have
+    // conflicting writes, thats their problem.
     for (int i = 0; i < len; ) {
         auto off = bn * blockSize;
         auto blen = blockSize - boff;
@@ -676,7 +706,16 @@ uint32_t ObjOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
         boff = 0;
         bn++;
     }
+
+    unique_lock<mutex> lock(file_->mutex_);
+
     needFlush_ = true;
+    meta.attr.ctime = meta.attr.mtime = file_->getTime();
+    if (offset + len > meta.attr.size) {
+        meta.attr.size = offset + len;
+    }
+    file_->writeMeta(trans.get());
+
     lock.unlock();
 
     fs->db()->commit(move(trans));

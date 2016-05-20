@@ -59,6 +59,11 @@ std::uint64_t ObjGetattr::used() const
     return used_();
 }
 
+std::uint32_t ObjGetattr::blockSize() const
+{
+    return blockSize_;
+}
+
 FileId ObjGetattr::fileid() const
 {
     return fileid_;
@@ -126,9 +131,13 @@ void ObjSetattr::setGid(int gid)
 
 void ObjSetattr::setSize(std::uint64_t size)
 {
-    CheckAccess(
-        attr_.uid, attr_.gid, attr_.mode,
-        cred_, AccessFlags::WRITE);
+    // FreeBSD allows set size if cred uid is the same as file uid and
+    // iozone seems to expect this
+    if (cred_.uid() != attr_.uid) {
+        CheckAccess(
+            attr_.uid, attr_.gid, attr_.mode,
+            cred_, AccessFlags::WRITE);
+    }
     attr_.size = size;
 }
 

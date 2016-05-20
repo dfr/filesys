@@ -77,6 +77,11 @@ std::uint64_t NfsGetattr::used() const
     return attr_.used;
 }
 
+std::uint32_t NfsGetattr::blockSize() const
+{
+    return 4096;
+}
+
 FileId NfsGetattr::fileid() const
 {
     return FileId(attr_.fileid);

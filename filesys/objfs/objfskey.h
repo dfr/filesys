@@ -1,6 +1,8 @@
 // -*- c++ -*-
 #pragma once
 
+#include <fs++/filesys.h>
+
 namespace filesys {
 namespace objfs {
 
@@ -157,9 +159,9 @@ struct DataKeyType : public DoubleKeyType {
     {
     }
 
-    std::uint64_t fileid() const
+    FileId fileid() const
     {
-        return id0();
+        return FileId(id0());
     }
 
     std::uint64_t offset() const

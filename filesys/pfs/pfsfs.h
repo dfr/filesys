@@ -51,6 +51,10 @@ public:
     {
         return 0;
     }
+    std::uint32_t blockSize() const override
+    {
+        return 0;
+    }
     FileId fileid() const override
     {
         return fileid_;

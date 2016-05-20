@@ -206,6 +206,9 @@ public:
     /// Return the amount of space used by the file in bytes
     virtual std::uint64_t used() const = 0;
 
+    /// Return optimum block size for i/o
+    virtual std::uint32_t blockSize() const = 0;
+
     /// XXX specdata?
 
     /// Return the file id

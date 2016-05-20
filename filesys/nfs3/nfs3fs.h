@@ -24,6 +24,7 @@ public:
     int gid() const override;
     std::uint64_t size() const override;
     std::uint64_t used() const override;
+    std::uint32_t blockSize() const override;
     FileId fileid() const override;
     std::chrono::system_clock::time_point mtime() const override;
     std::chrono::system_clock::time_point atime() const override;

@@ -67,6 +67,11 @@ std::uint64_t PosixGetattr::used() const
     return stat_.st_blocks * 512;
 }
 
+std::uint32_t PosixGetattr::blockSize() const
+{
+    return stat_.st_blksize;
+}
+
 FileId PosixGetattr::fileid() const
 {
     return FileId(stat_.st_ino);

@@ -17,10 +17,11 @@ class ObjFilesystem;
 class ObjGetattr: public Getattr
 {
 public:
-    ObjGetattr(FileId fileid, const PosixAttr& attr,
+    ObjGetattr(FileId fileid, const PosixAttr& attr, std::uint32_t blockSize,
                std::function<std::uint64_t()> used)
         : fileid_(fileid),
           attr_(attr),
+          blockSize_(blockSize),
           used_(used)
     {
     }
@@ -33,6 +34,7 @@ public:
     int gid() const override;
     std::uint64_t size() const override;
     std::uint64_t used() const override;
+    std::uint32_t blockSize() const override;
     FileId fileid() const override;
     std::chrono::system_clock::time_point mtime() const override;
     std::chrono::system_clock::time_point atime() const override;
@@ -44,6 +46,7 @@ public:
 private:
     FileId fileid_;
     PosixAttr attr_;
+    std::uint32_t blockSize_;
     std::function<std::uint64_t()> used_;
 };
 
@@ -176,8 +179,8 @@ public:
         keyval::Transaction* trans, const std::string& name, ObjFile* file,
         bool saveMeta);
     void unlink(
-        keyval::Transaction* trans, const std::string& name, ObjFile* file,
-        bool saveMeta);
+        const Credential& cred, keyval::Transaction* trans,
+        const std::string& name, ObjFile* file, bool saveMeta);
     std::shared_ptr<ObjFile> createNewFile(
         std::unique_lock<std::mutex>& lock,
         const Credential& cred,
@@ -192,7 +195,8 @@ public:
     void updateAccessTime();
     void updateModifyTime();
     virtual void truncate(
-        keyval::Transaction* trans, std::uint64_t newSize);
+        const Credential& cred, keyval::Transaction* trans,
+        std::uint64_t newSize);
 
 protected:
     std::mutex mutex_;
@@ -255,10 +259,13 @@ class ObjFilesystem: public Filesystem,
                      public std::enable_shared_from_this<ObjFilesystem>
 {
 public:
-    ObjFilesystem(std::unique_ptr<keyval::Database> db);
     ObjFilesystem(
         std::unique_ptr<keyval::Database> db,
-        std::shared_ptr<detail::Clock> clock);
+        std::uint64_t blockSize = 4096);
+    ObjFilesystem(
+        std::unique_ptr<keyval::Database> db,
+        std::shared_ptr<detail::Clock> clock,
+        std::uint64_t blockSize = 4096);
     ~ObjFilesystem() override;
 
     std::shared_ptr<File> root() override;
@@ -277,7 +284,7 @@ public:
         return db_.get();
     }
 
-    int blockSize() const
+    std::uint32_t blockSize() const
     {
         return meta_.blockSize;
     }

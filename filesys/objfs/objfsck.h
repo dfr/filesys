@@ -21,7 +21,7 @@ public:
 
     void check();
 
-private:
+protected:
     struct state {
         PosixType type;
         std::uint32_t nlink;
@@ -40,6 +40,7 @@ private:
     }
 
     std::unique_ptr<keyval::Database> db_;
+    std::uint32_t blockSize_;
     std::map<std::uint64_t, state> files_;
 };
 
