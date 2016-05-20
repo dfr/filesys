@@ -1,3 +1,4 @@
+// -*- c++ -*-
 #pragma once
 
 #include <fs++/filesys.h>
@@ -123,23 +124,32 @@ TYPED_TEST_P(FilesystemTest, Truncate)
     using std::make_shared;
     using namespace std::literals;
 
+    auto blockSize = this->blockSize_;
     auto root = this->fs_->root();
     auto of = root->open(
         this->cred_, "foo", OpenFlags::RDWR+OpenFlags::CREATE, setMode666);
     auto file = of->file();
-    auto buf = make_shared<Buffer>(this->blockSize_);
-    std::fill_n(buf->data(), this->blockSize_, 1);
+    auto buf = make_shared<Buffer>(blockSize);
+    std::fill_n(buf->data(), blockSize, 1);
     for (int i = 0; i < 10; i++)
-        of->write(i * this->blockSize_, buf);
-    EXPECT_GE(10 * this->blockSize_, file->getattr()->used());
+        of->write(i * blockSize, buf);
+    EXPECT_GE(10 * blockSize, file->getattr()->used());
     // Force mtime to change, flushing any caches
     *this->clock_ += 1s;
     file->setattr(
         this->cred_, [](auto attr){ attr->setSize(0); });
     file->setattr(
-        this->cred_, [=](auto attr){ attr->setSize(this->blockSize_); });
+        this->cred_, [=](auto attr){ attr->setSize(blockSize); });
     bool eof;
     EXPECT_EQ(0, of->read(0, 1, eof)->data()[0]);
+
+    // Test truncating to non-zero size and then re-extending
+    of->write(0, buf);
+    file->setattr(
+        this->cred_, [=](auto attr){ attr->setSize(blockSize/2); });
+    file->setattr(
+        this->cred_, [=](auto attr){ attr->setSize(blockSize); });
+    EXPECT_EQ(0, of->read(blockSize/2, 1, eof)->data()[0]);
 }
 
 TYPED_TEST_P(FilesystemTest, Mtime)
@@ -477,6 +487,33 @@ TYPED_TEST_P(FilesystemTest, DirectorySticky)
     tmp2->rename(cred1, "b", tmp, "b");
 }
 
+TYPED_TEST_P(FilesystemTest, MultiOpen)
+{
+    using filesys::OpenFlags;
+
+    // Create the file
+    auto root = this->fs_->root();
+    root->open(
+        this->cred_, "foo", OpenFlags::RDWR+OpenFlags::CREATE, setMode666);
+
+    // Create some threads, each of which tries to open the file
+    // several times - this should expose any race conditions in the
+    // open logic
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 32; i++) {
+        threads.emplace_back(
+            [this, root]() {
+                for (int j = 0; j < 10; j++) {
+                    auto of = root->open(
+                        this->cred_, "foo", OpenFlags::RDWR, setMode666);
+                    of.reset();
+                }
+            });
+    }
+    for (auto& t: threads)
+        t.join();
+}
+
 REGISTER_TYPED_TEST_CASE_P(
     FilesystemTest,
     Init,
@@ -497,5 +534,6 @@ REGISTER_TYPED_TEST_CASE_P(
     Readdir,
     DirectorySetgid,
     DirectoryPerms,
-    DirectorySticky
+    DirectorySticky,
+    MultiOpen
 );

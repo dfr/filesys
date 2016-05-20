@@ -1,7 +1,7 @@
 cc_library(
     name = "filesys",
     copts = ["-std=c++14"],
-    srcs = ["fsman.cpp"],
+    srcs = ["fsman.cpp", "datastore.cpp"],
     deps = [
         ":hdrs",
         ":access",
@@ -10,6 +10,8 @@ cc_library(
         "//filesys/nfs4",
         "//filesys/posix",
         "//filesys/objfs",
+        "//filesys/datafs",
+        "//filesys/distfs",
     ],
     visibility = ["//visibility:public"]
 )
@@ -93,5 +95,14 @@ genrule(
     outs = ["include/fs++/proto/nfs4_prot.h"],
     tools = ["//rpcxx/utils/rpcgen"],
     cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::nfs4 $(location include/fs++/proto/nfs4_prot.x) > $(OUTS)",
+    visibility = ["//visibility:public"]
+)
+
+genrule(
+    name = "flex_files_layout",
+    srcs = ["include/fs++/proto/flex_files_layout.x"],
+    outs = ["include/fs++/proto/flex_files_layout.h"],
+    tools = ["//rpcxx/utils/rpcgen"],
+    cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::nfs4 $(location include/fs++/proto/flex_files_layout.x) > $(OUTS)",
     visibility = ["//visibility:public"]
 )

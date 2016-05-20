@@ -43,6 +43,7 @@ struct NfsAttr
     fattr4_change change_ = 0;
     fattr4_filehandle filehandle_;
     fattr4_type type_ = NF4REG;
+    fattr4_fh_expire_type fh_expire_type_ = FH4_PERSISTENT;
     fattr4_mode mode_ = 0;
     fattr4_numlinks numlinks_ = 0;
     fattr4_owner owner_;
@@ -66,6 +67,9 @@ struct NfsAttr
     fattr4_maxread maxread_ = 0;
     fattr4_maxread maxwrite_ = 0;
     fattr4_lease_time lease_time_ = 0;
+    fattr4_fs_layout_types fs_layout_types_;
+    fattr4_layout_blksize layout_blksize_ = 4096;
+    fattr4_layout_alignment layout_alignment_ = 4096;
 
     // Used for reporting constant-valued attributes
     bool true_ = true;
@@ -92,6 +96,9 @@ static void xdr(oncrpc::RefType<NfsAttr, XDR> v, XDR* xdrs)
                 break;
             case FATTR4_TYPE:
                 xdr(v.type_, xdrs);
+                break;
+            case FATTR4_FH_EXPIRE_TYPE:
+                xdr(v.fh_expire_type_, xdrs);
                 break;
             case FATTR4_MODE:
                 xdr(v.mode_, xdrs);
@@ -175,6 +182,15 @@ static void xdr(oncrpc::RefType<NfsAttr, XDR> v, XDR* xdrs)
                 break;
             case FATTR4_LEASE_TIME:
                 xdr(v.lease_time_, xdrs);
+                break;
+            case FATTR4_FS_LAYOUT_TYPES:
+                xdr(v.fs_layout_types_, xdrs);
+                break;
+            case FATTR4_LAYOUT_BLKSIZE:
+                xdr(v.layout_blksize_, xdrs);
+                break;
+            case FATTR4_LAYOUT_ALIGNMENT:
+                xdr(v.layout_alignment_, xdrs);
                 break;
             default:
                 abort();

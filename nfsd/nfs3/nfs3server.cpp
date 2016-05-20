@@ -460,7 +460,7 @@ WRITE3res NfsServer::write(const WRITE3args& args)
     if (VLOG_IS_ON(1))
         VLOG(1) << "NfsServer::write("
                 << formatFileHandle(args.file)
-                << ", " << args.offset, ", ...)";
+                << ", " << args.offset << ", ...)";
     wcc_attr wcc;
     shared_ptr<File> obj;
     try {

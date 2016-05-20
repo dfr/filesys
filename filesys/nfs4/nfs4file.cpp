@@ -17,6 +17,15 @@ NfsFile::NfsFile(
 {
 }
 
+NfsFile::NfsFile(
+    std::shared_ptr<NfsFilesystem> fs, nfs_fh4&& fh)
+    : fs_(fs),
+      fh_(move(fh)),
+      attrTime_(fs->clock()->now()),
+      writeverf_({{0,0,0,0, 0,0,0,0}})
+{
+}
+
 shared_ptr<Filesystem> NfsFile::fs()
 {
     return fs_.lock();
@@ -25,7 +34,14 @@ shared_ptr<Filesystem> NfsFile::fs()
 void
 NfsFile::handle(FileHandle& fh)
 {
-    throw system_error(EOPNOTSUPP, system_category());
+    using namespace oncrpc;
+    try {
+        XdrMemory xm(const_cast<uint8_t*>(fh_.data()), fh_.size());
+        xdr(fh, static_cast<XdrSource*>(&xm));
+    }
+    catch (XdrError&) {
+        throw std::system_error(ESTALE, std::system_category());
+    }
 }
 
 bool NfsFile::access(const Credential& cred, int accmode)
@@ -145,6 +161,7 @@ shared_ptr<OpenFile> NfsFile::open(
     const Credential& cred, const string& name, int flags,
     function<void(Setattr*)> cb)
 {
+    std::unique_lock<std::mutex> lock(mutex_);
     auto fs = nfs();
 
     // If we are opening non-exclusively, first check to see if it
@@ -163,17 +180,18 @@ shared_ptr<OpenFile> NfsFile::open(
                     enc.getattr(wanted);
                     enc.getfh();
                 },
-                [this, &name, &fh, &attr](auto& dec) {
+                [this, &name, &fh, &attr, &lock](auto& dec) {
                     dec.putfh();
-                    update(move(dec.getattr().obj_attributes));
+                    update(lock, move(dec.getattr().obj_attributes));
                     dec.lookup();
                     attr = move(dec.getattr().obj_attributes);
                     fh = move(dec.getfh().object);
                 });
             auto file = fs->find(move(fh), move(attr));
             if (file->open_.lock()) {
-                // If we don't already have the file open, use the full
-                // logic below so that we handle truncate correctly.
+                // If we don't already have the file open, use the
+                // full logic below so that we handle truncate
+                // correctly.
                 return file->open(cred, flags);
             }
         }
@@ -243,9 +261,9 @@ shared_ptr<OpenFile> NfsFile::open(
             enc.getattr(wanted);
             enc.getfh();
         },
-        [this, &res, &attr, &fh](auto& dec) {
+        [this, &res, &attr, &fh, &lock](auto& dec) {
             dec.putfh();
-            update(move(dec.getattr().obj_attributes));
+            update(lock, move(dec.getattr().obj_attributes));
             res = dec.open();
             attr = move(dec.getattr().obj_attributes);
             fh = move(dec.getfh().object);
@@ -621,7 +639,7 @@ std::shared_ptr<Buffer> NfsFile::read(
     auto fs = nfs();
     std::unique_lock<std::mutex> lock(mutex_);
     auto buf = cache_.get(offset, count);
-    if (buf) {
+    if (buf && buf->size() == count) {
         VLOG(1) << "fileid: " << attr_.fileid_
                 << ": read cache hit, offset: " << offset;
         eof = offset + buf->size() == attr_.size_;
@@ -828,12 +846,17 @@ retry:
 
 void NfsFile::update(fattr4&& attr)
 {
-    std::unique_lock<std::mutex> lock(mutex_);
+    unique_lock<mutex> lock(mutex_);
+    update(lock, move(attr));
+}
 
+void NfsFile::update(unique_lock<mutex>& lock, fattr4&& attr)
+{
     auto deleg = delegation_.lock();
     if (deleg && deleg->isWrite())
         return;
     attr_.decode(attr);
+    cache_.truncate(attr_.size_);
     if (lastChange_ < attr_.change_) {
         if (cache_.blockCount()) {
             VLOG(1) << "fileid: " << attr_.fileid_

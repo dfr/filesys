@@ -82,3 +82,12 @@ TEST_F(DataCacheTest, Overwrite)
     check({2,2,2,2,2,2,2,2,2,2});
     EXPECT_EQ(1, cache.blockCount());
 }
+
+TEST_F(DataCacheTest, Merge)
+{
+    cache.add(DataCache::STABLE, 0, makeBuffer(10, 1));
+    cache.add(DataCache::STABLE, 5, makeBuffer(2, 2));
+    auto buf = cache.get(0, 10);
+    EXPECT_EQ(10, buf->size());
+    EXPECT_EQ(1, cache.blockCount());
+}

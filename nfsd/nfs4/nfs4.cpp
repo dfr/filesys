@@ -6,14 +6,17 @@
 #include "nfsd/threadpool.h"
 #include "nfsd/nfs4/nfs4.h"
 #include "nfsd/nfs4/nfs4server.h"
+#include "nfsd/nfs4/dataserver.h"
 
 using namespace filesys::nfs4;
+using namespace filesys::distfs;
 using namespace nfsd;
 using namespace nfsd::nfs4;
 using namespace oncrpc;
 using namespace std;
 
 static shared_ptr<NfsServer> nfsService;
+static shared_ptr<DataServer> dataService;
 
 void nfsd::nfs4::init(
     shared_ptr<ServiceRegistry> svcreg,
@@ -27,4 +30,9 @@ void nfsd::nfs4::init(
     threadpool->addService(
         NFS4_PROGRAM, NFS_V4, svcreg,
         std::bind(&NfsServer::dispatch, nfsService.get(), _1));
+
+    dataService = make_shared<DataServer>(sec);
+    threadpool->addService(
+        DISTFS_DS, DS_V1, svcreg,
+        std::bind(&DataServer::dispatch, dataService.get(), _1));
 }

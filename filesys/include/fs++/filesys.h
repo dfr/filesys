@@ -10,6 +10,7 @@
 
 #include <rpc++/cred.h>
 #include <rpc++/xdr.h>
+#include <rpc++/socket.h>
 
 namespace filesys {
 
@@ -297,6 +298,100 @@ public:
     virtual void flush() = 0;
 };
 
+/// For distributed filesystems, the device object holds information
+/// about one node in the data storage network
+class Device
+{
+public:
+    /// Device status
+    enum State {
+        /// We set the state to this on MDS startup.
+        UNKNOWN,
+
+        /// The data device has restarted, we are validating its piece
+        /// collection.
+        RESTORING,
+
+        /// Device has not generated a heartbeat for 2*heartbeat
+        /// seconds or messages send to it have failed. We steer
+        /// traffic away from it and if a piece in its collection is
+        /// written to, we resilver it to some other device.
+        MISSING,
+
+        /// Device has not generated a heartbeat for 10*heartbeat
+        /// seconds. We resilver its entire piece collection and
+        /// delete it from the devices table.
+        DEAD,
+
+        /// Device is alive and is producing regular heartbeats.
+        HEALTHY,
+
+        /// Pseudo status used to notify address changes
+        ADDRESS_CHANGED
+    };
+
+    /// An opaque handle used to identify callbacks
+    typedef std::uintptr_t CallbackHandle;
+
+    virtual ~Device() {}
+
+    /// A unique identifier for this device
+    virtual uint64_t id() const = 0;
+
+    /// Return a list of network addresses for this device
+    virtual std::vector<oncrpc::AddressInfo> addresses() const = 0;
+
+    /// Register a callback which is called if the device changes states
+    virtual CallbackHandle addStateCallback(
+        std::function<void(State)> cb) = 0;
+
+    /// Remove a state callback
+    virtual void removeStateCallback(CallbackHandle h) = 0;
+};
+
+struct PieceId
+{
+    FileId fileid;              // File identifier in owning filesystem
+    std::uint64_t offset;       // piece offset in file
+    std::uint32_t size;         // piece size
+};
+
+static inline int operator==(const PieceId& x, const PieceId& y)
+{
+    return x.fileid == y.fileid && x.offset == y.offset & x.size == y.size;
+}
+
+static inline int operator<(const PieceId& x, const PieceId& y)
+{
+    if (x.fileid < y.fileid)
+        return true;
+    else if (x.fileid == y.fileid) {
+        if (x.offset < y.offset)
+            return true;
+        else if (x.offset == y.offset)
+            return x.size < y.size;
+    }
+    return false;
+}
+
+/// An object describing how to access part of a file
+class Piece
+{
+public:
+    virtual ~Piece() {}
+
+    /// Return the piece identifier
+    virtual PieceId id() const = 0;
+
+    /// Return the number of locations which have copies of the piece
+    virtual int mirrorCount() const = 0;
+
+    /// Return a {device,file} pair which describes the location of
+    /// one mirror
+    virtual std::pair<std::shared_ptr<Device>, std::shared_ptr<File>>
+        mirror(const Credential& cred, int i) = 0;
+};
+
 /// A file, directory or other filesystem object
 class File
 {
@@ -377,6 +472,17 @@ public:
 
     /// Return file system attributes
     virtual std::shared_ptr<Fsattr> fsstat(const Credential& cred) = 0;
+
+    /// Return a piece object which describes the location of the data
+    /// for part of the file.  If there is no storage allocated for
+    /// the given offset and forWriting is false, an ENOENT
+    /// system_error is thrown, otherwise a new piece is allocated and
+    /// returned.
+    virtual std::shared_ptr<Piece> data(
+        const Credential& cred, std::uint64_t offset, bool forWriting)
+    {
+        throw std::system_error(EOPNOTSUPP, std::system_category());
+    }
 };
 
 class Filesystem
@@ -398,7 +504,56 @@ public:
     /// problems caused by the restrictions of operating inside the
     /// destructor.
     virtual void unmount() = 0;
+
+    /// Return true if this is a metadata filesystem (e.g. data is
+    /// stored elsewhere and accessed using some network protocol)
+    virtual bool isMetadata() const { return false; }
+
+    /// Return true if this is a data filesystem (e.g. this file
+    /// system only stores data blocks with metadata accessed
+    /// elsewhere in a corresponding metadata filesystem).
+    virtual bool isData() const { return false; }
+
+    /// Return a list of devices that forms the backing store of this
+    /// filesystem. In order to detect changes in the device list, we
+    /// also return a generation number which changes whenever a
+    /// device is added or removed.
+    virtual std::vector<std::shared_ptr<Device>> devices(std::uint64_t& gen) {
+        gen = 0;
+        return {};
+    }
+
+    /// Find a device given its id
+    virtual std::shared_ptr<Device> findDevice(std::uint64_t& devid)
+    {
+        throw std::system_error(ENOENT, std::system_category());
+    }
 };
+
+class DataStore: public Filesystem
+{
+public:
+    /// Return a file object which can be used to access a segment
+    /// of the file identified by fileid, block size and block index
+    virtual std::shared_ptr<File> findPiece(
+        const Credential& cred, const PieceId& id) = 0;
+
+    /// Create a data piece for the given fileid and offset, returning
+    /// a file object which can be used to access the new piece.
+    virtual std::shared_ptr<File> createPiece(
+        const Credential& cred, const PieceId& id) = 0;
+
+    /// Delete a data piece
+    virtual void removePiece(
+        const Credential& cred, const PieceId& id) = 0;
+
+    /// Schedule regular status reporting with a metadata server
+    void reportStatus(
+        std::weak_ptr<oncrpc::SocketManager> sockman,
+        const std::string& addr,
+        const std::vector<oncrpc::AddressInfo>& boundAddrs);
+};
+
 
 class FilesystemFactory
 {

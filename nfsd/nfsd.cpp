@@ -29,8 +29,11 @@ DEFINE_int32(lease_time, 120, "NFSv4 lease time in seconds");
 DEFINE_string(sec, "sys", "Acceptable authentication flavors");
 DEFINE_string(realm, "", "Local krb5 realm name");
 DEFINE_int32(threads, 0, "Number of worker threads");
+DEFINE_string(listen, "[::],0.0.0.0", "Addresses to listen for connections");
+DEFINE_string(mds, "", "URL to contact metadata server");
 
 static map<string, int> flavors {
+    { "none", AUTH_NONE },
     { "sys", AUTH_SYS },
     { "krb5", RPCSEC_GSS_KRB5 },
     { "krb5i", RPCSEC_GSS_KRB5I },
@@ -82,13 +85,25 @@ int main(int argc, char** argv)
 
     auto sockman = make_shared<SocketManager>();
     sockman->setIdleTimeout(std::chrono::seconds(FLAGS_idle_timeout));
+
     vector<AddressInfo> addrs;
-    for (auto& ai:
-             getAddressInfo("tcp://[::]:" + to_string(FLAGS_port), "tcp"))
-        addrs.push_back(ai);
-    for (auto& ai:
-             getAddressInfo("tcp://0.0.0.0:" + to_string(FLAGS_port), "tcp"))
-        addrs.push_back(ai);
+    auto s = FLAGS_listen;
+    while (s.size() > 0) {
+        auto i = s.find(',');
+        string addr;
+        if (i == string::npos) {
+            addr = s;
+            s = "";
+        }
+        else {
+            addr = s.substr(0, i);
+            s = s.substr(i + 1);
+        }
+        auto url = "tcp://" + addr + ":" + to_string(FLAGS_port);
+        for (auto& ai: getAddressInfo(url))
+            addrs.push_back(ai);
+    }
+
     vector<AddressInfo> boundAddrs;
     for (auto& ai: addrs) {
         try {
@@ -114,6 +129,13 @@ int main(int argc, char** argv)
 
     nfs3::init(svcreg, threadpool, sec, boundAddrs);
     nfs4::init(svcreg, threadpool, sec, boundAddrs);
+
+    if (FLAGS_mds.size() > 0) {
+        auto ds = dynamic_pointer_cast<DataStore>(mnt.first);
+        if (ds) {
+            ds->reportStatus(sockman, FLAGS_mds, boundAddrs);
+        }
+    }
 
     sockman->run();
 }

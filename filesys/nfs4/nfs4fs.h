@@ -97,8 +97,8 @@ public:
 class NfsFile: public File, public std::enable_shared_from_this<NfsFile>
 {
 public:
-    NfsFile(std::shared_ptr<NfsFilesystem>,
-            nfs_fh4&& fh, fattr4&& attr);
+    NfsFile(std::shared_ptr<NfsFilesystem>, nfs_fh4&& fh, fattr4&& attr);
+    NfsFile(std::shared_ptr<NfsFilesystem>, nfs_fh4&& fh);
 
     // File overrides
     std::shared_ptr<Filesystem> fs() override;
@@ -164,6 +164,7 @@ public:
         std::shared_ptr<Buffer> data);
     void flush(const stateid4& stateid, bool commit);
     void update(fattr4&& attr);
+    void update(std::unique_lock<std::mutex>& lock, fattr4&& attr);
     void recover();
     void testState();
 
@@ -311,6 +312,7 @@ public:
     std::shared_ptr<File> find(const FileHandle& fh) override;
     void unmount() override;
 
+    auto channel() const { return chan_; }
     auto clientid() const { return clientid_; }
     auto sessionid() const { return sessionid_; }
     auto clock() const { return clock_; }

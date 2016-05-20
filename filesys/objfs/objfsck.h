@@ -19,7 +19,7 @@ public:
     {
     }
 
-    void check();
+    void check(bool checkData);
 
 protected:
     struct state {

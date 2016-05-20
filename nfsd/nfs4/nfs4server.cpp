@@ -60,11 +60,6 @@ static shared_ptr<File> importFileHandle(const nfs_fh4& nfh)
     try {
         XdrMemory xm(const_cast<uint8_t*>(nfh.data()), nfh.size());
         xdr(fh, static_cast<XdrSource*>(&xm));
-        if (fh.version != 1) {
-            LOG(ERROR) << "unexpected file handle version: "
-                       << fh.version << ", expected 1";
-            throw system_error(ESTALE, system_category());
-        }
     }
     catch (XdrError&) {
         throw system_error(ESTALE, system_category());
@@ -75,13 +70,11 @@ static shared_ptr<File> importFileHandle(const nfs_fh4& nfh)
 static nfs_fh4 exportFileHandle(shared_ptr<File> file)
 {
     FileHandle fh;
-    nfs_fh4 nfh;
-
     file->handle(fh);
+    nfs_fh4 nfh;
     nfh.resize(XdrSizeof(fh));
     XdrMemory xm(nfh.data(), nfh.size());
     xdr(fh, static_cast<XdrSink*>(&xm));
-
     return nfh;
 }
 
@@ -99,13 +92,30 @@ static auto exportTime(system_clock::time_point time)
     return nfstime4{uint32_t(sec.count()), uint32_t(nsec.count())};
 }
 
+static auto importDeviceid(const deviceid4& devid)
+{
+    oncrpc::XdrMemory xm(devid.data(), NFS4_DEVICEID4_SIZE);
+    uint64_t id;
+    xdr(id, static_cast<oncrpc::XdrSource*>(&xm));
+    return id;
+}
+
+static auto exportDeviceid(uint64_t id)
+{
+    deviceid4 devid;
+    oncrpc::XdrMemory xm(devid.data(), NFS4_DEVICEID4_SIZE);
+    xdr(id, static_cast<oncrpc::XdrSink*>(&xm));
+    xdr(uint64_t(0), static_cast<oncrpc::XdrSink*>(&xm));
+    return devid;
+}
+
 NfsSession::NfsSession(
     shared_ptr<NfsClient> client,
     shared_ptr<oncrpc::Channel> chan,
-    const channel_attrs4& fca, const channel_attrs4& bca, uint32_t cbProg)
+    const channel_attrs4& fca, const channel_attrs4& bca,
+    uint32_t cbProg, const vector<callback_sec_parms4>& cbSec)
     : client_(client),
-      id_(client->newSessionId()),
-      cbClient_(make_shared<oncrpc::Client>(cbProg, NFS_CB))
+      id_(client->newSessionId())
 {
     channels_.push_back(chan);
     backChannel_ = chan;
@@ -113,6 +123,39 @@ NfsSession::NfsSession(
     cbSlots_.resize(bca.ca_maxrequests);
     cbHighestSlot_ = 0;
     targetCbHighestSlot_ = bca.ca_maxrequests;
+    setCallback(cbProg, cbSec);
+}
+
+void NfsSession::setCallback(
+    uint32_t cbProg, const vector<callback_sec_parms4>& cbSec)
+{
+    cbClient_.reset();
+    for (auto& sec: cbSec) {
+        switch (sec.cb_secflavor) {
+        case AUTH_NONE:
+            cbClient_ = make_shared<oncrpc::Client>(cbProg, NFS_CB);
+            break;
+        case AUTH_SYS: {
+            vector<int32_t> gids = sec.cbsp_sys_cred().gids;
+            Credential cred(
+                sec.cbsp_sys_cred().uid,
+                sec.cbsp_sys_cred().gid,
+                move(gids), false);
+            auto client = make_shared<oncrpc::SysClient>(cbProg, NFS_CB);
+            client->set(cred);
+            cbClient_ = client;
+            break;
+        }
+        default:
+            break;
+        }
+        if (cbClient_)
+            break;
+    }
+    if (!cbClient_) {
+        LOG(ERROR) << "Can't set security parameters for back channel";
+        backChannel_.reset();
+    }
 }
 
 SEQUENCE4res NfsSession::sequence(
@@ -120,16 +163,17 @@ SEQUENCE4res NfsSession::sequence(
 {
     unique_lock<mutex> lock(mutex_);
 
-    // Check that the channel is bound to this session
-    auto chan = CallContext::current().channel();
-    bool valid = false;
-    for (auto p: channels_) {
-        if (p.lock() == chan) {
-            valid = true;
-            break;
+    auto client = client_.lock();
+    if (client->spa() != SP4_NONE) {
+        // Check that the channel is bound to this session
+        auto chan = CallContext::current().channel();
+        bool valid = false;
+        for (auto p: channels_) {
+            if (p.lock() == chan) {
+                valid = true;
+                break;
+            }
         }
-    }
-    if (!valid) {
         LOG(ERROR) << "Request received on channel not bound to session";
         return SEQUENCE4res(NFS4ERR_CONN_NOT_BOUND_TO_SESSION);
     }
@@ -147,7 +191,7 @@ SEQUENCE4res NfsSession::sequence(
     else {
         uint32_t flags = 0;
 
-        if (client_.lock()->revokedStateCount() > 0) {
+        if (client_.lock()->hasRevokedState()) {
             flags |= SEQ4_STATUS_EXPIRED_SOME_STATE_REVOKED;
         }
         if (backChannelState_ == NONE) {
@@ -318,7 +362,7 @@ bool NfsSession::testBackchannel()
     }
 }
 
-void NfsSession::recall(
+void NfsSession::recallDelegation(
     const filesys::nfs4::stateid4& stateid,
     const filesys::nfs4::nfs_fh4& fh)
 {
@@ -336,6 +380,26 @@ void NfsSession::recall(
         });
 }
 
+void NfsSession::recallLayout(
+    filesys::nfs4::layouttype4 type,
+    filesys::nfs4::layoutiomode4 iomode,
+    bool changed,
+    const filesys::nfs4::layoutrecall4& recall)
+{
+    if (layoutRecallHook_) {
+        layoutRecallHook_(type, iomode, changed, recall);
+        return;
+    }
+    callback(
+        "Recall",
+        [type, iomode, changed, &recall](auto& enc) {
+            enc.layoutrecall(type, iomode, changed, recall);
+        },
+        [](auto& dec) {
+            dec.layoutrecall();
+        });
+}
+
 void NfsState::revoke()
 {
     if (!revoked_) {
@@ -345,12 +409,54 @@ void NfsState::revoke()
     }
 }
 
-void NfsState::recall(shared_ptr<NfsSession> session)
+void NfsState::recall()
 {
-    assert(type_ == DELEGATION);
+    assert(type_ == DELEGATION || type_ == LAYOUT);
+    shared_ptr<NfsSession> session;
+    for (auto s: client_.lock()->sessions()) {
+        if (s->hasBackChannel()) {
+            session = s;
+            break;
+        }
+    }
+    if (!session) {
+        LOG(ERROR) << "No back channel to send recall";
+        return;
+    }
+
     if (!recalled_) {
-        VLOG(1) << "Recalling delegation: " << id_;
-        session->recall(id_, exportFileHandle(of_->file()));
+        if (type_ == DELEGATION) {
+            VLOG(1) << "Recalling delegation: " << id_;
+            session->recallDelegation(id_, fs_.lock()->fh());
+        }
+        else {
+            updateLayout();
+            VLOG(1) << "Recalling layout: " << id_;
+            try {
+                session->recallLayout(
+                    LAYOUT4_FLEX_FILES,
+                    ((access_ == OPEN4_SHARE_ACCESS_BOTH)
+                     ? LAYOUTIOMODE4_RW : LAYOUTIOMODE4_READ),
+                    false,
+                    layoutrecall4(
+                        LAYOUTRECALL4_FILE,
+                        layoutrecall_file4{
+                            fs_.lock()->fh(), offset_, length_, id_}));
+            }
+            catch (nfsstat4 stat) {
+                if (stat == NFS4ERR_NOMATCHING_LAYOUT) {
+                    // Client seems to have forgotten about the layout -
+                    // revoke it now
+                    LOG(ERROR) << "Client returned NFS4ERR_NOMATCHING_LAYOUT:"
+                               << " revoking layout now";
+                    auto cl = client_.lock();
+                    if (cl) {
+                        cl->revokeState(shared_from_this());
+                        cl->clearState(id_);
+                    }
+                }
+            }
+        }
         recalled_ = true;
     }
 }
@@ -379,6 +485,11 @@ void NfsState::updateDelegation(
     }
 }
 
+NfsFileState::NfsFileState(shared_ptr<File> file)
+    : fh_(exportFileHandle(file))
+{
+}
+
 void NfsFileState::addOpen(shared_ptr<NfsState> ns)
 {
     unique_lock<mutex> lock(mutex_);
@@ -405,9 +516,20 @@ void NfsFileState::removeDelegation(shared_ptr<NfsState> ns)
     delegations_.erase(ns);
 }
 
+void NfsFileState::addLayout(shared_ptr<NfsState> ns)
+{
+    unique_lock<mutex> lock(mutex_);
+    layouts_.insert(ns);
+}
+
+void NfsFileState::removeLayout(shared_ptr<NfsState> ns)
+{
+    unique_lock<mutex> lock(mutex_);
+    layouts_.erase(ns);
+}
+
 shared_ptr<NfsState> NfsFileState::findOpen(
-    unique_lock<mutex>& lock,
-    const filesys::nfs4::open_owner4& owner)
+    unique_lock<mutex>& lock, const open_owner4& owner)
 {
     for (auto ns: opens_)
         if (ns->owner() == owner)
@@ -416,11 +538,19 @@ shared_ptr<NfsState> NfsFileState::findOpen(
 }
 
 shared_ptr<NfsState> NfsFileState::findDelegation(
-    unique_lock<mutex>& lock,
-    const filesys::nfs4::open_owner4& owner)
+    unique_lock<mutex>& lock, const open_owner4& owner)
 {
     for (auto ns: delegations_)
         if (ns->owner() == owner)
+            return ns;
+    return nullptr;
+}
+
+shared_ptr<NfsState> NfsFileState::findLayout(
+    unique_lock<std::mutex>& lock, clientid4 owner)
+{
+    for (auto ns: layouts_)
+        if (ns->owner().clientid == owner)
             return ns;
     return nullptr;
 }
@@ -446,14 +576,14 @@ retry:
                 return true;
         }
         // Possibly revoke any conflicting state
-        vector<shared_ptr<NfsState>> toRevoke;
         for (auto ns: opens_) {
             auto client = ns->client();
             if (client && client->expired() &&
                 ((access & ns->deny()) || (deny & ns->access()))) {
                 LOG(INFO) << "Revoking expired stateid: " << ns->id();
-                ns->client()->incrementRevoked();
-                revoke(lock, ns);
+                lock.unlock();
+                ns->client()->revokeState(ns);
+                lock.lock();
                 goto retry;
             }
         }
@@ -491,18 +621,30 @@ void NfsFileState::revoke(
     std::unique_lock<std::mutex>& lock, std::shared_ptr<NfsState> ns)
 {
     ns->revoke();
-    opens_.erase(ns);
+    switch (ns->type()) {
+    case NfsState::OPEN:
+        opens_.erase(ns);
+        break;
+    case NfsState::DELEGATION:
+        delegations_.erase(ns);
+        break;
+    case NfsState::LAYOUT:
+        layouts_.erase(ns);
+        break;
+    }
     updateShare(lock);
 }
 
 NfsClient::NfsClient(
     clientid4 id, const client_owner4& owner,
     const string& principal,
-    detail::Clock::time_point expiry)
+    detail::Clock::time_point expiry,
+    const filesys::nfs4::state_protect4_a& spa)
     : id_(id),
       owner_(owner),
       principal_(principal),
       expiry_(expiry),
+      spa_(spa.spa_how),
       nextSessionIndex_(0),
       nextStateIndex_(0)
 {
@@ -546,15 +688,20 @@ shared_ptr<NfsState> NfsClient::findState(
         stateid == STATEID_LAST ? state.curr.stateid : stateid;
 
     auto it = state_.find(id);
-    if (it == state_.end())
-        throw NFS4ERR_BAD_STATEID;
+    if (it == state_.end()) {
+        if (allowRevoked) {
+            it = revokedState_.find(id);
+            if (it == revokedState_.end())
+                throw NFS4ERR_BAD_STATEID;
+        }
+        else {
+            throw NFS4ERR_BAD_STATEID;
+        }
+    }
 
     auto ns = it->second;
-    if (id.seqid == 0 || id.seqid == ns->id().seqid) {
-        if (ns->revoked() && !allowRevoked)
-            throw NFS4ERR_BAD_STATEID;
+    if (id.seqid == 0 || id.seqid == ns->id().seqid)
         return ns;
-    }
     if (id.seqid > ns->id().seqid)
         throw NFS4ERR_BAD_STATEID;
     throw NFS4ERR_OLD_STATEID;
@@ -570,6 +717,88 @@ void NfsClient::setReply(const CREATE_SESSION4res& reply)
     }
     else {
         reply_ = CREATE_SESSION4res(reply.csr_status);
+    }
+}
+
+void NfsClient::deviceCallback(shared_ptr<Device> dev, Device::State state)
+{
+    shared_ptr<NfsSession> session;
+    for (auto s: sessions_) {
+        if (s->hasBackChannel()) {
+            session = s;
+            break;
+        }
+    }
+    if (!session) {
+        LOG(ERROR) << "No back channel";
+        return;
+    }
+
+    auto devid = dev->id();
+    auto& ds = devices_[dev];
+    switch (state) {
+    case Device::ADDRESS_CHANGED:
+        if (ds.notifications & (1 << NOTIFY_DEVICEID4_CHANGE)) {
+            LOG(INFO) << "Client " << hex << id_
+                      << ": notify change for device " << devid;
+            session->callback(
+                "DeviceChange",
+                [=](auto& enc) {
+                    notify_deviceid_change4 ndc;
+                    ndc.ndc_layouttype = LAYOUT4_FLEX_FILES;
+                    ndc.ndc_deviceid = exportDeviceid(devid);
+                    ndc.ndc_immediate = true;
+
+                    notify4 n;
+                    set(n.notify_mask, NOTIFY_DEVICEID4_CHANGE);
+                    n.notify_vals.resize(oncrpc::XdrSizeof(ndc));
+                    oncrpc::XdrMemory xm(
+                        n.notify_vals.data(), n.notify_vals.size());
+                    xdr(ndc, static_cast<oncrpc::XdrSink*>(&xm));
+                    enc.notify_deviceid({n});
+                },
+                [](auto& dec) {
+                    dec.notify_deviceid();
+                });
+        }
+        break;
+
+    case Device::MISSING: {
+        // We need to take a copy of layouts here since recall could delete
+        // the layout if the client returns an error
+        auto layouts = ds.layouts;
+        for (auto ns: layouts)
+            ns->recall();
+        break;
+    }
+
+    case Device::DEAD:
+        if (ds.notifications & (1 << NOTIFY_DEVICEID4_DELETE)) {
+            LOG(INFO) << "Client " << hex << id_
+                      << ": notify delete for device " << devid;
+            session->callback(
+                "DeviceDelete",
+                [=](auto& enc) {
+                    notify_deviceid_delete4 ndd;
+                    ndd.ndd_layouttype = LAYOUT4_FLEX_FILES;
+                    ndd.ndd_deviceid = exportDeviceid(devid);
+
+                    notify4 n;
+                    set(n.notify_mask, NOTIFY_DEVICEID4_DELETE);
+                    n.notify_vals.resize(oncrpc::XdrSizeof(ndd));
+                    oncrpc::XdrMemory xm(
+                        n.notify_vals.data(), n.notify_vals.size());
+                    xdr(ndd, static_cast<oncrpc::XdrSink*>(&xm));
+                    enc.notify_deviceid({n});
+                },
+                [](auto& dec) {
+                    dec.notify_deviceid();
+                });
+        }
+        break;
+
+    default:
+        break;
     }
 }
 
@@ -785,11 +1014,7 @@ DELEGRETURN4res NfsServer::delegreturn(
         if (ns->type() != NfsState::DELEGATION)
             return DELEGRETURN4res{NFS4ERR_BAD_STATEID};
         client->clearState(args.deleg_stateid);
-        unique_lock<mutex> lock(mutex_);
-        auto fs = findState(lock, state.curr.file);
-        fs->removeDelegation(ns);
-        if (!fs->hasState())
-            files_.erase(state.curr.file);
+        checkState(state.curr.file);
         return DELEGRETURN4res{NFS4_OK};
     }
     catch (nfsstat4 status) {
@@ -983,8 +1208,8 @@ OPEN4res NfsServer::open(
             verf = *reinterpret_cast<const uint64_t*>(verfp->data());
         }
 
-        // Serialize opens so that we can ensure that we handle any
-        // state conflicts correctly
+        // Serialize open and layoutget so that we can ensure that we
+        // handle any state conflicts correctly
         unique_lock<mutex> lk(mutex_);
 
         // See if the requested file exists so that we can check for conflicts
@@ -1016,26 +1241,43 @@ OPEN4res NfsServer::open(
             fs = findState(lk, file);
 
             // Check existing share reservations
+            VLOG(1) << "Checking existing share reservations";
             if (!fs->checkShare(
                     args.owner, share_access, share_deny))
                 return OPEN4res(NFS4ERR_SHARE_DENIED);
 
-            // Recall any conflicting delegations
-            bool recalledDelegations = false;
+            // Recall any conflicting delegations or layouts
+            vector<shared_ptr<NfsState>> toRecall;
             if (share_access & OPEN4_SHARE_ACCESS_WRITE) {
+                VLOG(1) << "Checking for conflicting read or write state";
                 for (auto ns: fs->delegations()) {
+                    VLOG(1) << "Checking delegation " << ns->id();
                     if (ns->owner() != args.owner) {
-                        ns->recall(state.session);
-                        recalledDelegations = true;
+                        toRecall.push_back(ns);
+                    }
+                }
+                for (auto ns: fs->layouts()) {
+                    VLOG(1) << "Checking layout " << ns->id();
+                    if (ns->owner().clientid != client->id()) {
+                        toRecall.push_back(ns);
                     }
                 }
             }
             if (share_access & OPEN4_SHARE_ACCESS_READ) {
+                VLOG(1) << "Checking for conflicting write state";
                 for (auto ns: fs->delegations()) {
+                    VLOG(1) << "Checking delegation " << ns->id();
                     if (ns->access() & OPEN4_SHARE_ACCESS_WRITE) {
                         if (ns->owner() != args.owner) {
-                            ns->recall(state.session);
-                            recalledDelegations = true;
+                            toRecall.push_back(ns);
+                        }
+                    }
+                }
+                for (auto ns: fs->layouts()) {
+                    VLOG(1) << "Checking layout " << ns->id();
+                    if (ns->access() & OPEN4_SHARE_ACCESS_WRITE) {
+                        if (ns->owner().clientid != client->id()) {
+                            toRecall.push_back(ns);
                         }
                     }
                 }
@@ -1043,7 +1285,9 @@ OPEN4res NfsServer::open(
 
             // If we issued any recalls, ask our caller to re-try after a
             // short delay
-            if (recalledDelegations) {
+            if (toRecall.size() > 0) {
+                for (auto ns: toRecall)
+                    ns->recall();
                 VLOG(1) << "Delaying open due to recalls";
                 return OPEN4res(NFS4ERR_DELAY);
             }
@@ -1202,7 +1446,7 @@ OPEN4res NfsServer::open(
                 if (fs->delegations().size() == 0 && fs->opens().size() == 0)
                     issueDelegation = true;
                 VLOG(1) << "Denying write delegation: "
-                        << "existing write open or delegation";
+                        << "existing open or delegation";
                 delegation = open_delegation4(
                     OPEN_DELEGATE_NONE_EXT,
                     open_none_delegation4(WND4_CONTENTION, false));
@@ -1599,7 +1843,51 @@ SECINFO4res NfsServer::secinfo(
     CompoundState& state,
     const SECINFO4args& args)
 {
-    return SECINFO4res(NFS4ERR_NOTSUPP);
+    VLOG(1) << "NfsServer::secinfo(" << args.name << ")";
+    if (!state.curr.file)
+        return SECINFO4res(NFS4ERR_NOFILEHANDLE);
+    try {
+        auto& cred = CallContext::current().cred();
+        state.curr.file->lookup(cred, toString(args.name));
+    }
+    catch (system_error& e) {
+        return SECINFO4res(exportStatus(e));
+    }
+
+    SECINFO4resok resok;
+    for (auto sec: sec_) {
+        switch (sec) {
+        case AUTH_NONE:
+        case AUTH_SYS:
+            resok.emplace_back(secinfo4(sec));
+            break;
+        case RPCSEC_GSS_KRB5:
+            resok.emplace_back(
+                secinfo4(
+                    RPCSEC_GSS,
+                    rpcsec_gss_info{
+                        {0x2a,0x86,0x48,0x86,0xf7,0x12,0x01,0x02,0x02},
+                        0, RPC_GSS_SVC_NONE }));
+            break;
+        case RPCSEC_GSS_KRB5I:
+            resok.emplace_back(
+                secinfo4(
+                    RPCSEC_GSS,
+                    rpcsec_gss_info{
+                        {0x2a,0x86,0x48,0x86,0xf7,0x12,0x01,0x02,0x02},
+                        0, RPC_GSS_SVC_INTEGRITY }));
+            break;
+        case RPCSEC_GSS_KRB5P:
+            resok.emplace_back(
+                secinfo4(
+                    RPCSEC_GSS,
+                    rpcsec_gss_info{
+                        {0x2a,0x86,0x48,0x86,0xf7,0x12,0x01,0x02,0x02},
+                        0, RPC_GSS_SVC_PRIVACY }));
+            break;
+        }
+    }
+    return SECINFO4res(NFS4_OK, move(resok));
 }
 
 SETATTR4res NfsServer::setattr(
@@ -1702,6 +1990,9 @@ WRITE4res NfsServer::write(
     catch (nfsstat4 status) {
         return WRITE4res(status);
     }
+    catch (system_error& e) {
+        return WRITE4res(exportStatus(e));
+    }
 }
 
 RELEASE_LOCKOWNER4res NfsServer::release_lockowner(
@@ -1715,7 +2006,10 @@ BACKCHANNEL_CTL4res NfsServer::backchannel_ctl(
     CompoundState& state,
     const BACKCHANNEL_CTL4args& args)
 {
-    return BACKCHANNEL_CTL4res{NFS4ERR_NOTSUPP};
+    VLOG(1) << "NfsServer::backchannel_ctl("
+            << args.bca_cb_program << ", ...)";
+    state.session->setCallback(args.bca_cb_program, args.bca_sec_parms);
+    return BACKCHANNEL_CTL4res{NFS4_OK};
 }
 
 BIND_CONN_TO_SESSION4res NfsServer::bind_conn_to_session(
@@ -1732,7 +2026,13 @@ BIND_CONN_TO_SESSION4res NfsServer::bind_conn_to_session(
     auto chan = CallContext::current().channel();
     it->second->addChannel(
         chan, args.bctsa_dir, args.bctsa_use_conn_in_rdma_mode);
-    return BIND_CONN_TO_SESSION4res(NFS4_OK);
+
+    return BIND_CONN_TO_SESSION4res(
+        NFS4_OK,
+        BIND_CONN_TO_SESSION4resok{
+            args.bctsa_sessid,
+            channel_dir_from_server4(args.bctsa_dir & CDFS4_BOTH),
+            false});
 }
 
 EXCHANGE_ID4res NfsServer::exchange_id(
@@ -1770,7 +2070,8 @@ retry:
             VLOG(1) << "New client: " << args.eia_clientowner;
             auto id = nextClientId_++;
             client = make_shared<NfsClient>(
-                id, args.eia_clientowner, ctx.principal(), leaseExpiry());
+                id, args.eia_clientowner, ctx.principal(), leaseExpiry(),
+                args.eia_state_protect);
             clientsById_[id] = client;
             clientsByOwnerId_.insert(
                 make_pair(args.eia_clientowner.co_ownerid, client));
@@ -1827,7 +2128,7 @@ retry:
                         auto id = nextClientId_++;
                         client = make_shared<NfsClient>(
                             id, args.eia_clientowner, ctx.principal(),
-                            leaseExpiry());
+                            leaseExpiry(), args.eia_state_protect);
                         clientsById_[id] = client;
                         clientsByOwnerId_.insert(
                             make_pair(args.eia_clientowner.co_ownerid, client));
@@ -1888,13 +2189,22 @@ retry:
         spr = state_protect4_r(SP4_MACH_CRED, move(ops));
     }
 
+    // Figure out flags to return
+    uint32_t flags = EXCHGID4_FLAG_USE_NON_PNFS;
+    auto fs = FilesystemManager::instance().begin()->second;
+    if (fs->isData() && (flags & EXCHGID4_FLAG_USE_PNFS_DS)) {
+        flags = EXCHGID4_FLAG_USE_PNFS_DS;
+    } else if (fs->isMetadata() && (flags & EXCHGID4_FLAG_USE_PNFS_MDS)) {
+        flags = EXCHGID4_FLAG_USE_PNFS_MDS;
+    }
+
     VLOG(1) << "Returning clientid: " << hex << client->id();
     return EXCHANGE_ID4res(
         NFS4_OK,
         EXCHANGE_ID4resok{
             client->id(),
             client->sequence() + 1,
-            EXCHGID4_FLAG_USE_NON_PNFS,
+            flags,
             move(spr),
             owner_,
             {},         // server scope
@@ -1959,6 +2269,12 @@ CREATE_SESSION4res NfsServer::create_session(
     auto flags = args.csa_flags & CREATE_SESSION4_FLAG_CONN_BACK_CHAN;
     auto fca = args.csa_fore_chan_attrs;
     fca.ca_headerpadsize = 0;
+    if (fca.ca_maxrequestsize > FLAGS_iosize + 512)
+        fca.ca_maxrequestsize = FLAGS_iosize + 512;
+    if (fca.ca_maxresponsesize > FLAGS_iosize + 512)
+        fca.ca_maxresponsesize = FLAGS_iosize + 512;
+    if (fca.ca_maxresponsesize_cached > FLAGS_iosize + 512)
+        fca.ca_maxresponsesize_cached = FLAGS_iosize + 512;
     if (fca.ca_maxrequests > 8*thread::hardware_concurrency())
         fca.ca_maxrequests = 8*thread::hardware_concurrency();
     auto bca = args.csa_back_chan_attrs;
@@ -1967,7 +2283,8 @@ CREATE_SESSION4res NfsServer::create_session(
     ctx.channel()->setCloseOnIdle(false);
     ctx.channel()->setBufferSize(fca.ca_maxresponsesize);
     auto session = make_shared<NfsSession>(
-        client, ctx.channel(), fca, bca, args.csa_cb_program);
+        client, ctx.channel(), fca, bca,
+        args.csa_cb_program, args.csa_sec_parms);
     sessionsById_[session->id()] = session;
     client->addSession(session);
 
@@ -2023,6 +2340,7 @@ FREE_STATEID4res NfsServer::free_stateid(
     try {
         auto ns = client->findState(state, args.fsa_stateid, true);
         client->clearState(args.fsa_stateid);
+        checkState(state.curr.file);
         return FREE_STATEID4res{NFS4_OK};
     }
     catch (nfsstat4 stat) {
@@ -2041,42 +2359,446 @@ GETDEVICEINFO4res NfsServer::getdeviceinfo(
     CompoundState& state,
     const GETDEVICEINFO4args& args)
 {
-    return GETDEVICEINFO4res(NFS4ERR_NOTSUPP);
+    VLOG(1) << "NfsServer::getdeviceinfo("
+            << args.gdia_device_id
+            << ", " << args.gdia_layout_type
+            << ", " << args.gdia_maxcount
+            << ", {" << (args.gdia_notify_types.size() > 0 ?
+                         args.gdia_notify_types[0] : 0)
+            << (args.gdia_notify_types.size() > 1 ? ",...}" : "})");
+    if (args.gdia_layout_type != LAYOUT4_FLEX_FILES)
+        return GETDEVICEINFO4res(NFS4ERR_UNKNOWN_LAYOUTTYPE);
+    try {
+        auto fs = FilesystemManager::instance().begin()->second;
+        uint64_t devid = importDeviceid(args.gdia_device_id);
+        auto dev = fs->findDevice(devid);
+        ff_device_addr4 ffaddr;
+        for (auto& ai: dev->addresses()) {
+            string nettype;
+            if (ai.family == AF_INET6)
+                nettype = "tcp6";
+            else
+                nettype = "tcp";
+            ffaddr.ffda_netaddrs.emplace_back(netaddr4{nettype, ai.uaddr()});
+        }
+        ffaddr.ffda_versions.emplace_back(
+            ff_device_versions4{
+                3, 0, uint32_t(FLAGS_iosize), uint32_t(FLAGS_iosize), false});
+        device_addr4 addr;
+        addr.da_layout_type = LAYOUT4_FLEX_FILES;
+        addr.da_addr_body.resize(oncrpc::XdrSizeof(ffaddr));
+        oncrpc::XdrMemory xmaddr(
+            addr.da_addr_body.data(), addr.da_addr_body.size());
+        xdr(ffaddr, static_cast<oncrpc::XdrSink*>(&xmaddr));
+
+        // Register the callbacks, if any.
+        int mask = (args.gdia_notify_types.size() > 0 ?
+                    args.gdia_notify_types[0] : 0);
+        auto client = state.session->client();
+        client->setDeviceNotify(dev, mask);
+
+        return GETDEVICEINFO4res(
+            NFS4_OK, GETDEVICEINFO4resok{move(addr), {}});
+    }
+    catch (system_error& e) {
+        return GETDEVICEINFO4res(exportStatus(e));
+    }
 }
 
 GETDEVICELIST4res NfsServer::getdevicelist(
     CompoundState& state,
     const GETDEVICELIST4args& args)
 {
-    return GETDEVICELIST4res(NFS4ERR_NOTSUPP);
+    VLOG(1) << "NfsServer::getdeviceinfo("
+            << args.gdla_layout_type
+            << ", " << args.gdla_maxdevices
+            << ", " << args.gdla_cookie
+            << ", ...)";
+    if (!state.curr.file)
+        return GETDEVICELIST4res(NFS4ERR_NOFILEHANDLE);
+    if (args.gdla_layout_type != LAYOUT4_FLEX_FILES)
+        return GETDEVICELIST4res(NFS4ERR_UNKNOWN_LAYOUTTYPE);
+    if (args.gdla_maxdevices == 0)
+        return GETDEVICELIST4res(NFS4ERR_INVAL);
+
+    auto fs = state.curr.file->fs();
+    uint64_t gen;
+    auto list = fs->devices(gen);
+    auto cookie = args.gdla_cookie;
+
+    auto p = list.begin();
+    if (cookie > 0) {
+        // Decode cookie and compare to gen
+        oncrpc::XdrMemory xm(args.gdla_cookieverf.data(), NFS4_VERIFIER_SIZE);
+        uint64_t cookieverf;
+        xdr(cookieverf, static_cast<oncrpc::XdrSource*>(&xm));
+        if (cookieverf != gen) {
+            // List has changed since the caller started its iteration
+            return GETDEVICELIST4res(NFS4ERR_NOT_SAME);
+        }
+        if (args.gdla_cookie >= list.size())
+            p = list.end();
+        else
+            p += args.gdla_cookie;
+    }
+
+    vector<deviceid4> res;
+    for (count4 i = 0; i < args.gdla_maxdevices; i++) {
+        if (p == list.end())
+            break;
+        res.push_back(exportDeviceid((*p)->id()));
+        cookie++;
+    }
+    verifier4 verf;
+    oncrpc::XdrMemory xm(verf.data(), NFS4_VERIFIER_SIZE);
+    xdr(gen, static_cast<oncrpc::XdrSink*>(&xm));
+    return GETDEVICELIST4res(
+        NFS4_OK,
+        GETDEVICELIST4resok{
+            cookie, verf, res, p == list.end()});
 }
 
 LAYOUTCOMMIT4res NfsServer::layoutcommit(
     CompoundState& state,
     const LAYOUTCOMMIT4args& args)
 {
-    return LAYOUTCOMMIT4res(NFS4ERR_NOTSUPP);
+    auto& cred = CallContext::current().cred();
+
+    VLOG(1) << "NfsServer::layoutcommit("
+            << args.loca_offset
+            << ", " << args.loca_length
+            << ", " << args.loca_reclaim
+            << ", " << args.loca_stateid
+            << ", " << (args.loca_last_write_offset.no_newoffset ?
+                        to_string(args.loca_last_write_offset.no_offset()) :
+                        "<none>")
+            << ", ...)";
+
+    if (!state.curr.file)
+        return LAYOUTCOMMIT4res(NFS4ERR_NOFILEHANDLE);
+    auto oldsize = state.curr.file->getattr()->size();
+    state.curr.file->setattr(
+        cred,
+        [&args, oldsize](auto sattr) {
+            if (args.loca_last_write_offset.no_newoffset) {
+                if (args.loca_last_write_offset.no_offset() + 1 > oldsize) {
+                    sattr->setSize(
+                        args.loca_last_write_offset.no_offset() + 1);
+                }
+            }
+            if (args.loca_time_modify.nt_timechanged) {
+                sattr->setMtime(
+                    importTime(args.loca_time_modify.nt_time()));
+            }
+        });
+    auto newsize = state.curr.file->getattr()->size();
+    return LAYOUTCOMMIT4res(
+        NFS4_OK,
+        LAYOUTCOMMIT4resok{
+            oldsize != newsize ?
+                newsize4(true, length4(newsize)) : newsize4(false)});
 }
 
 LAYOUTGET4res NfsServer::layoutget(
     CompoundState& state,
     const LAYOUTGET4args& args)
 {
-    return LAYOUTGET4res(NFS4ERR_NOTSUPP);
+    auto& cred = CallContext::current().cred();
+
+    VLOG(1) << "NfsServer::layoutget("
+            << args.loga_signal_layout_avail
+            << ", " << args.loga_layout_type
+            << ", " << args.loga_iomode
+            << ", " << args.loga_offset
+            << ", " << args.loga_length
+            << ", " << args.loga_minlength
+            << ", " << args.loga_stateid
+            << ", " << args.loga_maxcount << ")";
+
+    if (!state.curr.file)
+        return LAYOUTGET4res(NFS4ERR_NOFILEHANDLE);
+    if (!state.curr.file->fs()->isMetadata())
+        return LAYOUTGET4res(NFS4ERR_LAYOUTUNAVAILABLE);
+    if (args.loga_layout_type != LAYOUT4_FLEX_FILES)
+        return LAYOUTGET4res(NFS4ERR_UNKNOWN_LAYOUTTYPE);
+    if (args.loga_length < args.loga_minlength) {
+        LOG(ERROR) << "loga_length < loga_minlength";
+        return LAYOUTGET4res(NFS4ERR_INVAL);
+    }
+    if (args.loga_minlength != NFS4_UINT64_MAX &&
+        args.loga_minlength > (NFS4_UINT64_MAX - args.loga_offset)) {
+        LOG(ERROR) << "loga_minlength too large: " << args.loga_minlength;
+        return LAYOUTGET4res(NFS4ERR_INVAL);
+    }
+    if (args.loga_length != NFS4_UINT64_MAX &&
+        args.loga_length > (NFS4_UINT64_MAX - args.loga_offset)) {
+        LOG(ERROR) << "loga_length too large: " << args.loga_minlength;
+        return LAYOUTGET4res(NFS4ERR_INVAL);
+    }
+    if (args.loga_iomode != LAYOUTIOMODE4_READ &&
+        args.loga_iomode != LAYOUTIOMODE4_RW) {
+        LOG(ERROR) << "loga_iomode invalid";
+        return LAYOUTGET4res(NFS4ERR_INVAL);
+    }
+
+    try {
+        auto client = state.session->client();
+        auto ns = client->findState(state, args.loga_stateid);
+
+        // First get a set of pieces covering the requested range
+        vector<shared_ptr<Piece>> pieces;
+        auto fileSize = state.curr.file->getattr()->size();
+        auto offset = args.loga_offset;
+        auto len = args.loga_length;
+
+        for (;;) {
+            try {
+                VLOG(1) << "Getting layout segment for offset " << offset;
+                auto piece = state.curr.file->data(
+                    cred, offset, args.loga_iomode == LAYOUTIOMODE4_RW);
+                pieces.push_back(piece);
+                auto id = piece->id();
+                if (id.size == 0) {
+                    offset = NFS4_UINT64_MAX;
+                    break;
+                }
+                else {
+                    offset = id.offset + id.size;
+                    if (id.size > len || offset >= fileSize)
+                        break;
+                    if (len != NFS4_UINT64_MAX)
+                        len -= id.size;
+                }
+            }
+            catch (system_error& e) {
+                LOG(ERROR) << "Error getting layout segment: " << e.what();
+                return LAYOUTGET4res(NFS4ERR_LAYOUTUNAVAILABLE);
+            }
+        }
+
+        // The Linux flex files client won't use any layout segment
+        // with length less than u64m. Unfortunately if the filesystem
+        // has a piece size less than u64m, we cannot return a layout
+        // segment of length u64m since otherwise the client will
+        // attempt to write outside the segment bounds.
+        if (args.loga_iomode == LAYOUTIOMODE4_RW &&
+            offset != NFS4_UINT64_MAX &&
+            (offset - args.loga_offset) < args.loga_length) {
+            return LAYOUTGET4res(NFS4ERR_LAYOUTUNAVAILABLE);
+        }
+
+        // Take the server lock to serialise with open
+        unique_lock<mutex> lock(mutex_);
+        auto fs = findState(lock, state.curr.file);
+
+        // Check for existing state conflicts
+        if (args.loga_iomode == LAYOUTIOMODE4_READ) {
+            // We can issue a read layout if there are no existing
+            // write opens. Note that we should be safe from existing
+            // delegations or layouts since they will have been
+            // recalled before the open for args.loga_stateid.
+            for (auto ns: fs->opens()) {
+                if (ns->client() == client)
+                    continue;
+                if (ns->access() & OPEN4_SHARE_ACCESS_WRITE) {
+                    VLOG(1) << "Denying read layout: "
+                            << "existing write open";
+                    return LAYOUTGET4res(NFS4ERR_LAYOUTUNAVAILABLE);
+                }
+            }
+        }
+        else {
+            // We can issue a write layout if there are no existing
+            // opens from other clients
+            for (auto ns: fs->opens()) {
+                if (ns->client() == client)
+                    continue;
+                VLOG(1) << "Denying write layout: "
+                        << "existing open";
+                return LAYOUTGET4res(NFS4ERR_LAYOUTUNAVAILABLE);
+            }
+        }
+
+        vector<shared_ptr<Device>> devices;
+        LAYOUTGET4resok resok;
+        resok.logr_return_on_close = false;
+        resok.logr_layout.resize(pieces.size());
+        try {
+            for (int i = 0; i < int(pieces.size()); i++) {
+                auto piece = pieces[i];
+                auto& layout = resok.logr_layout[i];
+                layout.lo_offset = piece->id().offset;
+                // Pretend the last segment extends to infinity to keep
+                // the current linux flex file layout implementation happy
+                auto id = piece->id();
+                if (args.loga_iomode == LAYOUTIOMODE4_READ &&
+                    id.offset + id.size >= fileSize) {
+                    layout.lo_length = NFS4_UINT64_MAX;
+                }
+                else if (id.size == 0) {
+                    layout.lo_length = NFS4_UINT64_MAX;
+                }
+                else {
+                    layout.lo_length = id.size;
+                }
+                layout.lo_iomode = args.loga_iomode;
+                ff_layout4 ffl;
+                ffl.ffl_stripe_unit = 0;
+                for (int j = 0; j < piece->mirrorCount(); j++) {
+                    auto m = piece->mirror(cred, j);
+                    devices.push_back(m.first);
+                    ff_mirror4 ffm;
+                    ffm.ffm_data_servers.resize(1);
+                    auto& ffds = ffm.ffm_data_servers[0];
+                    ffds.ffds_deviceid = exportDeviceid(m.first->id());
+                    ffds.ffds_efficiency = 0;
+                    ffds.ffds_stateid = STATEID_ANON;
+                    auto nfh = exportFileHandle(m.second);
+                    ffds.ffds_fh_vers.push_back(nfh);
+                    ffds.ffds_user = toUtf8string("0");
+                    ffds.ffds_group = toUtf8string("0");
+                    ffl.ffl_mirrors.push_back(move(ffm));
+                }
+                ffl.ffl_flags = 0;
+                ffl.ffl_stats_collect_hint = 0;
+
+                layout.lo_content.loc_type = LAYOUT4_FLEX_FILES;
+                layout.lo_content.loc_body.resize(oncrpc::XdrSizeof(ffl));
+                oncrpc::XdrMemory xm(
+                    layout.lo_content.loc_body.data(),
+                    layout.lo_content.loc_body.size());
+                xdr(ffl, static_cast<oncrpc::XdrSink*>(&xm));
+            }
+        } catch (system_error& e) {
+            LOG(ERROR) << "Error getting layout devices: " << e.what();
+            return LAYOUTGET4res(NFS4ERR_LAYOUTUNAVAILABLE);
+        }
+
+        // Now that we have finished calling anything which might raise an
+        // exception, its safe to create the layout state object
+        if (ns->type() != NfsState::LAYOUT) {
+            // Client presented an open, delegation or lock stateid -
+            // we create a new layout state.
+
+            // If there is an existing layout for this client and if
+            // so, just delete it.
+            auto oldns = fs->findLayout(client->id());
+            if (oldns) {
+                client->clearState(oldns->id());
+                fs->removeLayout(oldns);
+            }
+
+            auto newns = client->addLayout(fs, args.loga_iomode, devices);
+            newns->setOffset(args.loga_offset);
+            newns->setLength(args.loga_length);
+            fs->addLayout(newns);
+
+            ns = newns;
+        }
+        else {
+            ns->updateLayout();
+        }
+        VLOG(1) << "Returning layout stateid: " << ns->id();
+        resok.logr_stateid = ns->id();
+
+        return LAYOUTGET4res(NFS4_OK, move(resok));
+    }
+    catch (nfsstat4 status) {
+        return LAYOUTGET4res(status);
+    }
+    catch (system_error& e) {
+        return LAYOUTGET4res(exportStatus(e));
+    }
 }
 
 LAYOUTRETURN4res NfsServer::layoutreturn(
     CompoundState& state,
     const LAYOUTRETURN4args& args)
 {
-    return LAYOUTRETURN4res(NFS4ERR_NOTSUPP);
+    VLOG(1) << "NfsServer::layoutreturn("
+            << args.lora_reclaim
+            << ", " << args.lora_layout_type
+            << ", " << args.lora_iomode << ", ...)";
+
+    if (args.lora_layout_type != LAYOUT4_FLEX_FILES)
+        return LAYOUTRETURN4res(NFS4ERR_BADLAYOUT);
+
+    try {
+        auto client = state.session->client();
+        switch (args.lora_layoutreturn.lr_returntype) {
+        case LAYOUTRETURN4_FILE: {
+            if (!state.curr.file)
+                return LAYOUTRETURN4res(NFS4ERR_NOFILEHANDLE);
+            auto& ret = args.lora_layoutreturn.lr_layout();
+            auto ns = client->findState(state, ret.lrf_stateid);
+            if (ns->type() != NfsState::LAYOUT) {
+                LOG(INFO) << "Not a layout: " << ns->id();
+                return LAYOUTRETURN4res(NFS4ERR_BAD_STATEID);
+            }
+            // XXX: validate offset and length, parse body
+            ns->updateLayout();
+            auto id = ns->id();
+            client->clearState(ns->id());
+            checkState(state.curr.file);
+            return LAYOUTRETURN4res(
+                NFS4_OK, layoutreturn_stateid(true, move(id)));
+            break;
+        }
+
+        case LAYOUTRETURN4_FSID:
+        case LAYOUTRETURN4_ALL:
+            client->clearLayouts();
+            return LAYOUTRETURN4res(
+                NFS4_OK, layoutreturn_stateid(false));
+            break;
+        }
+    }
+    catch (nfsstat4 status) {
+        return LAYOUTRETURN4res(status);
+    }
 }
 
 SECINFO_NO_NAME4res NfsServer::secinfo_no_name(
     CompoundState& state,
     const SECINFO_NO_NAME4args& args)
 {
-    return SECINFO_NO_NAME4res(NFS4ERR_NOTSUPP);
+    VLOG(1) << "NfsServer::secinfo_no_name(" << args << ")";
+    if (!state.curr.file)
+        return SECINFO_NO_NAME4res(NFS4ERR_NOFILEHANDLE);
+    SECINFO4resok resok;
+    for (auto sec: sec_) {
+        switch (sec) {
+        case AUTH_NONE:
+        case AUTH_SYS:
+            resok.emplace_back(secinfo4(sec));
+            break;
+        case RPCSEC_GSS_KRB5:
+            resok.emplace_back(
+                secinfo4(
+                    RPCSEC_GSS,
+                    rpcsec_gss_info{
+                        {0x2a,0x86,0x48,0x86,0xf7,0x12,0x01,0x02,0x02},
+                        0, RPC_GSS_SVC_NONE }));
+            break;
+        case RPCSEC_GSS_KRB5I:
+            resok.emplace_back(
+                secinfo4(
+                    RPCSEC_GSS,
+                    rpcsec_gss_info{
+                        {0x2a,0x86,0x48,0x86,0xf7,0x12,0x01,0x02,0x02},
+                        0, RPC_GSS_SVC_INTEGRITY }));
+            break;
+        case RPCSEC_GSS_KRB5P:
+            resok.emplace_back(
+                secinfo4(
+                    RPCSEC_GSS,
+                    rpcsec_gss_info{
+                        {0x2a,0x86,0x48,0x86,0xf7,0x12,0x01,0x02,0x02},
+                        0, RPC_GSS_SVC_PRIVACY }));
+            break;
+        }
+    }
+    return SECINFO_NO_NAME4res(NFS4_OK, move(resok));
 }
 
 SEQUENCE4res NfsServer::sequence(
@@ -2474,7 +3196,7 @@ restart:
             // Set the client's expired flag - this will be reset if
             // it renews
             client->setExpired();
-            if (!client->hasState()) {
+            if (!client->hasState() && !client->hasRevokedState()) {
                 LOG(INFO) << "Expiring client with no state, clientid: "
                           << hex << client->id();
                 destroyClient(lock, client);
@@ -2483,7 +3205,7 @@ restart:
             }
         }
         if (client->expiry() + seconds(4*FLAGS_lease_time) < now &&
-            !client->hasUnrevokedState()) {
+            !client->hasState()) {
             LOG(INFO) << "Expiring client with revoked state, clientid: "
                       << hex << client->id();
             destroyClient(lock, client);
@@ -2528,6 +3250,7 @@ void NfsServer::destroyClient(
 function<void(Setattr*)> NfsServer::importAttr(
     const fattr4& attr, bitmap4& attrsset)
 {
+    using filesys::nfs4::set;
     return [&](auto sattr)
     {
         NfsAttr xattr;
@@ -2596,6 +3319,7 @@ static auto exportType(FileType type)
 
 fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)
 {
+    using filesys::nfs4::set;
     auto& cred = CallContext::current().cred();
     NfsAttr xattr;
     auto attr = file->getattr();
@@ -2611,6 +3335,7 @@ fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)
                 set(xattr.supported_attrs_, FATTR4_CHANGE);
                 set(xattr.supported_attrs_, FATTR4_FILEHANDLE);
                 set(xattr.supported_attrs_, FATTR4_TYPE);
+                set(xattr.supported_attrs_, FATTR4_FH_EXPIRE_TYPE);
                 set(xattr.supported_attrs_, FATTR4_MODE);
                 set(xattr.supported_attrs_, FATTR4_NUMLINKS);
                 set(xattr.supported_attrs_, FATTR4_OWNER);
@@ -2623,6 +3348,22 @@ fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)
                 set(xattr.supported_attrs_, FATTR4_TIME_CREATE);
                 set(xattr.supported_attrs_, FATTR4_TIME_MODIFY);
                 set(xattr.supported_attrs_, FATTR4_TIME_METADATA);
+                set(xattr.supported_attrs_, FATTR4_FILES_AVAIL);
+                set(xattr.supported_attrs_, FATTR4_FILES_FREE);
+                set(xattr.supported_attrs_, FATTR4_FILES_TOTAL);
+                set(xattr.supported_attrs_, FATTR4_SPACE_AVAIL);
+                set(xattr.supported_attrs_, FATTR4_SPACE_FREE);
+                set(xattr.supported_attrs_, FATTR4_SPACE_TOTAL);
+                set(xattr.supported_attrs_, FATTR4_MAXREAD);
+                set(xattr.supported_attrs_, FATTR4_MAXWRITE);
+                set(xattr.supported_attrs_, FATTR4_LINK_SUPPORT);
+                set(xattr.supported_attrs_, FATTR4_SYMLINK_SUPPORT);
+                set(xattr.supported_attrs_, FATTR4_UNIQUE_HANDLES);
+                set(xattr.supported_attrs_, FATTR4_NAMED_ATTR);
+                set(xattr.supported_attrs_, FATTR4_LEASE_TIME);
+                set(xattr.supported_attrs_, FATTR4_FS_LAYOUT_TYPES);
+                set(xattr.supported_attrs_, FATTR4_LAYOUT_BLKSIZE);
+                set(xattr.supported_attrs_, FATTR4_LAYOUT_ALIGNMENT);
                 break;
             case FATTR4_CHANGE:
                 xattr.change_ = attr->change();
@@ -2632,6 +3373,8 @@ fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)
                 break;
             case FATTR4_TYPE:
                 xattr.type_ = exportType(attr->type());
+                break;
+            case FATTR4_FH_EXPIRE_TYPE:
                 break;
             case FATTR4_MODE:
                 xattr.mode_ = attr->mode();
@@ -2676,12 +3419,12 @@ fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)
             case FATTR4_FILES_AVAIL:
                 if (!fsattr)
                     fsattr = file->fsstat(cred);
-                xattr.files_total_ = fsattr->afiles();
+                xattr.files_avail_ = fsattr->afiles();
                 break;
             case FATTR4_FILES_FREE:
                 if (!fsattr)
                     fsattr = file->fsstat(cred);
-                xattr.files_total_ = fsattr->ffiles();
+                xattr.files_free_ = fsattr->ffiles();
                 break;
             case FATTR4_FILES_TOTAL:
                 if (!fsattr)
@@ -2691,12 +3434,12 @@ fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)
             case FATTR4_SPACE_AVAIL:
                 if (!fsattr)
                     fsattr = file->fsstat(cred);
-                xattr.space_total_ = fsattr->abytes();
+                xattr.space_avail_ = fsattr->abytes();
                 break;
             case FATTR4_SPACE_FREE:
                 if (!fsattr)
                     fsattr = file->fsstat(cred);
-                xattr.space_total_ = fsattr->fbytes();
+                xattr.space_free_ = fsattr->fbytes();
                 break;
             case FATTR4_SPACE_TOTAL:
                 if (!fsattr)
@@ -2709,8 +3452,29 @@ fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)
             case FATTR4_MAXWRITE:
                 xattr.maxwrite_ = FLAGS_iosize;
                 break;
+            case FATTR4_LINK_SUPPORT:
+            case FATTR4_SYMLINK_SUPPORT:
+            case FATTR4_UNIQUE_HANDLES:
+                break;
             case FATTR4_LEASE_TIME:
                 xattr.lease_time_ = FLAGS_lease_time;
+                break;
+            case FATTR4_FS_LAYOUT_TYPES: {
+                if (file->fs()->isMetadata()) {
+                    xattr.fs_layout_types_ = { LAYOUT4_FLEX_FILES };
+                }
+                else {
+                    xattr.fs_layout_types_ = { };
+                }
+                break;
+            }
+            case FATTR4_LAYOUT_BLKSIZE:
+                xattr.layout_blksize_ = attr->blockSize();
+                //xattr.layout_blksize_ = FLAGS_iosize;
+                break;
+            case FATTR4_LAYOUT_ALIGNMENT:
+                xattr.layout_alignment_ = attr->blockSize();
+                //xattr.layout_alignment_ = FLAGS_iosize;
                 break;
             default:
                 // Don't set the bit in attrmask_
@@ -2727,6 +3491,7 @@ fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)
 
 nfsstat4 NfsServer::verifyAttr(shared_ptr<File> file, const fattr4& check)
 {
+    using filesys::nfs4::set;
     NfsAttr xattr;
     xattr.decode(check);
     auto attr = file->getattr();
@@ -2768,6 +3533,10 @@ nfsstat4 NfsServer::verifyAttr(shared_ptr<File> file, const fattr4& check)
                 break;
             case FATTR4_TYPE:
                 if (xattr.type_ != exportType(attr->type()))
+                    return NFS4ERR_NOT_SAME;
+                break;
+            case FATTR4_FH_EXPIRE_TYPE:
+                if (xattr.fh_expire_type_ != FH4_PERSISTENT)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_MODE:
@@ -2825,6 +3594,24 @@ nfsstat4 NfsServer::verifyAttr(shared_ptr<File> file, const fattr4& check)
                 if (xattr.lease_time_ != FLAGS_lease_time)
                     return NFS4ERR_NOT_SAME;
                 break;
+            case FATTR4_FS_LAYOUT_TYPES: {
+                if (file->fs()->isMetadata()) {
+                    if (xattr.fs_layout_types_.size() != 1 ||
+                        xattr.fs_layout_types_[0] != LAYOUT4_FLEX_FILES)
+                        return NFS4ERR_NOT_SAME;
+                }
+                else {
+                    if (xattr.fs_layout_types_.size() != 0)
+                        return NFS4ERR_NOT_SAME;
+                }
+                break;
+            }
+            case FATTR4_LAYOUT_BLKSIZE:
+                if (xattr.layout_blksize_ != attr->blockSize())
+                    return NFS4ERR_NOT_SAME;
+            case FATTR4_LAYOUT_ALIGNMENT:
+                if (xattr.layout_alignment_ != attr->blockSize())
+                    return NFS4ERR_NOT_SAME;
             default:
                 return NFS4ERR_INVAL;
             }
@@ -2838,5 +3625,17 @@ void NfsServer::setRecallHook(
     const filesys::nfs4::sessionid4& sessionid,
     std::function<void(const stateid4&, const nfs_fh4&)> hook)
 {
+    LOG(INFO) << "setting layoutrecall hook for " << sessionid;
     sessionsById_[sessionid]->setRecallHook(hook);
+}
+
+void NfsServer::setLayoutRecallHook(
+    const filesys::nfs4::sessionid4& sessionid,
+    std::function<void(filesys::nfs4::layouttype4 type,
+                       filesys::nfs4::layoutiomode4 iomode,
+                       bool changed,
+                       const filesys::nfs4::layoutrecall4& recall)> hook)
+{
+    LOG(INFO) << "setting layoutrecall hook for " << sessionid;
+    sessionsById_[sessionid]->setLayoutRecallHook(hook);
 }

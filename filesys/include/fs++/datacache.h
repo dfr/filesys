@@ -36,12 +36,32 @@ public:
     std::shared_ptr<Buffer>get(std::uint64_t offset, std::uint32_t count)
     {
         auto start = offset, end = offset + count;
-        for (auto& b: cache_) {
+        for (auto it = cache_.begin(); it != cache_.end(); ++it) {
+            auto& b = *it;
             if (b.start >= end)
                 break;
+            if (b.start > start) {
+                return nullptr;
+            }
             if (b.end > start) {
-                if (b.end < end)
+                if (b.end < end) {
+                    // Try to merge forwards
+                    ++it;
+                    while (it != cache_.end() && it->start == b.end) {
+                        auto& nb = *it;
+                        auto sz1 = b.end - b.start;
+                        auto sz2 = nb.end - nb.start;
+                        auto buf = std::make_shared<Buffer>(sz1 + sz2);
+                        std::copy_n(b.data->data(), sz1, buf->data());
+                        std::copy_n(nb.data->data(), sz2, buf->data() + sz1);
+                        b.data = buf;
+                        b.end = nb.end;
+                        auto t = it;
+                        ++it;
+                        cache_.erase(t);
+                    }
                     end = b.end;
+                }
                 return std::make_shared<Buffer>(
                     b.data, start - b.start, end - b.start);
             }
@@ -118,6 +138,28 @@ public:
         for (auto& b: cache_) {
             assert(b.data->size() == b.end - b.start);
             fn(b.state, b.start, b.end, b.data);
+        }
+    }
+
+    void truncate(std::uint64_t size)
+    {
+        // Drop any blocks starting after the new size
+        while (cache_.size() > 0) {
+            auto& b = cache_.back();
+            if (b.start < size) {
+                break;
+            }
+            cache_.pop_back();
+        }
+
+        // If the last block extends past size, truncate it
+        if (cache_.size() > 0) {
+            auto& b = cache_.back();
+            if (b.end > size) {
+                b.end = size;
+                b.data = std::make_shared<Buffer>(
+                    b.data, 0, b.end - b.start);
+            }
         }
     }
 

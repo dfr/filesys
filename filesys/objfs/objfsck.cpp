@@ -12,7 +12,7 @@ using namespace filesys::objfs;
 using namespace keyval;
 using namespace std;
 
-void ObjfsCheck::check()
+void ObjfsCheck::check(bool checkData)
 {
     auto defaultNS = db_->getNamespace("default");
     auto directoriesNS = db_->getNamespace("directories");
@@ -83,34 +83,36 @@ void ObjfsCheck::check()
     }
     iterator.reset();
 
-    DataKeyType datastart(1, 0), dataend(~0ul, 0);
-    iterator = dataNS->iterator();
-    iterator->seek(datastart);
-    uint64_t lastOffset = 0;
-    uint64_t lastFileid = 0;
-    while (iterator->valid(dataend)) {
-        DataKeyType key(iterator->key());
-        auto fileid = key.fileid();
-        auto offset = key.offset();
-        auto blockSize = files_[fileid].blockSize;
-        if (lastFileid != fileid) {
-            lastFileid = fileid;
-            lastOffset = 0;
+    if (checkData) {
+        DataKeyType datastart(1, 0), dataend(~0ul, 0);
+        iterator = dataNS->iterator();
+        iterator->seek(datastart);
+        uint64_t lastOffset = 0;
+        uint64_t lastFileid = 0;
+        while (iterator->valid(dataend)) {
+            DataKeyType key(iterator->key());
+            auto fileid = key.fileid();
+            auto offset = key.offset();
+            auto blockSize = files_[fileid].blockSize;
+            if (lastFileid != fileid) {
+                lastFileid = fileid;
+                lastOffset = 0;
+            }
+            if (files_.find(key.fileid()) == files_.end()) {
+                cerr << "Orphan data block for unknown fileid: "
+                     << key.fileid() << endl;
+            }
+            if (offset % blockSize) {
+                cerr << "fileid: " << fileid
+                     << " unaligned block offset " << offset << endl;
+            }
+            if (offset < lastOffset) {
+                cerr << "fileid: " << fileid
+                     << " disordered offset " << offset << endl;
+            }
+            lastOffset = offset + blockSize;
+            iterator->next();
         }
-        if (files_.find(key.fileid()) == files_.end()) {
-            cerr << "Orphan data block for unknown fileid: "
-                 << key.fileid() << endl;
-        }
-        if (offset % blockSize) {
-            cerr << "fileid: " << fileid
-                 << " unaligned block offset " << offset << endl;
-        }
-        if (offset < lastOffset) {
-            cerr << "fileid: " << fileid
-                 << " disordered offset " << offset << endl;
-        }
-        lastOffset = offset + blockSize;
-        iterator->next();
     }
 
     for (auto& i: files_) {

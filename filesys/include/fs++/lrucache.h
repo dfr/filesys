@@ -50,16 +50,20 @@ public:
         add(std::unique_lock<std::mutex>(mutex_), fileid, file);
     }
 
-    /// Remove a cache entry
-    void remove(const ID& fileid)
+    /// Remove a cache entry, returning the entry if it was present
+    /// otherwise nullptr
+    std::shared_ptr<OBJ> remove(const ID& fileid)
     {
         std::unique_lock<std::mutex> lock(mutex_);
+        std::shared_ptr<OBJ> obj;
         auto i = cache_.find(fileid);
         if (i != cache_.end()) {
             auto p = i->second;
             cache_.erase(fileid);
+            obj = p->second;
             lru_.erase(p);
         }
+        return obj;
     }
 
     /// Clear the cache

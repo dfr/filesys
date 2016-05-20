@@ -279,7 +279,8 @@ NfsFilesystem::find(const nfs_fh4& fh)
         [&](auto file) {
         },
         [&](nfs_fh4 id) {
-            return shared_ptr<NfsFile>(nullptr);
+            return make_shared<NfsFile>(
+                shared_from_this(), move(id));
         });
 }
 
@@ -333,7 +334,12 @@ retry:
         compoundNoSequence(
             [this](auto& enc)
             {
-                enc.exchange_id(clientOwner_, 0, state_protect4_a(SP4_NONE), {});
+                enc.exchange_id(
+                    clientOwner_,
+                    (EXCHGID4_FLAG_USE_NON_PNFS |
+                     EXCHGID4_FLAG_USE_PNFS_MDS |
+                     EXCHGID4_FLAG_USE_PNFS_DS),
+                    state_protect4_a(SP4_NONE), {});
             },
             [this](auto& dec)
             {
@@ -354,11 +360,14 @@ retry:
             {
                 vector<callback_sec_parms4> sec_parms;
                 sec_parms.emplace_back(AUTH_NONE);
+                count4 iosize = 65536 + 512;
                 enc.create_session(
                     clientid_, sequence_,
                     CREATE_SESSION4_FLAG_CONN_BACK_CHAN,
-                    channel_attrs4{0, 65536, 65536, 65536, 32, slotCount, {}},
-                    channel_attrs4{0, 65536, 65536, 65536, 32, slotCount, {}},
+                    channel_attrs4{
+                        0, iosize, iosize, iosize, 32, slotCount, {}},
+                    channel_attrs4{
+                        0, iosize, iosize, iosize, 32, slotCount, {}},
                     cbprog_,
                     sec_parms);
             },

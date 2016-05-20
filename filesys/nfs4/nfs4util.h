@@ -142,7 +142,7 @@ static inline std::ostream& operator<<(
 {
     auto savefill = os.fill();
     auto saveflags = os.flags();
-    os << "sessionid4{";
+    os << "{";
     for (auto b: sessionid) {
         os << std::hex << std::setw(2) << std::setfill('0') << int(b);
     }

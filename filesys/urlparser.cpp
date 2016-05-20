@@ -39,7 +39,8 @@ bool UrlParser::isHostbased()
 
 bool UrlParser::isPathbased()
 {
-    return scheme == "file" || scheme == "objfs" || scheme == "distfs";
+    return scheme == "file" || scheme == "objfs" || scheme == "distfs" ||
+        scheme == "datafs";
 }
 
 void UrlParser::parseScheme(std::string& s)

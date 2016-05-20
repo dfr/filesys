@@ -740,6 +740,13 @@ public:
         add(OP_CB_RECALL, stateid, truncate, fh);
     }
 
+    void layoutrecall(
+        layouttype4 type, layoutiomode4 iomode, bool changed,
+        const layoutrecall4& recall)
+    {
+        add(OP_CB_LAYOUTRECALL, type, iomode, changed, recall);
+    }
+
     void sequence(
         const sessionid4& session, sequenceid4 sequence,
         slotid4 slotid, slotid4 highest_slotid, bool cachethis,
@@ -747,6 +754,11 @@ public:
     {
         add(OP_CB_SEQUENCE, session, sequence, slotid, highest_slotid,
             cachethis, referring_call_lists);
+    }
+
+    void notify_deviceid(const std::vector<notify4>& changes)
+    {
+        add(OP_CB_NOTIFY_DEVICEID, changes);
     }
 
 private:
@@ -816,9 +828,19 @@ public:
         check(OP_CB_RECALL);
     }
 
+    void layoutrecall()
+    {
+        check(OP_CB_LAYOUTRECALL);
+    }
+
     CB_SEQUENCE4resok sequence()
     {
         return get<CB_SEQUENCE4resok>(OP_CB_SEQUENCE);
+    }
+
+    void notify_deviceid()
+    {
+        check(OP_CB_NOTIFY_DEVICEID);
     }
 
 private:
