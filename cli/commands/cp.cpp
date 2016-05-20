@@ -96,8 +96,7 @@ public:
             uint64_t offset = 0;
             bool eof = false;
             while (!eof) {
-                // XXX: fix rpc buffer sizes
-                auto data = in->read(offset, 1024, eof);
+                auto data = in->read(offset, 32768, eof);
                 // XXX: handle short writes
                 out->write(offset, data);
                 offset += data->size();
