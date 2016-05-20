@@ -35,9 +35,14 @@ void MemoryDatabase::commit(unique_ptr<Transaction>&& transaction)
     transaction.reset();
 }
 
-unique_ptr<keyval::Iterator> MemoryNamespace::iterator()
+unique_ptr<Iterator> MemoryNamespace::iterator()
 {
     return make_unique<MemoryIterator>(map_);
+}
+
+unique_ptr<Iterator> MemoryNamespace::iterator(shared_ptr<Buffer> key)
+{
+    return make_unique<MemoryIterator>(map_, key);
 }
 
 shared_ptr<Buffer> MemoryNamespace::get(shared_ptr<Buffer> key)
@@ -59,9 +64,30 @@ void MemoryIterator::seek(shared_ptr<Buffer> key)
     it_ = map_.lower_bound(key);
 }
 
+void MemoryIterator::seekToFirst()
+{
+    it_ = map_.begin();
+}
+
+void MemoryIterator::seekToLast()
+{
+    seek(map_.rbegin()->first);
+}
+
+
 void MemoryIterator::next()
 {
     ++it_;
+}
+
+void MemoryIterator::prev()
+{
+    --it_;
+}
+
+bool MemoryIterator::valid() const
+{
+    return it_ != map_.end();
 }
 
 bool MemoryIterator::valid(shared_ptr<Buffer> endKey) const

@@ -39,6 +39,7 @@ public:
     }
 
     std::unique_ptr<Iterator> iterator() override;
+    std::unique_ptr<Iterator> iterator(std::shared_ptr<Buffer> key) override;
     std::shared_ptr<Buffer> get(std::shared_ptr<Buffer> key) override;
     std::uint64_t spaceUsed(
         std::shared_ptr<Buffer> start, std::shared_ptr<Buffer> end) override;
@@ -63,7 +64,11 @@ class RocksIterator: public Iterator
 public:
     RocksIterator(rocksdb::Iterator* it) : it_(it) {}
     void seek(std::shared_ptr<Buffer> key) override;
+    void seekToFirst() override;
+    void seekToLast() override;
     void next() override;
+    void prev() override;
+    bool valid() const override;
     bool valid(std::shared_ptr<Buffer> endKey) const override;
     std::shared_ptr<Buffer> key() const override;
     std::shared_ptr<Buffer> value() const override;

@@ -81,9 +81,18 @@ void RocksDatabase::flush()
 
 unique_ptr<keyval::Iterator> RocksNamespace::iterator()
 {
-    return make_unique<RocksIterator>(
-        db_->NewIterator(ReadOptions(), handle_.get()));
+    auto iter = db_->NewIterator(ReadOptions(), handle_.get());
+    iter->SeekToFirst();
+    return make_unique<RocksIterator>(iter);
 }
+
+unique_ptr<keyval::Iterator> RocksNamespace::iterator(shared_ptr<Buffer> key)
+{
+    auto iter = db_->NewIterator(ReadOptions(), handle_.get());
+    iter->Seek(Slice(reinterpret_cast<const char*>(key->data()), key->size()));
+    return make_unique<RocksIterator>(iter);
+}
+
 
 shared_ptr<Buffer> RocksNamespace::get(shared_ptr<Buffer> key)
 {
@@ -117,9 +126,29 @@ void RocksIterator::seek(shared_ptr<Buffer> key)
     it_->Seek(Slice(reinterpret_cast<const char*>(key->data()), key->size()));
 }
 
+void RocksIterator::seekToFirst()
+{
+    it_->SeekToFirst();
+}
+
+void RocksIterator::seekToLast()
+{
+    it_->SeekToLast();
+}
+
 void RocksIterator::next()
 {
     it_->Next();
+}
+
+void RocksIterator::prev()
+{
+    it_->Prev();
+}
+
+bool RocksIterator::valid() const
+{
+    return it_->Valid();
 }
 
 bool RocksIterator::valid(shared_ptr<Buffer> endKey) const
