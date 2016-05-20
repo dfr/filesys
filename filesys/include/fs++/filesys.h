@@ -148,12 +148,8 @@ struct FileHandle
     }
 };
 
-template <typename XDR>
-static inline void xdr(oncrpc::RefType<FileHandle, XDR> v, XDR* xdrs)
-{
-    xdr(v.version, xdrs);
-    xdr(v.handle, xdrs);
-}
+extern void xdr(const FileHandle& fh, oncrpc::XdrSink* xdrs);
+extern void xdr(FileHandle& fh, oncrpc::XdrSource* xdrs);
 
 /// Iterate over the contents of a directory
 class DirectoryIterator

@@ -5,6 +5,7 @@ cc_library(
     deps = [
         ":hdrs",
         ":access",
+        ":xdr",
         "//filesys/nfs3",
         "//filesys/nfs4",
         "//filesys/posix",
@@ -27,6 +28,16 @@ cc_library(
     name = "urlparser",
     copts = ["-std=c++14"],
     srcs = ["urlparser.cpp"],
+    deps = [
+        ":hdrs",
+    ],
+    visibility = ["//visibility:public"]
+)
+
+cc_library(
+    name = "xdr",
+    copts = ["-std=c++14"],
+    srcs = ["xdr.cpp"],
     deps = [
         ":hdrs",
     ],
