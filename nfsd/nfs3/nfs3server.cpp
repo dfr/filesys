@@ -67,11 +67,6 @@ static shared_ptr<File> importFileHandle(const nfs_fh3& nfh)
     try {
         XdrMemory xm(const_cast<uint8_t*>(nfh.data.data()), nfh.data.size());
         xdr(fh, static_cast<XdrSource*>(&xm));
-        if (fh.version != 1) {
-            LOG(ERROR) << "unexpected file handle version: "
-                       << fh.version << ", expected 1";
-            throw system_error(ESTALE, system_category());
-        }
     }
     catch (XdrError&) {
         throw system_error(ESTALE, system_category());
@@ -211,19 +206,25 @@ void NfsServer::dispatch(oncrpc::CallContext&& ctx)
         { RPCSEC_GSS_KRB5P, "krb5p" },
     };
 
-    // Check the auth flavor is allowed
-    auto flavor = ctx.flavor();
-    for (auto sec: sec_) {
-        if (sec == flavor) {
-            NfsProgram3Service::dispatch(move(ctx));
-            return;
+    // Check the auth flavor is allowed. Allow any auth flavor for
+    // null
+    if (ctx.proc() != 0) {
+        auto flavor = ctx.flavor();
+        for (auto sec: sec_) {
+            if (sec == flavor) {
+                NfsProgram3Service::dispatch(move(ctx));
+                return;
+            }
         }
+        auto p = flavors.find(flavor);
+        string s = p == flavors.end() ? to_string(flavor) : p->second;
+        LOG(ERROR) << "NfsServer: auth too weak: " << s;
+        ctx.authError(AUTH_TOOWEAK);
+        throw NoReply();
     }
-    auto p = flavors.find(flavor);
-    string s = p == flavors.end() ? to_string(flavor) : p->second;
-    LOG(ERROR) << "NfsServer: auth too weak: " << s;
-    ctx.authError(AUTH_TOOWEAK);
-    throw NoReply();
+    else {
+        NfsProgram3Service::dispatch(move(ctx));
+    }
 }
 
 void NfsServer::null()
