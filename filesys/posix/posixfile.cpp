@@ -141,10 +141,15 @@ shared_ptr<OpenFile> PosixFile::open(
 
     int fd;
     int oflag;
-    if (::faccessat(fd_, name.c_str(), W_OK, 0))
+    if (::faccessat(fd_, name.c_str(), W_OK, 0) == 0) {
         oflag = O_RDWR;
-    else
+    }
+    else if (errno == ENOENT) {
+        oflag = O_RDWR;
+    }
+    else {
         oflag = O_RDONLY;
+    }
     if (flags & OpenFlags::CREATE)
         oflag |= O_CREAT;
     if (flags & OpenFlags::TRUNCATE)
@@ -216,8 +221,12 @@ shared_ptr<File> PosixFile::mkfifo(
 
 void PosixFile::remove(const Credential&, const string& name)
 {
+    struct ::stat st;
     if (name[0] == '/')
         throw system_error(EACCES, system_category());
+    if (::fstatat(fd_, name.c_str(), &st, AT_SYMLINK_NOFOLLOW) >= 0) {
+        fs_.lock()->remove(FileId(st.st_ino));
+    }
     if (::unlinkat(fd_, name.c_str(), 0) < 0)
         throw system_error(errno, system_category());
 }

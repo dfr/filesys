@@ -223,6 +223,7 @@ public:
     std::shared_ptr<PosixFile> find(
         std::shared_ptr<PosixFile> parent,
         const std::string& name, FileId id, int fd);
+    void remove(FileId id);
 
 private:
     int rootfd_;

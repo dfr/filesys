@@ -67,11 +67,19 @@ PosixFilesystem::find(
 {
     return cache_.find(
         fileid,
-        [](auto) {},
+        [fd](auto) {
+            ::close(fd);
+        },
         [&](auto id) {
             return make_shared<PosixFile>(
                 shared_from_this(), parent, name, id, fd);
         });
+}
+
+void
+PosixFilesystem::remove(FileId id)
+{
+    cache_.remove(id);
 }
 
 pair<shared_ptr<Filesystem>, string>
