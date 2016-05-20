@@ -16,6 +16,8 @@ using namespace std;
 static shared_ptr<MountServer> mountService;
 static shared_ptr<NfsServer> nfsService;
 
+DEFINE_string(rpcbind, "", "URL to use for contacting rpcbind");
+
 static void bindProgram(
     shared_ptr<Channel> chan, uint32_t prog, uint32_t vers, const AddressInfo& ai)
 {
@@ -65,9 +67,9 @@ void nfsd::nfs3::init(
     mountService->bind(svcreg);
     nfsService->bind(svcreg);
 
-    if (addrs.size() > 0) {
+    if (addrs.size() > 0 && FLAGS_rpcbind.size() > 0) {
         LOG(INFO) << "Registering services with rpcbind";
-        auto rpcbind = Channel::open("localhost", "sunrpc", "tcp");
+        auto rpcbind = Channel::open(FLAGS_rpcbind);
         for (auto& ai: addrs) {
             bindProgram(rpcbind, MOUNTPROG, MOUNTVERS3, ai);
             bindProgram(rpcbind, NFS_PROGRAM, NFS_V3, ai);
