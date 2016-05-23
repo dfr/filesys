@@ -156,6 +156,120 @@ NfsFilesystem::unmount()
     disconnect();
 }
 
+void
+NfsFilesystem::compoundNoSequence(
+    function<void(CompoundRequestEncoder&)> args,
+    function<void(CompoundReplyDecoder&)> res)
+{
+    chan_->call(
+        client_.get(), NFSPROC4_COMPOUND,
+        [args, this](auto xdrs) {
+            CompoundRequestEncoder enc(tag_, xdrs);
+            args(enc);
+        },
+        [res, this](auto xdrs) {
+            CompoundReplyDecoder dec(tag_, xdrs);
+            res(dec);
+        });
+}
+
+void
+NfsFilesystem::compound(
+    function<void(CompoundRequestEncoder&)> args,
+    function<void(CompoundReplyDecoder&)> res)
+{
+    for (;;) {
+        try {
+            unique_lock<mutex> lock(mutex_);
+            int slot = -1, newHighestSlot;
+            while (slot == -1) {
+                int limit = min(
+                    int(slots_.size()) - 1, highestSlot_ + 1);
+                for (int i = 0; i <= limit; i++) {
+                    auto& s = slots_[i];
+                    if (s.busy_) {
+                        newHighestSlot = i;
+                    }
+                    else if (i <= targetHighestSlot_ && slot == -1) {
+                        slot = i;
+                        newHighestSlot = i;
+                    }
+                }
+                if (slot == -1) {
+                    slotWait_.wait(lock);
+                    continue;
+                }
+                highestSlot_ = newHighestSlot;
+            }
+            auto p = unique_ptr<Slot, function<void(Slot*)>>(
+                &slots_[slot],
+                [this](Slot* p) {
+                    p->busy_ = false;
+                    slotWait_.notify_one();
+                });
+            p->busy_ = true;
+            sequenceid4 seq = p->sequence_++;
+            VLOG(2) << "slot: " << slot
+                    << ", highestSlot: " << highestSlot_
+                    << ", sequence: " << seq;
+            lock.unlock();
+
+            int newTarget;
+            bool revoked = false;
+            chan_->call(
+                client_.get(), NFSPROC4_COMPOUND,
+                [&args, slot, seq, this](auto xdrs) {
+                    CompoundRequestEncoder enc(tag_, xdrs);
+                    enc.sequence(
+                        sessionid_, seq, slot, highestSlot_, false);
+                    args(enc);
+                },
+                [&res, &newTarget, &revoked, this](auto xdrs) {
+                    CompoundReplyDecoder dec(tag_, xdrs);
+                    auto seqres = dec.sequence();
+                    newTarget = seqres.sr_target_highest_slotid;
+                    constexpr int revflags =
+                        SEQ4_STATUS_EXPIRED_ALL_STATE_REVOKED +
+                        SEQ4_STATUS_EXPIRED_SOME_STATE_REVOKED +
+                        SEQ4_STATUS_ADMIN_STATE_REVOKED +
+                        SEQ4_STATUS_RECALLABLE_STATE_REVOKED;
+                    if (seqres.sr_status_flags & revflags)
+                        revoked = true;
+                    res(dec);
+                });
+
+            p.reset();
+            if (newTarget != targetHighestSlot_) {
+                lock.lock();
+                if (slots_.size() < newTarget + 1)
+                    slots_.resize(newTarget + 1);
+                targetHighestSlot_ = newTarget;
+                lock.unlock();
+            }
+            if (revoked)
+                freeRevokedState();
+            return;
+        }
+        catch (nfsstat4 st) {
+            using namespace std::literals;
+            switch (st) {
+            case NFS4ERR_DELAY:
+                this_thread::sleep_for(1ms);
+                continue;
+            case NFS4ERR_GRACE:
+                this_thread::sleep_for(5s);
+                continue;
+            case NFS4ERR_BADSESSION:
+            case NFS4ERR_DEADSESSION:
+                connect();
+                continue;
+            default:
+                throw mapStatus(st);
+            }
+        }
+    }
+}
+
 shared_ptr<NfsFile>
 NfsFilesystem::find(const nfs_fh4& fh)
 {
