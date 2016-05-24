@@ -41,7 +41,7 @@ bool NfsFile::access(const Credential& cred, int accmode)
         else
             flags |= ACCESS4_EXECUTE;
     }
-    auto fs = fs_.lock();
+    auto fs = nfs();
     bool res;
     fs->compound(
         [this, flags](auto& enc) {
@@ -58,7 +58,7 @@ bool NfsFile::access(const Credential& cred, int accmode)
 shared_ptr<Getattr> NfsFile::getattr()
 {
     auto deleg = delegation_.lock();
-    auto fs = fs_.lock();
+    auto fs = nfs();
     if (!deleg) {
         auto now = fs->clock()->now();
         if (now - attrTime_ > ATTR_TIMEOUT) {
@@ -80,7 +80,7 @@ shared_ptr<Getattr> NfsFile::getattr()
 
 void NfsFile::setattr(const Credential&, function<void(Setattr*)> cb)
 {
-    auto fs = fs_.lock();
+    auto fs = nfs();
 
     NfsSetattr sattr;
     cb(&sattr);
@@ -103,7 +103,7 @@ void NfsFile::setattr(const Credential&, function<void(Setattr*)> cb)
 
 shared_ptr<File> NfsFile::lookup(const Credential&, const string& name)
 {
-    auto fs = fs_.lock();
+    auto fs = nfs();
 
     if (attr_.type_ != NF4DIR)
         throw system_error(ENOTDIR, system_category());
@@ -145,7 +145,7 @@ shared_ptr<OpenFile> NfsFile::open(
     const Credential& cred, const string& name, int flags,
     function<void(Setattr*)> cb)
 {
-    auto fs = fs_.lock();
+    auto fs = nfs();
 
     // If we are opening non-exclusively, first check to see if it
     // already exists since we might already have a delegation
@@ -260,7 +260,7 @@ shared_ptr<OpenFile> NfsFile::open(
 std::shared_ptr<OpenFile> NfsFile::open(const Credential& cred, int flags)
 {
     std::unique_lock<std::mutex> lock(mutex_);
-    auto fs = fs_.lock();
+    auto fs = nfs();
 
     if (flags & OpenFlags::EXCLUSIVE)
         throw system_error(EINVAL, system_category());
@@ -344,7 +344,7 @@ std::shared_ptr<OpenFile> NfsFile::open(const Credential& cred, int flags)
 
 string NfsFile::readlink(const Credential&)
 {
-    auto fs = fs_.lock();
+    auto fs = nfs();
 
     linktext4 data;
     fs->compound(
@@ -386,7 +386,7 @@ std::shared_ptr<File> NfsFile::mkfifo(
 
 void NfsFile::remove(const Credential&, const string& name)
 {
-    auto fs = fs_.lock();
+    auto fs = nfs();
     fs->compound(
         [this, &name](auto& enc) {
             bitmap4 wanted;
@@ -423,7 +423,7 @@ void NfsFile::remove(const Credential&, const string& name)
 
 void NfsFile::rmdir(const Credential&, const string& name)
 {
-    auto fs = fs_.lock();
+    auto fs = nfs();
     fs->compound(
         [this, &name](auto& enc) {
             bitmap4 wanted;
@@ -462,7 +462,7 @@ void NfsFile::rename(
     const Credential&, const string& toName,
     shared_ptr<File> fromDir, const string& fromName)
 {
-    auto fs = fs_.lock();
+    auto fs = nfs();
     auto from = dynamic_cast<NfsFile*>(fromDir.get());
     fs->compound(
         [this, from, &fromName, &toName](auto& enc) {
@@ -490,7 +490,7 @@ void NfsFile::rename(
 void NfsFile::link(
     const Credential&, const std::string& name, std::shared_ptr<File> file)
 {
-    auto fs = fs_.lock();
+    auto fs = nfs();
     auto from = dynamic_cast<NfsFile*>(file.get());
     fs->compound(
         [this, from, &name](auto& enc) {
@@ -519,7 +519,7 @@ shared_ptr<DirectoryIterator> NfsFile::readdir(const Credential&, uint64_t seek)
 std::shared_ptr<Fsattr> NfsFile::fsstat(const Credential&)
 {
     auto res = make_shared<NfsFsattr>();
-    auto fs = fs_.lock();
+    auto fs = nfs();
     fs->compound(
         [this](auto& enc) {
             bitmap4 wanted;
@@ -539,11 +539,19 @@ std::shared_ptr<Fsattr> NfsFile::fsstat(const Credential&)
     return res;
 }
 
+shared_ptr<NfsFilesystem> NfsFile::nfs() const
+{
+    auto fs = fs_.lock();
+    if (!fs)
+        throw std::system_error(EIO, system_category());
+    return fs;
+}
+
 std::shared_ptr<NfsFile> NfsFile::lookupp()
 {
     nfs_fh4 fh;
     fattr4 attr;
-    auto fs = fs_.lock();
+    auto fs = nfs();
     fs->compound(
         [this](auto& enc) {
             bitmap4 wanted;
@@ -566,7 +574,7 @@ shared_ptr<File> NfsFile::create(
     const createtype4& objtype, const utf8string& objname,
     function<void(Setattr*)> cb)
 {
-    auto fs = fs_.lock();
+    auto fs = nfs();
 
     NfsSetattr sattr;
     cb(&sattr);
@@ -610,7 +618,7 @@ std::shared_ptr<Buffer> NfsFile::read(
     const stateid4& stateid, std::uint64_t offset, std::uint32_t count,
     bool& eof)
 {
-    auto fs = fs_.lock();
+    auto fs = nfs();
     std::unique_lock<std::mutex> lock(mutex_);
     auto buf = cache_.get(offset, count);
     if (buf) {
@@ -668,7 +676,7 @@ std::uint32_t NfsFile::write(
     const stateid4& stateid, std::uint64_t offset,
     std::shared_ptr<Buffer> data)
 {
-    auto fs = fs_.lock();
+    auto fs = nfs();
     std::unique_lock<std::mutex> lock(mutex_);
     auto deleg = delegation_.lock();
     if (deleg && deleg->isWrite()) {
@@ -784,7 +792,7 @@ retry:
         if (maxEnd > minStart) {
             VLOG(1) << "fileid: " << attr_.fileid_
                     << ": committing [" << minStart << "..." << maxEnd << ")";
-            auto fs = fs_.lock();
+            auto fs = nfs();
             verifier4 writeverf;
             fs->compound(
                 [this, minStart, maxEnd](auto& enc) {
@@ -840,7 +848,7 @@ void NfsFile::recover()
 {
     auto of = open_.lock();
     if (of) {
-        auto fs = fs_.lock();
+        auto fs = nfs();
 
         // We open everything with the same owner
         open_owner4 oo{ fs->clientid(), { 1, 0, 0, 0 } };
@@ -894,7 +902,7 @@ void NfsFile::testState()
 {
     auto of = open_.lock();
     if (of) {
-        auto fs = fs_.lock();
+        auto fs = nfs();
         bool bad = false;
         fs->compound(
             [of](auto& enc) {

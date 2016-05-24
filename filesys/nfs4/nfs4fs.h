@@ -134,9 +134,9 @@ public:
         const Credential& cred, std::uint64_t seek) override;
     std::shared_ptr<Fsattr> fsstat(const Credential& cred) override;
 
+    std::shared_ptr<NfsFilesystem> nfs() const;
     const nfs_fh4& fh() const { return fh_; }
     const NfsAttr& attr() const { return attr_; }
-    std::shared_ptr<NfsFilesystem> nfs() const { return fs_.lock(); }
     std::shared_ptr<NfsFile> lookupp();
     std::shared_ptr<File> create(
         const createtype4& objtype, const utf8string& objname,
