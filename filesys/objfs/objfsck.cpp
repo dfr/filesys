@@ -35,7 +35,6 @@ void ObjfsCheck::check()
     catch (system_error&) {
         return;
     }
-    blockSize_ = fsmeta.blockSize;
 
     KeyType start(1), end(~0ul);
     auto iterator = defaultNS->iterator();
@@ -49,7 +48,8 @@ void ObjfsCheck::check()
         xdr(meta, static_cast<oncrpc::XdrSource*>(&xm));
 
         assert(meta.fileid == id);
-        files_[id] = state{meta.attr.type, meta.attr.nlink, 0, 0};
+        files_[id] = state{
+            meta.blockSize, meta.attr.type, meta.attr.nlink, 0, 0};
         iterator->next();
     }
     iterator.reset();
@@ -92,6 +92,7 @@ void ObjfsCheck::check()
         DataKeyType key(iterator->key());
         auto fileid = key.fileid();
         auto offset = key.offset();
+        auto blockSize = files_[fileid].blockSize;
         if (lastFileid != fileid) {
             lastFileid = fileid;
             lastOffset = 0;
@@ -100,7 +101,7 @@ void ObjfsCheck::check()
             cerr << "Orphan data block for unknown fileid: "
                  << key.fileid() << endl;
         }
-        if (offset % blockSize_) {
+        if (offset % blockSize) {
             cerr << "fileid: " << fileid
                  << " unaligned block offset " << offset << endl;
         }
@@ -108,7 +109,7 @@ void ObjfsCheck::check()
             cerr << "fileid: " << fileid
                  << " disordered offset " << offset << endl;
         }
-        lastOffset = offset + blockSize_;
+        lastOffset = offset + blockSize;
         iterator->next();
     }
 

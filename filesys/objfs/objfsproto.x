@@ -10,7 +10,6 @@ struct ObjFilesystemMeta
 {
     int vers;               /* = 1 */
     UUID fsid;              /* unique identifier for this filesystem */
-    unsigned blockSize;
     unsigned hyper nextId;  /* next fileid to use */
 };
 
@@ -45,9 +44,10 @@ struct PosixAttr {
  */
 struct ObjFileMeta
 {
-    int vers;               /* = 1 */
-    unsigned hyper fileid;
-    PosixAttr attr;
+    int vers;			/* = 1 */
+    unsigned hyper fileid;	/* unique file identifier */
+    unsigned blockSize;		/* file block size */
+    PosixAttr attr;		/* posix-style file attributes */
     opaque extra<>;
 };
 

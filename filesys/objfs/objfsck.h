@@ -23,6 +23,7 @@ public:
 
 protected:
     struct state {
+        std::uint32_t blockSize;
         PosixType type;
         std::uint32_t nlink;
         std::uint32_t refs;

@@ -19,7 +19,8 @@ ObjFilesystem::ObjFilesystem(
     unique_ptr<Database> db, shared_ptr<detail::Clock> clock,
     uint64_t blockSize)
     : clock_(clock),
-      db_(move(db))
+      db_(move(db)),
+      blockSize_(blockSize)
 {
     defaultNS_ = db_->getNamespace("default");
     directoriesNS_ = db_->getNamespace("directories");
@@ -44,7 +45,6 @@ ObjFilesystem::ObjFilesystem(
         meta_.vers = 1;
         for (auto& v: meta_.fsid.data)
             v = rnd();
-        meta_.blockSize = blockSize;
         meta_.nextId = 2;
         nextId_ = meta_.nextId;
         auto trans = db_->beginTransaction();
@@ -84,6 +84,7 @@ ObjFilesystem::root()
             auto time = duration_cast<nanoseconds>(
                 clock_->now().time_since_epoch());
             meta.fileid = FileId(1);
+            meta.blockSize = blockSize_;
             meta.attr.type = PT_DIR;
             meta.attr.mode = 0755;
             meta.attr.nlink = 0;

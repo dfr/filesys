@@ -79,8 +79,8 @@ shared_ptr<Getattr> ObjFile::getattr()
         DataKeyType end(fileid(), ~0ull);
         return fs->dataNS()->spaceUsed(start, end);
     };
-    auto blockSize = fs_.lock()->blockSize();
-    return make_shared<ObjGetattr>(fileid(), meta_.attr, blockSize, used);
+    return make_shared<ObjGetattr>(
+        fileid(), meta_.attr, meta_.blockSize, used);
 }
 
 void ObjFile::setattr(const Credential& cred, function<void(Setattr*)> cb)
@@ -484,6 +484,7 @@ shared_ptr<ObjFile> ObjFile::createNewFile(
     ObjFileMetaImpl meta;
     auto newfileid = fs->nextId();
     meta.fileid = newfileid;
+    meta.blockSize = meta_.blockSize;
     meta.attr.type = type;
     meta.attr.mode = 0;
     meta.attr.nlink = 0;
@@ -554,7 +555,7 @@ void ObjFile::truncate(
 {
     // If the file size is reduced, purge any data after the new size.
     auto fs = fs_.lock();
-    auto blockSize = fs->blockSize();
+    auto blockSize = meta_.blockSize;
     auto blockMask = blockSize - 1;
 
     DataKeyType start(
@@ -602,7 +603,7 @@ shared_ptr<Buffer> ObjOpenFile::read(
     auto& meta = file_->meta();
 
     auto fs = file_->fs_.lock();
-    auto blockSize = fs->blockSize();
+    auto blockSize = meta.blockSize;
     auto bn = offset / blockSize;
     auto boff = offset % blockSize;
     eof = false;
@@ -650,11 +651,11 @@ shared_ptr<Buffer> ObjOpenFile::read(
 uint32_t ObjOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
 {
     auto fs = file_->fs_.lock();
-    auto blockSize = fs->blockSize();
+    auto& meta = file_->meta_;
+    auto blockSize = meta.blockSize;
 
     file_->checkAccess(cred_, AccessFlags::WRITE);
 
-    auto& meta = file_->meta_;
     auto bn = offset / blockSize;
     auto boff = offset % blockSize;
     auto len = data->size();

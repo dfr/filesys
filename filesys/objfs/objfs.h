@@ -286,7 +286,7 @@ public:
 
     std::uint32_t blockSize() const
     {
-        return meta_.blockSize;
+        return blockSize_;
     }
 
     FileId nextId()
@@ -312,6 +312,7 @@ protected:
     std::shared_ptr<keyval::Namespace> directoriesNS_;
     std::shared_ptr<keyval::Namespace> dataNS_;
     ObjFilesystemMeta meta_;
+    std::uint32_t blockSize_;
     std::atomic<std::uint64_t> nextId_;
     FilesystemId fsid_;
     std::shared_ptr<ObjFile> root_;
