@@ -21,6 +21,10 @@ cc_binary(
     srcs = [
         "upstream/tools/ldb.cc"
     ],
+    linkopts = select({
+        "//:freebsd": ["-pthread"],
+        "//conditions:default": [],
+    }),
     deps = [":rocksdb"]
 )
 
