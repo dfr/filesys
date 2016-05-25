@@ -1761,7 +1761,7 @@ retry:
         EXCHANGE_ID4resok{
             client->id(),
             client->sequence() + 1,
-            0,          // XXX flags
+            EXCHGID4_FLAG_USE_NON_PNFS,
             move(spr),
             owner_,
             {},         // server scope
