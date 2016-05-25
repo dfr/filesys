@@ -548,8 +548,8 @@ private:
         std::unique_lock<std::mutex>& lock, std::shared_ptr<NfsState> ns);
 
     std::mutex mutex_;
-    int access_;
-    int deny_;
+    int access_ = 0;
+    int deny_ = 0;
     std::unordered_set<std::shared_ptr<NfsState>> opens_;
     std::unordered_set<std::shared_ptr<NfsState>> delegations_;
 };
