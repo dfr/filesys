@@ -203,6 +203,139 @@ bool NfsSession::validChannel(shared_ptr<oncrpc::Channel> chan)
     return false;
 }
 
+void NfsSession::callback(
+    const std::string& tag,
+    std::function<void(filesys::nfs4::CallbackRequestEncoder& enc)> args,
+    std::function<void(filesys::nfs4::CallbackReplyDecoder& dec)> res)
+{
+    auto chan = backChannel_.lock();
+    if (!chan) {
+        throw filesys::nfs4::NFS4ERR_CB_PATH_DOWN;
+    }
+    for (;;) {
+        std::unique_lock<std::mutex> lk(mutex_);
+        int slot = -1, newHighestSlot;
+        while (slot == -1) {
+            int limit = std::min(
+                int(cbSlots_.size()) - 1, cbHighestSlot_ + 1);
+            for (int i = 0; i <= limit; i++) {
+                auto& s = cbSlots_[i];
+                if (s.busy) {
+                    newHighestSlot = i;
+                }
+                else if (i <= targetCbHighestSlot_ && slot == -1) {
+                    slot = i;
+                    newHighestSlot = i;
+                }
+            }
+            if (slot == -1) {
+                cbSlotWait_.wait(lk);
+                continue;
+            }
+            cbHighestSlot_ = newHighestSlot;
+        }
+        auto p = std::unique_ptr<CBSlot, std::function<void(CBSlot*)>>(
+            &cbSlots_[slot],
+            [this](CBSlot* p) {
+                p->busy = false;
+                cbSlotWait_.notify_one();
+            });
+        p->busy = true;
+        filesys::nfs4::sequenceid4 seq = p->sequence++;
+        VLOG(2) << "CB slot: " << slot
+                << ", highestSlot: " << cbHighestSlot_
+                << ", sequence: " << seq;
+        lk.unlock();
+
+        int newTarget;
+        bool revoked = false;
+        try {
+            chan->call(
+                cbClient_.get(), filesys::nfs4::CB_COMPOUND,
+                [&tag, &args, slot, seq, this](auto xdrs) {
+                    filesys::nfs4::CallbackRequestEncoder enc(tag, xdrs);
+                    enc.sequence(
+                        id_, seq, slot, cbHighestSlot_, false, {});
+                    args(enc);
+                },
+                [&tag, &res, &newTarget, &revoked, this](auto xdrs) {
+                    filesys::nfs4::CallbackReplyDecoder dec(tag, xdrs);
+                    auto seqres = dec.sequence();
+                    newTarget = seqres.csr_target_highest_slotid;
+                    res(dec);
+                });
+        }
+        catch (oncrpc::RpcError& e) {
+            LOG(ERROR) << "Backchannel request failed; " << e.what();
+            lk.lock();
+            backChannel_.reset();
+            backChannelState_ = NONE;
+            return;
+        }
+
+        lk.lock();
+        backChannelState_ = GOOD;
+
+        p.reset();
+        if (newTarget != targetCbHighestSlot_) {
+            if (cbSlots_.size() < newTarget + 1)
+                cbSlots_.resize(newTarget + 1);
+            targetCbHighestSlot_ = newTarget;
+        }
+        return;
+    }
+}
+
+bool NfsSession::testBackchannel()
+{
+    std::unique_lock<std::mutex> lk(mutex_);
+    for (;;) {
+        auto chan = backChannel_.lock();
+        if (!chan) {
+            backChannel_.reset();
+            backChannelState_ = NONE;
+            return false;
+        }
+        switch (backChannelState_) {
+        case NONE:
+            return false;
+
+        case UNCHECKED:
+            backChannelState_ = CHECKING;
+            lk.unlock();
+            callback("Test", [](auto&){}, [](auto&){});
+            lk.lock();
+            backChannelWait_.notify_all();
+            return backChannelState_ == GOOD;
+
+        case CHECKING:
+            backChannelWait_.wait(lk);
+            continue;
+
+        case GOOD:
+            return true;
+        }
+    }
+}
+
+void NfsSession::recall(
+    const filesys::nfs4::stateid4& stateid,
+    const filesys::nfs4::nfs_fh4& fh)
+{
+    if (recallHook_) {
+        recallHook_(stateid, fh);
+        return;
+    }
+    callback(
+        "Recall",
+        [&stateid, &fh](auto& enc) {
+            enc.recall(stateid, false, fh);
+        },
+        [](auto& dec) {
+            dec.recall();
+        });
+}
+
 void NfsState::revoke()
 {
     if (!revoked_) {
