@@ -2458,6 +2458,7 @@ static auto exportType(FileType type)
     case FileType::FIFO:
         return NF4FIFO;
     }
+    abort();
 }
 
 fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)

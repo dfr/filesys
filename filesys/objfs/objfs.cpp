@@ -135,7 +135,7 @@ ObjFilesystem::find(FileId fileid)
     return cache_.find(
         fileid,
         [](auto) {},
-        [this](auto id) {
+        [this](uint64_t id) {
             return makeNewFile(FileId(id));
         });
 }

@@ -219,7 +219,7 @@ static inline void set(bitmap4& bm, int bit)
 {
     int word = bit / 32;
     bit = bit & 31;
-    while (word >= bm.size())
+    while (word >= int(bm.size()))
         bm.push_back(0);
     bm[word] |= (1 << bit);
 }
@@ -234,7 +234,7 @@ static inline void clear(bitmap4& bm, int bit)
 {
     int word = bit / 32;
     bit = bit & 31;
-    while (word >= bm.size())
+    while (word >= int(bm.size()))
         bm.push_back(0);
     bm[word] &= ~(1 << bit);
 }
@@ -249,7 +249,7 @@ static inline bool isset(const bitmap4& bm, int bit)
 {
     int word = bit / 32;
     bit = bit & 31;
-    if (word >= bm.size())
+    if (word >= int(bm.size()))
         return false;
     return (bm[word] & (1 << bit)) != 0;
 }
@@ -257,7 +257,7 @@ static inline bool isset(const bitmap4& bm, int bit)
 static inline bitmap4& operator&=(bitmap4& bm, const bitmap4& mask)
 {
     for (int i = 0; i < int(bm.size()); i++) {
-        if (i >= mask.size())
+        if (i >= int(mask.size()))
             bm[i] = 0;
         else
             bm[i] &= mask[i];

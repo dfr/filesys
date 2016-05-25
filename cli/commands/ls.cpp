@@ -27,6 +27,7 @@ static string formatType(FileType type)
     case FileType::FIFO:
         return "f";
     }
+    abort();
 }
 
 static string formatMode(uint32_t mode)

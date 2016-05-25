@@ -1,6 +1,7 @@
 // -*- c++ -*-
 #pragma once
 
+#include <climits>
 #include <iomanip>
 #include <string>
 #include <map>

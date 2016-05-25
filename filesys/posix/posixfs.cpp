@@ -70,7 +70,7 @@ PosixFilesystem::find(
         [fd](auto) {
             ::close(fd);
         },
-        [&](auto id) {
+        [&](uint64_t id) {
             return make_shared<PosixFile>(
                 shared_from_this(), parent, name, id, fd);
         });

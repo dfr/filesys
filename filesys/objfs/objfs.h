@@ -1,6 +1,8 @@
 // -*- c++ -*-
 #pragma once
 
+#include <atomic>
+
 #include <fs++/filesys.h>
 #include <fs++/lrucache.h>
 #include <kv++/keyval.h>

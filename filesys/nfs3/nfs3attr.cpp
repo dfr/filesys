@@ -45,6 +45,7 @@ FileType NfsGetattr::type() const
     case NF3FIFO:
         return FileType::FIFO;
     }
+    abort();
 }
 
 int NfsGetattr::mode() const

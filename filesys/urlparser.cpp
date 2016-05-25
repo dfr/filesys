@@ -71,7 +71,7 @@ void UrlParser::parseHost(std::string& s)
     }
     else {
         int i = 0;
-        while (i < s.size() && s[i] != ':' && s[i] != '/')
+        while (i < int(s.size()) && s[i] != ':' && s[i] != '/')
             i++;
         host = s.substr(0, i);
         s = s.substr(i);

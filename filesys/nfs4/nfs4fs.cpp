@@ -241,7 +241,7 @@ NfsFilesystem::compound(
             p.reset();
             if (newTarget != targetHighestSlot_) {
                 lock.lock();
-                if (slots_.size() < newTarget + 1)
+                if (int(slots_.size()) < newTarget + 1)
                     slots_.resize(newTarget + 1);
                 targetHighestSlot_ = newTarget;
                 lock.unlock();
@@ -278,8 +278,8 @@ NfsFilesystem::find(const nfs_fh4& fh)
         fh,
         [&](auto file) {
         },
-        [&](auto id) {
-            return nullptr;
+        [&](nfs_fh4 id) {
+            return shared_ptr<NfsFile>(nullptr);
         });
 }
 
@@ -292,7 +292,7 @@ NfsFilesystem::find(nfs_fh4&& fh, fattr4&& attr)
         [&](auto file) {
             file->update(move(attr));
         },
-        [&](auto id) {
+        [&](const nfs_fh4& id) {
             return make_shared<NfsFile>(
                 shared_from_this(), move(fh), move(attr));
         });

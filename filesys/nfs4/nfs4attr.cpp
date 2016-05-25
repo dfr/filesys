@@ -70,6 +70,7 @@ FileType NfsGetattr::type() const
     case NF4NAMEDATTR:
         return FileType::FILE;
     }
+    abort();
 }
 
 int NfsGetattr::mode() const

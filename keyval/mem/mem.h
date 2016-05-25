@@ -1,6 +1,7 @@
 // -*- c++ -*-
 #pragma once
 
+#include <cstring>
 #include <map>
 #include <kv++/keyval.h>
 

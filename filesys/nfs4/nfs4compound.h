@@ -298,9 +298,31 @@ public:
     // get_dir_delegation
     // getdeviceinfo
     // getdevicelist
-    // layoutcommit
-    // layoutget
-    // layoutreturn
+
+    void layoutcommit(
+        offset4 offset, length4 length, bool reclaim, const stateid4& stateid,
+        const newoffset4& last_write_offset, const newtime4& time_modify,
+        const layoutupdate4& layoutupdate)
+    {
+        add(OP_LAYOUTCOMMIT, offset, length, reclaim, stateid,
+            last_write_offset, time_modify, layoutupdate);
+    }
+
+    void layoutget(
+        bool signal_layout_avail, layouttype4 layout_type,
+        layoutiomode4 iomode, offset4 offset, length4 length,
+        length4 minlength, const stateid4& stateid, count4 maxcount)
+    {
+        add(OP_LAYOUTGET, signal_layout_avail, layout_type, iomode, offset,
+            length, minlength, stateid, maxcount);
+    }
+
+    void layoutreturn(
+        bool reclaim, layouttype4 layout_type, layoutiomode4 iomode,
+        const layoutreturn4& layoutreturn)
+    {
+        add(OP_LAYOUTRETURN, reclaim, layout_type, iomode, layoutreturn);
+    }
 
     void sequence(
         const sessionid4& sessionid, sequenceid4 sequenceid, slotid4 slotid,
@@ -619,9 +641,21 @@ public:
     // get_dir_delegation
     // getdeviceinfo
     // getdevicelist
-    // layoutcommit
-    // layoutget
-    // layoutreturn
+
+    LAYOUTCOMMIT4resok layoutcommit()
+    {
+        return get<LAYOUTCOMMIT4resok>(OP_LAYOUTCOMMIT);
+    }
+
+    LAYOUTGET4resok layoutget()
+    {
+        return get<LAYOUTGET4resok>(OP_LAYOUTGET);
+    }
+
+    layoutreturn_stateid layoutreturn()
+    {
+        return get<layoutreturn_stateid>(OP_LAYOUTRETURN);
+    }
 
     SEQUENCE4resok sequence()
     {

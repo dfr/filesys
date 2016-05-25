@@ -15,7 +15,7 @@ struct KeyType {
         : buf_(std::make_shared<oncrpc::Buffer>(sizeof(std::uint64_t)))
     {
         std::uint64_t n = id;
-        for (int i = 0; i < sizeof(n); i++) {
+        for (size_t i = 0; i < sizeof(n); i++) {
             buf_->data()[i] = (n >> 56) & 0xff;
             n <<= 8;
         }
@@ -35,7 +35,7 @@ struct KeyType {
     std::uint64_t id() const
     {
         std::uint64_t n = 0;
-        for (int i = 0; i < sizeof(n); i++) {
+        for (size_t i = 0; i < sizeof(n); i++) {
             n = (n << 8) + buf_->data()[i];
         }
         return n;
@@ -52,12 +52,12 @@ struct DoubleKeyType {
         : buf_(std::make_shared<oncrpc::Buffer>(2*sizeof(std::uint64_t)))
     {
         std::uint64_t n = id0;
-        for (int i = 0; i < sizeof(n); i++) {
+        for (size_t i = 0; i < sizeof(n); i++) {
             buf_->data()[i] = (n >> 56) & 0xff;
             n <<= 8;
         }
         n = id1;
-        for (int i = 0; i < sizeof(n); i++) {
+        for (size_t i = 0; i < sizeof(n); i++) {
             buf_->data()[8+i] = (n >> 56) & 0xff;
             n <<= 8;
         }
@@ -78,7 +78,7 @@ struct DoubleKeyType {
     std::uint64_t id0() const
     {
         std::uint64_t n = 0;
-        for (int i = 0; i < sizeof(n); i++) {
+        for (size_t i = 0; i < sizeof(n); i++) {
             n = (n << 8) + buf_->data()[i];
         }
         return n;
@@ -87,7 +87,7 @@ struct DoubleKeyType {
     std::uint64_t id1() const
     {
         std::uint64_t n = 0;
-        for (int i = 0; i < sizeof(n); i++) {
+        for (size_t i = 0; i < sizeof(n); i++) {
             n = (n << 8) + buf_->data()[8+i];
         }
         return n;
@@ -106,7 +106,7 @@ struct DirectoryKeyType
         : buf_(std::make_shared<oncrpc::Buffer>(sizeof(std::uint64_t) + name.size()))
     {
         std::uint64_t n = id;
-        for (int i = 0; i < sizeof(n); i++) {
+        for (size_t i = 0; i < sizeof(n); i++) {
             buf_->data()[i] = (n >> 56) & 0xff;
             n <<= 8;
         }
@@ -128,7 +128,7 @@ struct DirectoryKeyType
     std::uint64_t fileid() const
     {
         std::uint64_t n = 0;
-        for (int i = 0; i < sizeof(n); i++) {
+        for (size_t i = 0; i < sizeof(n); i++) {
             n = (n << 8) + buf_->data()[i];
         }
         return n;

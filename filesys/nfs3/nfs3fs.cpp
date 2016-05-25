@@ -93,7 +93,7 @@ NfsFilesystem::find(const nfs_fh3& fh, const fattr3& attr)
         [&](auto file) {
             file->update(attr);
         },
-        [&](auto id) {
+        [&](const nfs_fh3& fh) {
             return make_shared<NfsFile>(
                 shared_from_this(), fh, attr);
         });

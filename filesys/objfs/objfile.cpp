@@ -618,7 +618,7 @@ shared_ptr<Buffer> ObjOpenFile::read(
 
     // Read one block at a time and copy out to buffer
     auto res = make_shared<oncrpc::Buffer>(len);
-    for (int i = 0; i < len; ) {
+    for (int i = 0; i < int(len); ) {
         auto off = bn * blockSize;
         try {
             // If the block exists copy out to buffer
@@ -664,7 +664,7 @@ uint32_t ObjOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
     // Write one block at a time, merging if necessary. We don't hold
     // the lock to avoid serialising writes - if two threads have
     // conflicting writes, thats their problem.
-    for (int i = 0; i < len; ) {
+    for (int i = 0; i < int(len); ) {
         auto off = bn * blockSize;
         auto blen = blockSize - boff;
         if (i + blen > len)

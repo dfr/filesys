@@ -1,3 +1,4 @@
+#include <cstring>
 #include <system_error>
 
 #include "mem.h"

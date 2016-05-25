@@ -27,6 +27,7 @@ FileType ObjGetattr::type() const
     case PT_FIFO:
         return FileType::FIFO;
     }
+    abort();
 }
 
 int ObjGetattr::mode() const
@@ -113,7 +114,7 @@ void ObjSetattr::setMode(int mode)
 
 void ObjSetattr::setUid(int uid)
 {
-    if (uid != attr_.uid && !cred_.privileged())
+    if (uint32_t(uid) != attr_.uid && !cred_.privileged())
         throw system_error(EPERM, system_category());
     attr_.uid = uid;
 }

@@ -1,3 +1,4 @@
+#include <atomic>
 #include <cassert>
 #include <memory>
 #include <thread>
