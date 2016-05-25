@@ -15,6 +15,7 @@ RocksDatabase::RocksDatabase(const string& filename)
     DBOptions options;
 
     options.create_if_missing = true;
+    options.keep_log_file_num = 5;
 
     vector<string> cfnames;
     DB::ListColumnFamilies(options, filename_, &cfnames);
