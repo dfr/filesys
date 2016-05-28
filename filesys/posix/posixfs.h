@@ -179,7 +179,7 @@ public:
         std::uint64_t offset, std::uint32_t size, bool& eof) override;
     std::uint32_t write(
         std::uint64_t offset, std::shared_ptr<Buffer> data) override;
-    void flush() override {}
+    void flush() override;
 
 private:
     std::shared_ptr<PosixFile> file_;

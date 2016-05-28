@@ -305,3 +305,8 @@ uint32_t PosixOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
     }
     return data->size();
 }
+
+void PosixOpenFile::flush()
+{
+    ::fsync(file_->fd());
+}
