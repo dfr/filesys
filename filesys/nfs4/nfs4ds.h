@@ -14,7 +14,8 @@ public:
     NfsDataStore(
         std::shared_ptr<oncrpc::Channel> chan,
         std::shared_ptr<oncrpc::Client> client,
-        std::shared_ptr<detail::Clock> clock);
+        std::shared_ptr<detail::Clock> clock,
+        const std::string& clientowner);
 
     // Filesystem overrides
     std::shared_ptr<File> root() override

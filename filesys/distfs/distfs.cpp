@@ -23,6 +23,14 @@ DistFilesystem::DistFilesystem(
       sockman_(make_shared<oncrpc::SocketManager>()),
       svcreg_(make_shared<oncrpc::ServiceRegistry>())
 {
+    // Build a clientowner string to use for connecting to devices
+    char hostname[256];
+    if (::gethostname(hostname, sizeof(hostname)) < 0)
+        throw system_error(errno, system_category());
+    ostringstream ss;
+    ss << "mds" << ::getpgrp() << "@" << hostname;
+    clientowner_ = ss.str();
+
     // Load the entire devices table into memory - this is reasonable
     // since there are likely on the order of 1e3 - 1e4 devices
     devicesNS_ = db_->getNamespace("devices");
@@ -418,7 +426,7 @@ DistFilesystem::findDataStore(devid id)
                     auto client = std::make_shared<oncrpc::SysClient>(
                         nfs4::NFS4_PROGRAM, nfs4::NFS_V4);
                     return make_shared<nfs4::NfsDataStore>(
-                        chan, client, clock_);
+                        chan, client, clock_, clientowner_);
                 }
                 catch (system_error& e) {
                     continue;

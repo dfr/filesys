@@ -301,11 +301,13 @@ public:
         std::shared_ptr<oncrpc::Channel> chan,
         std::shared_ptr<oncrpc::Client> client,
         std::shared_ptr<detail::Clock> clock,
+        const std::string& clientowner,
         std::shared_ptr<IIdMapper> idmapper);
     NfsFilesystem(
         std::shared_ptr<oncrpc::Channel> chan,
         std::shared_ptr<oncrpc::Client> client,
-        std::shared_ptr<detail::Clock> clock);
+        std::shared_ptr<detail::Clock> clock,
+        const std::string& clientowner);
     ~NfsFilesystem();
     std::shared_ptr<File> root() override;
     const FilesystemId& fsid() const override;

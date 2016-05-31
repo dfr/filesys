@@ -20,6 +20,7 @@ NfsFilesystem::NfsFilesystem(
     shared_ptr<oncrpc::Channel> chan,
     shared_ptr<oncrpc::Client> client,
     shared_ptr<detail::Clock> clock,
+    const string& clientowner,
     shared_ptr<IIdMapper> idmapper)
     : chan_(chan),
       client_(client),
@@ -53,33 +54,21 @@ NfsFilesystem::NfsFilesystem(
     cbthread_ = thread([this, chan](){ handleCallbacks(); });
 
     // First we need to create a new session
-    char hostname[256];
-    if (::gethostname(hostname, sizeof(hostname)) < 0)
-        throw system_error(errno, system_category());
-
     for (auto& b: clientOwner_.co_verifier)
         b = rnd();
-    string s;
-    if (FLAGS_clientowner.size() > 0) {
-        s = FLAGS_clientowner;
-    }
-    else {
-        ostringstream ss;
-        ss << "unfscl" << ::getpgrp() << "@" << hostname;
-        s = ss.str();
-    }
-    clientOwner_.co_ownerid.resize(s.size());
-    copy_n(s.data(), s.size(), clientOwner_.co_ownerid.data());
+    clientOwner_.co_ownerid.resize(clientowner.size());
+    copy_n(clientowner.data(), clientowner.size(),
+           clientOwner_.co_ownerid.data());
     VLOG(1) << "Using client owner " << clientOwner_;
-
     connect();
 }
 
 NfsFilesystem::NfsFilesystem(
     shared_ptr<oncrpc::Channel> chan,
     shared_ptr<oncrpc::Client> client,
-    shared_ptr<detail::Clock> clock)
-    : NfsFilesystem(chan, client, clock, LocalIdMapper())
+    shared_ptr<detail::Clock> clock,
+    const string& clientowner)
+    : NfsFilesystem(chan, client, clock, clientowner, LocalIdMapper())
 {
 }
 
@@ -486,9 +475,22 @@ NfsFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
     auto client = make_shared<oncrpc::SysClient>(NFS4_PROGRAM, NFS_V4);
     auto clock = make_shared<detail::SystemClock>();
 
+    string clientowner;
+    if (FLAGS_clientowner.size() > 0) {
+        clientowner = FLAGS_clientowner;
+    }
+    else {
+        char hostname[256];
+        if (::gethostname(hostname, sizeof(hostname)) < 0)
+            throw system_error(errno, system_category());
+        ostringstream ss;
+        ss << "unfscl" << ::getpgrp() << "@" << hostname;
+        clientowner = ss.str();
+    }
+
     return make_pair(
         fsman->mount<NfsFilesystem>(
-            p.host + ":/", chan, client, clock),
+            p.host + ":/", chan, client, clock, clientowner),
         p.path);
 }
 

@@ -23,7 +23,6 @@ using namespace std::placeholders;
 
 DECLARE_int32(iosize);
 DECLARE_int32(lease_time);
-DECLARE_string(clientowner);
 
 class FakeIdMapper: public IIdMapper
 {
@@ -91,7 +90,7 @@ public:
         client_->set(cred);
         chan_ = make_shared<LocalChannel>(svcreg_);
         fs_ = make_shared<NfsFilesystem>(
-            chan_, client_, clock_, idmapper_);
+            chan_, client_, clock_, "fs_", idmapper_);
     }
 
     ~Nfs4TestBase()
@@ -628,9 +627,8 @@ TEST_F(Nfs4Test, RevokeExpiredState)
     // Make a second NfsFilesystem to try to open the file and revoke
     // the state entry. The file without a deny reservation should not
     // be revoked since it doesn't conflict
-    auto save = FLAGS_clientowner;
-    FLAGS_clientowner = "fs2";
-    auto fs2 = make_shared<NfsFilesystem>(chan_, client_, clock_, idmapper_);
+    auto fs2 = make_shared<NfsFilesystem>(
+        chan_, client_, clock_, "fs2", idmapper_);
     auto of3 = fs2->root()->open(
         cred, "foo", OpenFlags::RDWR, setMode666);
     auto of4 = fs2->root()->open(
@@ -639,7 +637,6 @@ TEST_F(Nfs4Test, RevokeExpiredState)
     of4.reset();
     fs2->unmount();
     fs2.reset();
-    FLAGS_clientowner = save;
 
     // Force the original client to notice that it has lost state,
     // exercising test_stateid and free_stateid
@@ -938,10 +935,8 @@ TEST_F(Nfs4Test, RecallWriteLayout)
     // Make a second NfsFilesystem to try to open the file and revoke
     // the layout. We need a second NfsFilesystem so that it has a
     // conflicting clientid
-    auto save = FLAGS_clientowner;
-    FLAGS_clientowner = "fs2";
-    auto fs2 = make_shared<NfsFilesystem>(chan_, client_, clock_, idmapper_);
-    FLAGS_clientowner = save;
+    auto fs2 = make_shared<NfsFilesystem>(
+        chan_, client_, clock_, "fs2", idmapper_);
 
     // Open with oo2 for writing - should recall the delegation
     OPEN4resok res2;
@@ -1015,10 +1010,8 @@ TEST_F(Nfs4Test, RecallReadLayout)
     // Make a second NfsFilesystem to try to open the file and revoke
     // the layout. We need a second NfsFilesystem so that it has a
     // conflicting clientid
-    auto save = FLAGS_clientowner;
-    FLAGS_clientowner = "fs2";
-    auto fs2 = make_shared<NfsFilesystem>(chan_, client_, clock_, idmapper_);
-    FLAGS_clientowner = save;
+    auto fs2 = make_shared<NfsFilesystem>(
+        chan_, client_, clock_, "fs2", idmapper_);
 
     // Open with oo2 for reading - should not recall the delegation
     OPEN4resok res2;

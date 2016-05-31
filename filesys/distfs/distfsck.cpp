@@ -47,7 +47,7 @@ void DistfsCheck::check()
                 auto client = std::make_shared<oncrpc::SysClient>(
                     nfs4::NFS4_PROGRAM, nfs4::NFS_V4);
                 auto ds = make_shared<nfs4::NfsDataStore>(
-                    chan, client, clock);
+                    chan, client, clock, "distfsck");
                 servers[dsid] = ds;
                 break;
             }

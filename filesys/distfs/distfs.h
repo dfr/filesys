@@ -552,6 +552,10 @@ public:
     void decommissionDevice(std::shared_ptr<DistDevice> dev);
 
 private:
+    /// Unique client owner string for connecting to devices using
+    /// NFSv4
+    std::string clientowner_;
+
     /// Binding address
     std::string addr_;
 
