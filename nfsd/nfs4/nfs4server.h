@@ -440,41 +440,46 @@ public:
     }
 
     std::shared_ptr<NfsState> findOpen(
+        std::shared_ptr<NfsClient> client,
         const filesys::nfs4::open_owner4& owner)
     {
         auto lk = lock();
-        return findOpen(lk, owner);
+        return findOpen(lk, client, owner);
     }
 
     std::shared_ptr<NfsState> findOpen(
         std::unique_lock<std::mutex>& lock,
+        std::shared_ptr<NfsClient> client,
         const filesys::nfs4::open_owner4& owner);
 
     std::shared_ptr<NfsState> findDelegation(
-        const filesys::nfs4::open_owner4& owner)
+        std::shared_ptr<NfsClient> client)
     {
         auto lk = lock();
-        return findDelegation(lk, owner);
+        return findDelegation(lk, client);
     }
 
     std::shared_ptr<NfsState> findDelegation(
         std::unique_lock<std::mutex>& lock,
-        const filesys::nfs4::open_owner4& owner);
+        std::shared_ptr<NfsClient> client);
 
-    std::shared_ptr<NfsState> findLayout(filesys::nfs4::clientid4 owner)
+    std::shared_ptr<NfsState> findLayout(
+        std::shared_ptr<NfsClient> client)
     {
         auto lk = lock();
-        return findLayout(lk, owner);
+        return findLayout(lk, client);
     }
 
     std::shared_ptr<NfsState> findLayout(
         std::unique_lock<std::mutex>& lock,
-        filesys::nfs4::clientid4 owner);
+        std::shared_ptr<NfsClient> client);
 
     /// Return true if this owner can open with the given access and
     /// deny share reservation
     bool checkShare(
-        const filesys::nfs4::open_owner4& owner, int access, int deny);
+        std::shared_ptr<NfsClient> client,
+        const filesys::nfs4::open_owner4& owner,
+        int access, int deny);
 
     void updateShare(std::shared_ptr<NfsState> ns)
     {

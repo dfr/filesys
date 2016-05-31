@@ -72,11 +72,13 @@ struct NfsSessionIdHash
     }
 };
 
+// RFC5661 18.16.3: The client can set the clientid field to any value
+// and the server MUST ignore it
 struct NfsStateOwnerHash
 {
     size_t operator()(const filesys::nfs4::state_owner4& owner) const
     {
-        return owner.clientid ^ _djb2(owner.owner);
+        return _djb2(owner.owner);
     }
 };
 
@@ -113,7 +115,7 @@ static inline int operator!=(
     const filesys::nfs4::state_owner4& x,
     const filesys::nfs4::state_owner4& y)
 {
-    return x.clientid != y.clientid || x.owner != y.owner;
+    return x.owner != y.owner;
 }
 
 

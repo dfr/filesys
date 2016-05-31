@@ -463,6 +463,19 @@ TEST_F(Nfs4Test, ShareReservations)
         oo2,
         NFS4ERR_SHARE_DENIED);
 
+    // Attempting to open with a second client and oo1 should fail
+    // since open owners are only unique to a client
+    auto fs2 = make_shared<NfsFilesystem>(
+        chan_, client_, clock_, "fs2", idmapper_);
+    openFail(
+        fs2, "foo",
+        OPEN4_SHARE_ACCESS_READ | OPEN4_SHARE_ACCESS_WANT_NO_DELEG,
+        OPEN4_SHARE_DENY_READ,
+        oo1,
+        NFS4ERR_SHARE_DENIED);
+    fs2->unmount();
+    fs2.reset();
+
     // Cleanup
     close(fs_, fh, res1.stateid);
 

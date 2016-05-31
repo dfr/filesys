@@ -529,28 +529,29 @@ void NfsFileState::removeLayout(shared_ptr<NfsState> ns)
 }
 
 shared_ptr<NfsState> NfsFileState::findOpen(
-    unique_lock<mutex>& lock, const open_owner4& owner)
+    unique_lock<mutex>& lock, shared_ptr<NfsClient> client,
+    const open_owner4& owner)
 {
     for (auto ns: opens_)
-        if (ns->owner() == owner)
+        if (ns->client() == client && ns->owner() == owner)
             return ns;
     return nullptr;
 }
 
 shared_ptr<NfsState> NfsFileState::findDelegation(
-    unique_lock<mutex>& lock, const open_owner4& owner)
+    unique_lock<mutex>& lock, shared_ptr<NfsClient> client)
 {
     for (auto ns: delegations_)
-        if (ns->owner() == owner)
+        if (ns->client() == client)
             return ns;
     return nullptr;
 }
 
 shared_ptr<NfsState> NfsFileState::findLayout(
-    unique_lock<std::mutex>& lock, clientid4 owner)
+    unique_lock<std::mutex>& lock, shared_ptr<NfsClient> client)
 {
     for (auto ns: layouts_)
-        if (ns->owner().clientid == owner)
+        if (ns->client() == client)
             return ns;
     return nullptr;
 }
@@ -558,7 +559,9 @@ shared_ptr<NfsState> NfsFileState::findLayout(
 /// Return true if this owner can open with the given access and
 /// deny share reservation
 bool NfsFileState::checkShare(
-    const filesys::nfs4::open_owner4& owner, int access, int deny)
+    shared_ptr<NfsClient> client,
+    const filesys::nfs4::open_owner4& owner,
+    int access, int deny)
 {
     unique_lock<mutex> lock(mutex_);
 
@@ -569,7 +572,7 @@ retry:
     if ((access & deny_) || (deny & access_)) {
         auto conflictingAccess = access & deny_;
         auto conflictingDeny = deny & access_;
-        auto ns = findOpen(lock, owner);
+        auto ns = findOpen(lock, client, owner);
         if (ns) {
             if ((conflictingAccess & ns->deny()) == conflictingAccess &&
                 (conflictingDeny & ns->access()) == conflictingDeny)
@@ -1243,7 +1246,7 @@ OPEN4res NfsServer::open(
             // Check existing share reservations
             VLOG(1) << "Checking existing share reservations";
             if (!fs->checkShare(
-                    args.owner, share_access, share_deny))
+                    client, args.owner, share_access, share_deny))
                 return OPEN4res(NFS4ERR_SHARE_DENIED);
 
             // Recall any conflicting delegations or layouts
@@ -1368,7 +1371,7 @@ OPEN4res NfsServer::open(
         }
 
         // Check for open upgrade
-        auto ns = fs->findOpen(args.owner);
+        auto ns = fs->findOpen(client, args.owner);
         if (ns) {
             ns->updateOpen(share_access, share_deny, of);
             fs->updateShare(ns);
@@ -1377,7 +1380,7 @@ OPEN4res NfsServer::open(
         // See if a delegation possible (and wanted)
         bool issueDelegation = false;
         open_delegation4 delegation = open_delegation4(OPEN_DELEGATE_NONE);
-        auto deleg = fs->findDelegation(args.owner);
+        auto deleg = fs->findDelegation(client);
         switch (want_deleg) {
         case OPEN4_SHARE_ACCESS_WANT_NO_PREFERENCE:
             break;
@@ -2682,7 +2685,7 @@ LAYOUTGET4res NfsServer::layoutget(
 
             // If there is an existing layout for this client and if
             // so, just delete it.
-            auto oldns = fs->findLayout(client->id());
+            auto oldns = fs->findLayout(client);
             if (oldns) {
                 client->clearState(oldns->id());
                 fs->removeLayout(oldns);
