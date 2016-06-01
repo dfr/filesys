@@ -8,7 +8,7 @@
 #include "filesys/distfs/distfs.h"
 #include "filesys/datafs/datafs.h"
 #include "filesys/nfs4/nfs4fs.h"
-#include "nfsd/nfs4/nfs4server.h"
+#include "nfsd/nfs4/server.h"
 
 using namespace filesys;
 using namespace filesys::data;

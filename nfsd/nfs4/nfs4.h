@@ -4,7 +4,6 @@ namespace oncrpc {
 class ServiceRegistry;
 }
 
-
 namespace nfsd {
 
 class ThreadPool;

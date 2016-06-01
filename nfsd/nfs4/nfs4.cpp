@@ -1,12 +1,10 @@
 #include <rpc++/server.h>
-#include <rpc++/pmap.h>
-#include <rpc++/rpcbind.h>
 #include <glog/logging.h>
 
 #include "nfsd/threadpool.h"
-#include "nfsd/nfs4/nfs4.h"
-#include "nfsd/nfs4/nfs4server.h"
-#include "nfsd/nfs4/dataserver.h"
+#include "nfs4.h"
+#include "server.h"
+#include "dataserver.h"
 
 using namespace filesys::nfs4;
 using namespace filesys::distfs;

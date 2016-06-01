@@ -8,9 +8,9 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "server.h"
 #include "session.h"
 #include "util.h"
-#include "nfs4server.h"
 
 using namespace filesys;
 using namespace filesys::nfs4;
