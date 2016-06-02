@@ -1,3 +1,4 @@
+#include <random>
 #include <gtest/gtest.h>
 #include <gflags/gflags.h>
 
@@ -507,6 +508,67 @@ TEST_F(Nfs4Test, ShareReservations)
     // Cleanup
     close(fs_, fh, res1.stateid);
     close(fs_, fh, res2.stateid);
+}
+
+TEST_F(Nfs4Test, ShareStress)
+{
+    auto root = fs_->root();
+
+    vector<thread> threads;
+    for (int i = 0; i < 100; i++) {
+        threads.emplace_back(
+            [=]() {
+                auto fs = make_shared<NfsFilesystem>(
+                    chan_, client_, clock_, to_string(i), idmapper_);
+                open_owner4 oo{ 0, { uint8_t(i), 0, 0, 0 } };
+                default_random_engine rnd(i);
+                uniform_int_distribution<> dist(0, 99);
+                for (int j = 0; j < 100; j++) {
+                    OPEN4resok res;
+                    nfs_fh4 fh;
+                    auto filename = to_string(dist(rnd));
+
+                    NfsAttr xattr;
+                    xattr.mode_ = 0666;
+                    xattr.attrmask_ += FATTR4_MODE;
+                    fattr4 attr;
+                    xattr.encode(attr);
+
+                    try {
+                        if (dist(rnd) < 50) {
+                            std::tie(res, fh) = create(
+                                fs, filename.c_str(),
+                                (OPEN4_SHARE_ACCESS_READ
+                                 | OPEN4_SHARE_ACCESS_WANT_NO_DELEG),
+                                OPEN4_SHARE_DENY_NONE,
+                                oo, move(attr));
+                        }
+                        else {
+                            std::tie(res, fh) = create(
+                                fs, filename.c_str(),
+                                (OPEN4_SHARE_ACCESS_READ
+                                 | OPEN4_SHARE_ACCESS_WANT_NO_DELEG),
+                                OPEN4_SHARE_DENY_READ,
+                                oo, move(attr));
+                        }
+                        close(fs, fh, res.stateid);
+                    }
+                    catch (system_error& e) {
+                        // EPERM is ok - we get that for
+                        // NFS4ERR_SHARE_DENIED
+                        if (e.code().value() != EPERM) {
+                            LOG(ERROR) << "Unexpected exception: "
+                                       << e.what();
+                            throw;
+                        }
+                    }
+                }
+                fs->unmount();
+                fs.reset();
+            });
+    }
+    for (auto& t: threads)
+        t.join();
 }
 
 TEST_F(Nfs4Test, OpenUpgrade)
