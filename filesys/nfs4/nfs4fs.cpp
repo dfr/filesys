@@ -39,17 +39,9 @@ NfsFilesystem::NfsFilesystem(
         svcreg_ = make_shared<oncrpc::ServiceRegistry>();
         chan->setServiceRegistry(svcreg_);
     }
-    cbprog_ = NFS4_CALLBACK;
-    for (;;) {
-        try {
-            auto p = svcreg_->lookup(cbprog_, NFS_CB);
-            cbprog_++;
-            continue;
-        }
-        catch (oncrpc::ProgramUnavailable&) {
-            break;
-        }
-    }
+
+    // Allocate a program number from the transient range
+    cbprog_ = svcreg_->allocate(0x40000000, 0x5fffffff);
     cbsvc_.bind(cbprog_, svcreg_);
     cbthread_ = thread([this, chan](){ handleCallbacks(); });
 
