@@ -9,7 +9,7 @@
 	url = https://github.com/gflags/gflags.git
 [submodule "rpcxx"]
 	path = rpcxx
-        url = ssh://herring/zroot/projects/git/rpcxx.git
+        url = git@github.com:dfr/rpcxx.git
 [submodule "third_party/gmock/upstream"]
 	path = third_party/gmock/upstream
 	url = https://chromium.googlesource.com/external/gmock
