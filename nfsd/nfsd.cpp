@@ -1,4 +1,5 @@
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <sstream>
 #include <netinet/in.h>
@@ -31,6 +32,7 @@ DEFINE_string(realm, "", "Local krb5 realm name");
 DEFINE_int32(threads, 0, "Number of worker threads");
 DEFINE_string(listen, "[::],0.0.0.0", "Addresses to listen for connections");
 DEFINE_string(mds, "", "URL to contact metadata server");
+DEFINE_bool(daemon, false, "Run the server as a background task");
 
 static map<string, int> flavors {
     { "none", AUTH_NONE },
@@ -78,6 +80,9 @@ int main(int argc, char** argv)
         return 1;
     }
     auto mnt = fac->mount(&fsman, argv[1]);
+
+    if (FLAGS_daemon)
+        ::daemon(true, true);
 
     auto svcreg = make_shared<ServiceRegistry>();
     if (FLAGS_realm.size() > 0)
