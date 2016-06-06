@@ -1,3 +1,8 @@
+/*-
+ * Copyright (c) 2016 Doug Rabson
+ * All rights reserved.
+ */
+
 #include "filesys/nfs3/nfs3fs.h"
 #include <gmock/gmock.h>
 

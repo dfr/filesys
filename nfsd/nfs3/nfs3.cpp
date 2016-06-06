@@ -1,3 +1,8 @@
+/*-
+ * Copyright (c) 2016 Doug Rabson
+ * All rights reserved.
+ */
+
 #include <rpc++/server.h>
 #include <rpc++/pmap.h>
 #include <rpc++/rpcbind.h>

@@ -1,3 +1,8 @@
+/*-
+ * Copyright (c) 2016 Doug Rabson
+ * All rights reserved.
+ */
+
 #include <fs++/filesys.h>
 #include <rpc++/cred.h>
 #include <gflags/gflags.h>
