@@ -1,0 +1,47 @@
+#!/bin/sh
+
+# PROVIDE: unfsd
+# REQUIRE: SERVERS
+# KEYWORD: shutdown
+#
+# Add the following lines to /etc/rc.conf.local or /etc/rc.conf
+# to enable this service:
+#
+# unfsd_enable (bool):  Set to NO by default.
+#                       Set it to YES to enable unfsd.
+# unfsd_flags (string): Command line flags for unfsd
+
+. /etc/rc.subr
+
+name=unfsd
+rcvar=unfsd_enable
+command="/usr/local/unfsd/bin/nfsd"
+start_precmd="${name}_prestart"
+
+: ${unfsd_enable:="NO"}
+: ${unfsd_role:="SIMPLE"}
+: ${unfsd_storage:="/storage"}
+: ${unfsd_flags:= "--daemon"}
+: ${unfsd_mds_addr:="udp://$(hostname):2049"}
+
+unfsd_prestart()
+{
+    case ${unfsd_role} in
+	SIMPLE)
+	    rc_flags="${rc_flags} 'objfs://${unfsd_storage}'"
+	    ;;
+	METADATA)
+	    rc_flags="${rc_flags} 'distfs://${unfsd_storage}?addr=${unfsd_mds_addr}'"
+	    ;;
+	DATA)
+	    rc_flags="${rc_flags} --mds=${unfsd_mds_addr} 'datafs://${unfsd_storage}'"
+	    ;;
+	*)
+	    echo "Unrecognised server role ${unfsd_role}"
+	    exit 1
+	    ;;
+    esac
+}
+
+load_rc_config $name
+run_rc_command "$1"

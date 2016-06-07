@@ -43,9 +43,23 @@ filegroup(
 load("//tools/build_defs/pkg:pkg.bzl", "pkg_tar")
 
 pkg_tar(
-    name = "dist",
-    extension = "tar.gz",
+    name = "dist-bin",
     files = [":distfiles"],
     mode = "0755",
     package_dir = "usr/local/unfsd/bin",
 )
+
+pkg_tar(
+    name = "dist-scripts",
+    files = ["pkg/freebsd/scripts/unfsd"],
+    package_dir = "usr/local/etc/rc.d",
+)
+
+pkg_tar(
+    name = "dist",
+    extension = "tar.gz",
+    deps = [
+        ":dist-bin",
+        ":dist-scripts",
+        ],
+    )
