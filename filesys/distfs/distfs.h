@@ -61,9 +61,10 @@ private:
 class DistOpenFile: public OpenFile
 {
 public:
-    DistOpenFile(const Credential& cred, std::shared_ptr<DistFile> file)
+    DistOpenFile(const Credential& cred, std::shared_ptr<DistFile> file, int flags)
         : cred_(cred),
-          file_(file)
+          file_(file),
+          flags_(flags)
     {
     }
 
@@ -80,6 +81,7 @@ public:
 private:
     Credential cred_;
     std::shared_ptr<DistFile> file_;
+    int flags_;
     bool needFlush_ = false;
     std::unordered_set<std::shared_ptr<DistPiece>> pieces_;
 };
@@ -481,7 +483,7 @@ public:
     std::shared_ptr<objfs::ObjFile> makeNewFile(
         objfs::ObjFileMetaImpl&& meta) override;
     std::shared_ptr<OpenFile> makeNewOpenFile(
-        const Credential& cred, std::shared_ptr<objfs::ObjFile> file) override;
+        const Credential& cred, std::shared_ptr<objfs::ObjFile> file, int flags) override;
 
     // Distfs MDS protocol
     void null() override {}

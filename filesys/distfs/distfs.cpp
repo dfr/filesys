@@ -171,10 +171,10 @@ shared_ptr<ObjFile> DistFilesystem::makeNewFile(ObjFileMetaImpl&& meta)
 }
 
 shared_ptr<OpenFile> DistFilesystem::makeNewOpenFile(
-    const Credential& cred, shared_ptr<ObjFile> file)
+    const Credential& cred, shared_ptr<ObjFile> file, int flags)
 {
     return make_shared<DistOpenFile>(
-        cred, dynamic_pointer_cast<DistFile>(file));
+        cred, dynamic_pointer_cast<DistFile>(file), flags);
 }
 
 void DistFilesystem::status(const STATUSargs& args)

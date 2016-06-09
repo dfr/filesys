@@ -214,9 +214,10 @@ protected:
 class ObjOpenFile: public OpenFile
 {
 public:
-    ObjOpenFile(const Credential& cred, std::shared_ptr<ObjFile> file)
+    ObjOpenFile(const Credential& cred, std::shared_ptr<ObjFile> file, int flags)
         : cred_(cred),
-          file_(file)
+          file_(file),
+          flags_(flags)
     {
     }
 
@@ -233,6 +234,7 @@ public:
 private:
     Credential cred_;
     std::shared_ptr<ObjFile> file_;
+    int flags_;
     bool needFlush_ = false;
     int fd_ = -1;
 };
@@ -305,7 +307,7 @@ public:
     virtual std::shared_ptr<ObjFile> makeNewFile(FileId fileid);
     virtual std::shared_ptr<ObjFile> makeNewFile(ObjFileMetaImpl&& meta);
     virtual std::shared_ptr<OpenFile> makeNewOpenFile(
-        const Credential& cred, std::shared_ptr<ObjFile> file);
+        const Credential& cred, std::shared_ptr<ObjFile> file, int flags);
     void remove(FileId fileid);
     void add(std::shared_ptr<ObjFile> file);
     void writeMeta(keyval::Transaction* trans);

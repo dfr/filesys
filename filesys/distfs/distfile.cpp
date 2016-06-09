@@ -115,7 +115,9 @@ shared_ptr<Buffer> DistOpenFile::read(
 {
     auto lk = file_->lock();
 
-    file_->checkAccess(cred_, AccessFlags::READ);
+    if ((flags_ & OpenFlags::READ) == 0) {
+        throw system_error(EBADF, system_category());
+    }
     file_->updateAccessTime();
     file_->writeMeta();
     auto& meta = file_->meta();
@@ -185,7 +187,9 @@ uint32_t DistOpenFile::write(
 {
     auto lk = file_->lock();
 
-    file_->checkAccess(cred_, AccessFlags::WRITE);
+    if ((flags_ & OpenFlags::WRITE) == 0) {
+        throw system_error(EBADF, system_category());
+    }
     auto& meta = file_->meta();
 
     auto fs = dynamic_pointer_cast<DistFilesystem>(file_->ofs());

@@ -545,6 +545,7 @@ CREATE3res NfsServer::create(const CREATE3args& args)
                         cred, args.where.name, flags | OpenFlags::CREATE,
                         [verf](auto sattr){
                             sattr->setCreateverf(verf);
+                            sattr->setMode(0666);
                         });
                 }
                 else {

@@ -159,9 +159,9 @@ ObjFilesystem::makeNewFile(ObjFileMetaImpl&& meta)
 
 shared_ptr<OpenFile>
 ObjFilesystem::makeNewOpenFile(
-    const Credential& cred, shared_ptr<ObjFile> file)
+    const Credential& cred, shared_ptr<ObjFile> file, int flags)
 {
-    return make_shared<ObjOpenFile>(cred, file);
+    return make_shared<ObjOpenFile>(cred, file, flags);
 }
 
 void

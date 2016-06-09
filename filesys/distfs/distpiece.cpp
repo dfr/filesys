@@ -200,7 +200,7 @@ int DistPiece::write(
                 shared_ptr<OpenFile> of;
                 if (!of_[i]) {
                     auto file = files_[i];
-                    of = file->open(cred, OpenFlags::WRITE);
+                    of = file->open(cred, OpenFlags::RDWR);
                     of_[i] = of;
                 }
                 else {

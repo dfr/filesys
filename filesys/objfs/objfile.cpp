@@ -134,6 +134,16 @@ shared_ptr<OpenFile> ObjFile::open(
     else {
         file = lookupInternal(lock, cred, name);
     }
+
+    if (!created) {
+        int accmode = 0;
+        if (flags & OpenFlags::READ)
+            accmode |= AccessFlags::READ;
+        if (flags & OpenFlags::WRITE)
+            accmode |= AccessFlags::WRITE;
+        file->checkAccess(cred, accmode);
+    }
+
     if (!created && (flags & OpenFlags::TRUNCATE)) {
         if (file->meta_.attr.size > 0) {
             unique_lock<mutex> lock(file->mutex_);
@@ -147,7 +157,7 @@ shared_ptr<OpenFile> ObjFile::open(
             fs->db()->commit(move(trans));
         }
     }
-    return fs_.lock()->makeNewOpenFile(cred, file);
+    return fs_.lock()->makeNewOpenFile(cred, file, flags);
 }
 
 shared_ptr<OpenFile> ObjFile::open(const Credential& cred, int flags)
@@ -158,7 +168,7 @@ shared_ptr<OpenFile> ObjFile::open(const Credential& cred, int flags)
     if (flags & OpenFlags::WRITE)
         accmode |= AccessFlags::WRITE;
     checkAccess(cred, accmode);
-    return fs_.lock()->makeNewOpenFile(cred, shared_from_this());
+    return fs_.lock()->makeNewOpenFile(cred, shared_from_this(), flags);
 }
 
 string ObjFile::readlink(const Credential& cred)
@@ -524,6 +534,10 @@ shared_ptr<ObjFile> ObjFile::createNewFile(
 
 void ObjFile::checkAccess(const Credential& cred, int accmode)
 {
+    VLOG(1) << "checkAccess " << cred.uid() << "/" << cred.gid()
+            << ": mode=" << oct << meta_.attr.mode << dec
+            << ", uid=" << meta_.attr.uid
+            << ", gid=" << meta_.attr.gid;
     return CheckAccess(
         meta_.attr.uid, meta_.attr.gid, meta_.attr.mode, cred, accmode);
 }
@@ -602,7 +616,9 @@ shared_ptr<Buffer> ObjOpenFile::read(
     uint64_t offset, uint32_t len, bool& eof)
 {
     unique_lock<mutex> lock(file_->mutex_);
-    file_->checkAccess(cred_, AccessFlags::READ);
+    if ((flags_ & OpenFlags::READ) == 0) {
+        throw system_error(EBADF, system_category());
+    }
     file_->updateAccessTime();
     file_->writeMeta();
     auto& meta = file_->meta();
@@ -659,7 +675,9 @@ uint32_t ObjOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
     auto& meta = file_->meta_;
     auto blockSize = meta.blockSize;
 
-    file_->checkAccess(cred_, AccessFlags::WRITE);
+    if ((flags_ & OpenFlags::WRITE) == 0) {
+        throw system_error(EBADF, system_category());
+    }
 
     auto bn = offset / blockSize;
     auto boff = offset % blockSize;
