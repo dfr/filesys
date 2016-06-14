@@ -283,8 +283,26 @@ void ObjFile::rename(
 
     auto file = ofrom->lookupInternal(
         ofrom == this ? lock : *fromlock.get(), cred, fromName);
-    ofrom->checkSticky(cred, file.get());
+
+    // Check that we aren't a descendant of the thing being renamed. Note that
+    // we don't care about whether cred has access rights to the path so
+    // we use a fake privileged cred iterating up the parent chain.
+    // We need to drop the lock for this since lookup needs to lock
     auto fs = fs_.lock();
+    if (ofrom != this) {
+        auto root = fs->root();
+        shared_ptr<File> dir = shared_from_this();
+        Credential privcred(0, 0, {}, true);
+        lock.unlock();
+        while (dir != root) {
+            if (dir == file)
+                throw system_error(EINVAL, system_category());
+            dir = dir->lookup(privcred, "..");
+        }
+        lock.lock();
+    }
+
+    ofrom->checkSticky(cred, file.get());
     auto trans = fs->db()->beginTransaction();
     auto h = fs->directoriesNS();
 

@@ -378,6 +378,12 @@ TYPED_TEST_P(FilesystemTest, RenameDir)
     EXPECT_THROW(root->lookup(this->cred_, "foo"), std::system_error);
     EXPECT_EQ(dir2, dir->lookup(this->cred_, "foo"));
     EXPECT_EQ(dir, dir2->lookup(this->cred_, ".."));
+
+    // Renaming a directory to one of its decendants should fail
+    auto a = root->mkdir(this->cred_, "a", setMode777);
+    auto b = a->mkdir(this->cred_, "b", setMode777);
+    auto c = b->mkdir(this->cred_, "c", setMode777);
+    EXPECT_THROW(c->rename(this->cred_, "a", root, "a"), std::system_error);
 }
 
 TYPED_TEST_P(FilesystemTest, Link)
