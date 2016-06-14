@@ -17,7 +17,7 @@ tar xvf /tmp/dist.tar.gz
 cat >> /etc/rc.conf <<EOF
 unfsd_enable="YES"
 unfsd_storage="/storage"
-unfsd_flags="--daemon --grace_time=0"
+unfsd_flags="--daemon --grace_time=0 --threads=8"
 unfsd_mds_addr="udp://mds.vpc.rabson.org:2049"
 unfsd_role="DATA"
 EOF
