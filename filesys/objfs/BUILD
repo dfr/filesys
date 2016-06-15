@@ -59,7 +59,7 @@ cc_test(
     srcs = glob(["test/*.cpp"]),
     deps = [
         ":objfs",
-        "//third_party/gtest:gtest_main"
+        "//third_party/gtest"
     ],
     linkstatic = 1,
 )

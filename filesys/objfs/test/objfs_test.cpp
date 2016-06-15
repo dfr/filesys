@@ -7,6 +7,8 @@
 #include <unordered_set>
 
 #include <fs++/fstests.h>
+#include <gflags/gflags.h>
+#include <glog/logging.h>
 #include "filesys/objfs/objfs.h"
 
 using namespace filesys;
@@ -71,4 +73,12 @@ TEST_F(ObjfsTestExtra, MultiThread)
     }
     for (auto& t: threads)
         t.join();
+}
+
+int main(int argc, char **argv) {
+    gflags::AllowCommandLineReparsing();
+    gflags::ParseCommandLineFlags(&argc, &argv, false);
+    testing::InitGoogleTest(&argc, argv);
+    google::InitGoogleLogging(argv[0]);
+    return RUN_ALL_TESTS();
 }
