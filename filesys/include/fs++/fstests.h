@@ -443,11 +443,16 @@ TYPED_TEST_P(FilesystemTest, DirectoryPerms)
     EXPECT_THROW(
         dir->mkfifo(this->cred_, "a", setMode666), std::system_error);
 
-    // Create succeeds after adding write permission
+    // Create still fails due to lack of execute permission
     dir->setattr(this->cred_, setMode666);
+    EXPECT_THROW(dir->mkfifo(this->cred_, "a", setMode666), std::system_error);
+
+    // Create succeeds after adding write and execute permission
+    dir->setattr(this->cred_, setMode777);
     dir->mkfifo(this->cred_, "a", setMode666);
 
     // Lookup fails: directory is not executable
+    dir->setattr(this->cred_, setMode666);
     EXPECT_THROW(dir->lookup(this->cred_, "a"), std::system_error);
 
     // Readdir should succeed since the directory is readable

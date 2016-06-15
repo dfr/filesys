@@ -108,6 +108,7 @@ void ObjFile::setattr(const Credential& cred, function<void(Setattr*)> cb)
 shared_ptr<File> ObjFile::lookup(const Credential& cred, const string& name)
 {
     unique_lock<mutex> lock(mutex_);
+    checkAccess(cred, AccessFlags::EXECUTE);
     return lookupInternal(lock, cred, name);
 }
 
@@ -117,6 +118,7 @@ shared_ptr<OpenFile> ObjFile::open(
     unique_lock<mutex> lock(mutex_);
     shared_ptr<ObjFile> file;
     bool created = false;
+    checkAccess(cred, AccessFlags::EXECUTE);
     if (flags & OpenFlags::CREATE) {
         try {
             file = lookupInternal(lock, cred, name);
@@ -224,11 +226,12 @@ shared_ptr<File> ObjFile::mkfifo(
 void ObjFile::remove(const Credential& cred, const string& name)
 {
     unique_lock<mutex> lock(mutex_);
+    checkAccess(cred, AccessFlags::WRITE|AccessFlags::EXECUTE);
+
     auto file = lookupInternal(lock, cred, name);
     if (file->meta_.attr.type == PT_DIR)
         throw system_error(EISDIR, system_category());
 
-    checkAccess(cred, AccessFlags::WRITE);
     checkSticky(cred, file.get());
 
     auto fs = fs_.lock();
@@ -240,11 +243,12 @@ void ObjFile::remove(const Credential& cred, const string& name)
 void ObjFile::rmdir(const Credential& cred, const string& name)
 {
     unique_lock<mutex> lock(mutex_);
+    checkAccess(cred, AccessFlags::WRITE|AccessFlags::EXECUTE);
+
     auto file = lookupInternal(lock, cred, name);
     if (file->meta_.attr.type != PT_DIR)
         throw system_error(ENOTDIR, system_category());
 
-    checkAccess(cred, AccessFlags::WRITE);
     checkSticky(cred, file.get());
 
     auto fs = fs_.lock();
@@ -277,9 +281,9 @@ void ObjFile::rename(
         fromlock = make_unique<unique_lock<mutex>>(ofrom->mutex_);
     }
 
-    // We need write permission for both directories
-    checkAccess(cred, AccessFlags::WRITE);
-    ofrom->checkAccess(cred, AccessFlags::WRITE);
+    // We need write and execute permission for both directories
+    checkAccess(cred, AccessFlags::WRITE|AccessFlags::EXECUTE);
+    ofrom->checkAccess(cred, AccessFlags::WRITE|AccessFlags::EXECUTE);
 
     auto file = ofrom->lookupInternal(
         ofrom == this ? lock : *fromlock.get(), cred, fromName);
@@ -352,7 +356,7 @@ void ObjFile::link(
     if (old)
         throw system_error(EEXIST, system_category());
 
-    checkAccess(cred, AccessFlags::WRITE);
+    checkAccess(cred, AccessFlags::WRITE|AccessFlags::EXECUTE);
 
     auto from = dynamic_cast<ObjFile*>(file.get());
     if (from->meta_.attr.type == PT_DIR)
@@ -391,7 +395,6 @@ shared_ptr<ObjFile> ObjFile::lookupInternal(
         throw system_error(ENAMETOOLONG, system_category());
     if (meta_.attr.type != PT_DIR)
         throw system_error(ENOTDIR, system_category());
-    checkAccess(cred, AccessFlags::EXECUTE);
     auto fs = fs_.lock();
     DirectoryKeyType key(fileid(), name);
     auto val = fs->directoriesNS()->get(key);
@@ -498,6 +501,8 @@ shared_ptr<ObjFile> ObjFile::createNewFile(
     if (name.size() > OBJFS_NAME_MAX)
         throw system_error(ENAMETOOLONG, system_category());
 
+    checkAccess(cred, AccessFlags::WRITE|AccessFlags::EXECUTE);
+
     // If the entry exists, throw an error
     shared_ptr<File> old;
     try {
@@ -507,8 +512,6 @@ shared_ptr<ObjFile> ObjFile::createNewFile(
     }
     if (old)
         throw system_error(EEXIST, system_category());
-
-    checkAccess(cred, AccessFlags::WRITE);
 
     auto now = getTime();
 
@@ -553,6 +556,8 @@ shared_ptr<ObjFile> ObjFile::createNewFile(
 void ObjFile::checkAccess(const Credential& cred, int accmode)
 {
     VLOG(1) << "checkAccess " << cred.uid() << "/" << cred.gid()
+            << ", fileid=" << meta_.fileid
+            << ", accmode=" << accmode
             << ": mode=" << oct << meta_.attr.mode << dec
             << ", uid=" << meta_.attr.uid
             << ", gid=" << meta_.attr.gid;
