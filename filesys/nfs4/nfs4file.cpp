@@ -958,31 +958,36 @@ void NfsFile::testState()
 NfsOpenFile::~NfsOpenFile()
 {
     if (!dead_) {
-        file_->flush(stateid_, true);
-        auto fs = file_->nfs();
-        fs->compound(
-            [this](auto& enc) {
-                enc.putfh(file_->fh());
-                enc.close(0, stateid_);
-            },
-            [this](auto& dec) {
-                dec.putfh();
-                try {
-                    dec.close();
-                }
-                catch (nfsstat4 stat) {
-                    // Ignore NFS4ERR_BAD_STATEID here. This can
-                    // happen if the server restarts or expires our
-                    // client. We can't easily recover since the
-                    // NfsFile's weak_ptr is already invalid.
-                    //
-                    // XXX we could mitigate by moving the stateid_ to
-                    // NfsFile which would be ok since we only allow
-                    // one NfsOpenFile instance per NfsFile instance.
-                    if (stat != NFS4ERR_BAD_STATEID)
-                        throw;
-                }
-            });
+        try {
+            file_->flush(stateid_, true);
+            auto fs = file_->nfs();
+            fs->compound(
+                [this](auto& enc) {
+                    enc.putfh(file_->fh());
+                    enc.close(0, stateid_);
+                },
+                [this](auto& dec) {
+                    dec.putfh();
+                    try {
+                        dec.close();
+                    }
+                    catch (nfsstat4 stat) {
+                        // Ignore NFS4ERR_BAD_STATEID here. This can
+                        // happen if the server restarts or expires our
+                        // client. We can't easily recover since the
+                        // NfsFile's weak_ptr is already invalid.
+                        //
+                        // XXX we could mitigate by moving the stateid_ to
+                        // NfsFile which would be ok since we only allow
+                        // one NfsOpenFile instance per NfsFile instance.
+                        if (stat != NFS4ERR_BAD_STATEID)
+                            throw;
+                    }
+                });
+        }
+        catch (system_error& e) {
+            LOG(ERROR) << "Error closing file: " << e.what();
+        }
     }
     stateid_ = STATEID_INVALID;
 }
