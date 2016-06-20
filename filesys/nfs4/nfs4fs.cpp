@@ -493,5 +493,6 @@ NfsFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
 
 void filesys::nfs4::init(FilesystemManager* fsman)
 {
+    UrlParser::addHostbasedScheme("nfs");
     fsman->add(make_shared<NfsFilesystemFactory>());
 }

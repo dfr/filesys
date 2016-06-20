@@ -7,6 +7,14 @@
 
 using namespace filesys;
 
+std::unordered_set<std::string> filesys::UrlParser::hostbasedSchemes = {
+    "tcp", "udp", "http", "https",
+};
+
+std::unordered_set<std::string> filesys::UrlParser::pathbasedSchemes = {
+    "file",
+};
+
 UrlParser::UrlParser(const std::string& url)
 {
     std::string s = url;
@@ -38,14 +46,12 @@ UrlParser::UrlParser(const std::string& url)
 
 bool UrlParser::isHostbased()
 {
-    return scheme == "tcp" || scheme == "udp" || scheme == "http" ||
-        scheme == "https" || scheme == "nfs";
+    return hostbasedSchemes.find(scheme) != hostbasedSchemes.end();
 }
 
 bool UrlParser::isPathbased()
 {
-    return scheme == "file" || scheme == "objfs" || scheme == "distfs" ||
-        scheme == "datafs";
+    return pathbasedSchemes.find(scheme) != pathbasedSchemes.end();
 }
 
 void UrlParser::parseScheme(std::string& s)
@@ -166,4 +172,14 @@ void UrlParser::parseQueryTerm(const std::string& s)
     else {
         query[s.substr(0, i)] = s.substr(i + 1);
     }
+}
+
+void UrlParser::addHostbasedScheme(const std::string& scheme)
+{
+    hostbasedSchemes.insert(scheme);
+}
+
+void UrlParser::addPathbasedScheme(const std::string& scheme)
+{
+    pathbasedSchemes.insert(scheme);
 }

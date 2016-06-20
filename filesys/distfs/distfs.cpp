@@ -687,5 +687,6 @@ DistFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
 
 void filesys::distfs::init(FilesystemManager* fsman)
 {
+    UrlParser::addPathbasedScheme("distfs");
     fsman->add(make_shared<DistFilesystemFactory>());
 }

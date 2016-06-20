@@ -296,5 +296,6 @@ DataFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
 
 void filesys::data::init(FilesystemManager* fsman)
 {
+    UrlParser::addPathbasedScheme("datafs");
     fsman->add(make_shared<DataFilesystemFactory>());
 }

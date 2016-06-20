@@ -8,6 +8,7 @@
 
 #include <map>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace filesys {
@@ -25,12 +26,19 @@ struct UrlParser
     void parsePath(std::string& s);
     void parseQueryTerm(const std::string& s);
 
+    static void addHostbasedScheme(const std::string& scheme);
+    static void addPathbasedScheme(const std::string& scheme);
+
     std::string scheme;
     std::string schemeSpecific;
     std::string host;
     std::string port;
     std::string path;
     std::map<std::string, std::string> query;
+
+private:
+    static std::unordered_set<std::string> hostbasedSchemes;
+    static std::unordered_set<std::string> pathbasedSchemes;
 };
 
 }

@@ -22,9 +22,9 @@ struct UrlParserTest: public ::testing::Test
 
 TEST_F(UrlParserTest, Hostbased)
 {
-    UrlParser p("nfs://server:1234/some/path");
+    UrlParser p("tcp://server:1234/some/path");
     EXPECT_TRUE(p.isHostbased());
-    EXPECT_EQ("nfs", p.scheme);
+    EXPECT_EQ("tcp", p.scheme);
     EXPECT_EQ("server", p.host);
     EXPECT_EQ("1234", p.port);
     EXPECT_EQ("some/path", p.path);

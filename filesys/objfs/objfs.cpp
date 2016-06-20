@@ -207,5 +207,6 @@ ObjFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
 
 void filesys::objfs::init(FilesystemManager* fsman)
 {
+    UrlParser::addPathbasedScheme("objfs");
     fsman->add(make_shared<ObjFilesystemFactory>());
 }
