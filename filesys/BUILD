@@ -11,6 +11,7 @@ cc_library(
         ":hdrs",
         ":access",
         ":xdr",
+        "//filesys/nfs",
         "//filesys/nfs3",
         "//filesys/nfs4",
         "//filesys/posix",

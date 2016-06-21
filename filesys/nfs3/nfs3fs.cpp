@@ -188,8 +188,3 @@ NfsFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
 
     return make_pair(pfs, p.path);
 }
-
-void filesys::nfs3::init(FilesystemManager* fsman)
-{
-    fsman->add(make_shared<NfsFilesystemFactory>());
-}

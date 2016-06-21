@@ -492,9 +492,3 @@ NfsFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
             p.host + ":/", chan, client, clock, clientowner),
         p.path);
 }
-
-void filesys::nfs4::init(FilesystemManager* fsman)
-{
-    UrlParser::addHostbasedScheme("nfs");
-    fsman->add(make_shared<NfsFilesystemFactory>());
-}

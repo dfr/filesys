@@ -413,7 +413,5 @@ public:
         FilesystemManager* fsman, const std::string& url) override;
 };
 
-void init(FilesystemManager* fsman);
-
 }
 }
