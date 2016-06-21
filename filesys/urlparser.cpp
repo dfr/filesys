@@ -29,9 +29,7 @@ UrlParser::UrlParser(const std::string& url)
             s = s.substr(1);
             parsePort(s);
         }
-        if (s.size() > 0) {
-            if (s[0] != '/')
-                throw std::runtime_error("malformed url");
+        if (s.size() > 0 && s[0] == '/') {
             s = s.substr(1);
             parsePath(s);
         }
@@ -41,6 +39,12 @@ UrlParser::UrlParser(const std::string& url)
             throw std::runtime_error("malformed url");
         s = s.substr(2);
         parsePath(s);
+    }
+    if (s.size() > 0) {
+        if (s[0] != '?')
+            throw std::runtime_error("malformed url");
+        s = s.substr(1);
+        parseQuery(s);
     }
 }
 
@@ -83,7 +87,7 @@ void UrlParser::parseHost(std::string& s)
     }
     else {
         int i = 0;
-        while (i < int(s.size()) && s[i] != ':' && s[i] != '/')
+        while (i < int(s.size()) && s[i] != ':' && s[i] != '/' && s[i] != '?')
             i++;
         host = s.substr(0, i);
         s = s.substr(i);
@@ -145,20 +149,25 @@ void UrlParser::parsePath(std::string& s)
     auto i = s.find('?');
     if (i == std::string::npos) {
         path = s;
+        s = "";
     }
     else {
         path = s.substr(0, i);
-        s = s.substr(i + 1);
-        for (;;) {
-            i = s.find_first_of("&;");
-            if (i == std::string::npos) {
-                parseQueryTerm(s);
-                break;
-            }
-            else {
-                parseQueryTerm(s.substr(0, i));
-                s = s.substr(i + 1);
-            }
+        s = s.substr(i);
+    }
+}
+
+void UrlParser::parseQuery(std::string& s)
+{
+    for (;;) {
+        auto i = s.find_first_of("&;");
+        if (i == std::string::npos) {
+            parseQueryTerm(s);
+            break;
+        }
+        else {
+            parseQueryTerm(s.substr(0, i));
+            s = s.substr(i + 1);
         }
     }
 }

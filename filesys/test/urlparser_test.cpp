@@ -52,4 +52,9 @@ TEST_F(UrlParserTest, Query)
     EXPECT_EQ("some/path", p2.path);
     EXPECT_EQ("bar", p2.query["foo"]);
     EXPECT_EQ("baz", p2.query["bar"]);
+
+    UrlParser p3("tcp://host?foo=bar");
+    EXPECT_EQ("host", p3.host);
+    EXPECT_EQ("", p3.path);
+    EXPECT_EQ("bar", p3.query["foo"]);
 }

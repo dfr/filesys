@@ -24,6 +24,7 @@ struct UrlParser
     void parseIPv6(std::string& s);
     void parsePort(std::string& s);
     void parsePath(std::string& s);
+    void parseQuery(std::string& s);
     void parseQueryTerm(const std::string& s);
 
     static void addHostbasedScheme(const std::string& scheme);
