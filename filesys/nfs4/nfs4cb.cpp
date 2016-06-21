@@ -3,6 +3,8 @@
  * All rights reserved.
  */
 
+#include <glog/logging.h>
+
 #include "nfs4fs.h"
 #include "nfs4cb.h"
 

@@ -7,16 +7,12 @@
 #pragma once
 
 #include <climits>
-#include <iomanip>
 #include <string>
-#include <map>
 #include <vector>
 
 #include <fs++/datacache.h>
 #include <fs++/filesys.h>
 #include <fs++/lrucache.h>
-#include <rpc++/xdr.h>
-#include <glog/logging.h>
 
 #include "nfs4proto.h"
 #include "nfs4util.h"

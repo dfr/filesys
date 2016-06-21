@@ -3,6 +3,8 @@
  * All rights reserved.
  */
 
+#include <glog/logging.h>
+
 #include "distfs.h"
 
 using namespace filesys;

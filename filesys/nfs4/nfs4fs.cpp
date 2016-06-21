@@ -8,6 +8,8 @@
 #include <random>
 #include <system_error>
 #include <unistd.h>
+#include <gflags/gflags.h>
+#include <glog/logging.h>
 
 #include <fs++/urlparser.h>
 

@@ -5,6 +5,7 @@
 
 #include <cassert>
 #include <system_error>
+#include <glog/logging.h>
 
 #include "nfs4fs.h"
 

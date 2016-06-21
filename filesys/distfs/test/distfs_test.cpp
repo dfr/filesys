@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 #include <gflags/gflags.h>
+#include <glog/logging.h>
 
 #include <fs++/filesys.h>
 #include <fs++/fstests.h>
