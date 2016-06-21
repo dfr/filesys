@@ -67,6 +67,6 @@ TEST_F(PfsTest, Readdir)
 TEST_F(PfsTest, Mount)
 {
     auto m = make_shared<PfsFilesystem>();
-    fs->add("foo/bar", m);
+    fs->add("foo/bar", m->root());
     EXPECT_EQ(m->root(), lookup({"foo", "bar"}));
 }

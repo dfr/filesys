@@ -136,7 +136,11 @@ int main(int argc, char** argv)
         }
 
 	auto mnt = fac->mount(&fsman, url);
-	pfs->add(path, mnt.first);
+        auto dir = mnt.first->root();
+        if (p.isHostbased() && p.path.size() > 0) {
+            dir = CommandState(mnt.first->root()).lookup(p.path);
+        }
+        pfs->add(path, dir);
     }
 
     CommandState state(pfs->root());

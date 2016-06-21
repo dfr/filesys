@@ -44,6 +44,7 @@ PfsFilesystem::PfsFilesystem()
 std::shared_ptr<File>
 PfsFilesystem::root()
 {
+    checkRoot();
     if (root_)
         return root_->checkMount();
     return
@@ -71,17 +72,12 @@ PfsFilesystem::find(const FileHandle& fh)
 }
 
 void
-PfsFilesystem::add(const std::string& path, shared_ptr<Filesystem> mount)
+PfsFilesystem::add(const std::string& path, shared_ptr<File> mount)
 {
     if (paths_.find(path) != paths_.end())
         throw system_error(EEXIST, system_category());
 
-    if (!root_) {
-        root_ = make_shared<PfsFile>(
-            shared_from_this(), FileId(nextid_), nullptr);
-        idmap_[nextid_] = root_;
-        nextid_++;
-    }
+    checkRoot();
 
     vector<string> entries = parsePath(path);
     auto dir = root_;
@@ -111,4 +107,15 @@ PfsFilesystem::remove(const std::string& path)
     if (i == paths_.end())
         throw system_error(ENOENT, system_category());
     paths_.erase(i);
+}
+
+void
+PfsFilesystem::checkRoot()
+{
+    if (!root_) {
+        root_ = make_shared<PfsFile>(
+            shared_from_this(), FileId(nextid_), nullptr);
+        idmap_[nextid_] = root_;
+        nextid_++;
+    }
 }

@@ -133,7 +133,12 @@ NfsFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
     auto clock = make_shared<detail::SystemClock>();
 
     auto exports = mountprog.listexports();
+    string path;
+    if (p.path.size() > 0)
+        path = "/" + p.path;
     for (auto exp = exports.get(); exp; exp = exp->ex_next.get()) {
+        if (path.size() > 0 && exp->ex_dir != path)
+            continue;
         LOG(INFO) << "mounting " << exp->ex_dir;
         auto mnt = mountprog.mnt(move(exp->ex_dir));
         if (mnt.fhs_status == MNT3_OK) {
@@ -182,7 +187,8 @@ NfsFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
             pfs->add(
                 exp->ex_dir,
                 fsman->mount<NfsFilesystem>(
-                    p.host + ":" + exp->ex_dir, proto, clock, move(fh)));
+                    p.host + ":" + exp->ex_dir, proto, clock, move(fh))
+                ->root());
         }
     }
 

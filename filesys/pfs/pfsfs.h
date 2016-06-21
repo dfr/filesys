@@ -162,14 +162,14 @@ public:
     {
         entries_[name] = dir;
     }
-    void mount(std::shared_ptr<Filesystem> mount)
+    void mount(std::shared_ptr<File> mount)
     {
         mount_ = mount;
     }
     std::shared_ptr<File> checkMount()
     {
         if (mount_)
-            return mount_->root();
+            return mount_;
         else
             return shared_from_this();
     }
@@ -179,7 +179,7 @@ private:
     FileId fileid_;
     std::chrono::system_clock::time_point ctime_;
     std::shared_ptr<PfsFile> parent_;
-    std::shared_ptr<Filesystem> mount_;
+    std::shared_ptr<File> mount_;
     std::map<std::string, std::weak_ptr<PfsFile>> entries_;
 };
 
@@ -213,13 +213,14 @@ public:
     void unmount() override {}
 
     /// Add a path to the filesystem
-    void add(const std::string& path,
-             std::shared_ptr<Filesystem> mount = nullptr);
+    void add(const std::string& path, std::shared_ptr<File> mount = nullptr);
 
     /// Remove a path from the filesystem
     void remove(const std::string& path);
 
 private:
+    void checkRoot();
+
     static int nextfsid_;
     FilesystemId fsid_;
     int nextid_ = 1;
