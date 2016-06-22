@@ -84,7 +84,8 @@ int main(int argc, char** argv)
         cerr << argv[1] << ": unsupported url scheme" << endl;
         return 1;
     }
-    auto mnt = fac->mount(&fsman, argv[1]);
+    auto fs = fac->mount(argv[1]);
+    fsman.mount("/", fs);
 
     if (FLAGS_daemon)
         ::daemon(true, true);
@@ -141,7 +142,7 @@ int main(int argc, char** argv)
     nfs4::init(svcreg, threadpool, sec, boundAddrs);
 
     if (FLAGS_mds.size() > 0) {
-        auto ds = dynamic_pointer_cast<DataStore>(mnt.first);
+        auto ds = dynamic_pointer_cast<DataStore>(fs);
         if (ds) {
             ds->reportStatus(sockman, FLAGS_mds, boundAddrs);
         }

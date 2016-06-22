@@ -564,8 +564,7 @@ class FilesystemFactory
 {
 public:
     virtual std::string name() const = 0;
-    virtual std::pair<std::shared_ptr<Filesystem>, std::string> mount(
-        FilesystemManager* fsman, const std::string& url) = 0;
+    virtual std::shared_ptr<Filesystem> mount(const std::string& url) = 0;
 };
 
 class FilesystemManager
@@ -579,12 +578,9 @@ public:
         return fsman;
     }
 
-    template <typename FS, typename... Args>
-    std::shared_ptr<FS> mount(const std::string& name, Args... args)
+    void mount(const std::string& name, std::shared_ptr<Filesystem> fs)
     {
-        auto res = std::make_shared<FS>(std::forward<Args>(args)...);
-        filesystems_[name] = res;
-        return res;
+        filesystems_[name] = fs;
     }
 
     void unmountAll()

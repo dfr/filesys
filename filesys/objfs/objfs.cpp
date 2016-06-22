@@ -197,12 +197,11 @@ ObjFilesystem::setFsid()
     *reinterpret_cast<UUID*>(fsid_.data()) = meta_.fsid;
 }
 
-pair<shared_ptr<Filesystem>, string>
-ObjFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
+shared_ptr<Filesystem>
+ObjFilesystemFactory::mount(const string& url)
 {
     UrlParser p(url);
-    return make_pair(
-        fsman->mount<ObjFilesystem>(p.path, make_rocksdb(p.path)), ".");
+    return make_shared<ObjFilesystem>(make_rocksdb(p.path));
 };
 
 void filesys::objfs::init(FilesystemManager* fsman)

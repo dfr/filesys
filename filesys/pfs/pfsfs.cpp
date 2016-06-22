@@ -101,6 +101,13 @@ PfsFilesystem::add(const std::string& path, shared_ptr<File> mount)
 }
 
 void
+PfsFilesystem::add(const std::string& path, std::shared_ptr<Filesystem> mount)
+{
+    subfs_.push_back(mount);
+    add(path, mount->root());
+}
+
+void
 PfsFilesystem::remove(const std::string& path)
 {
     auto i = paths_.find(path);

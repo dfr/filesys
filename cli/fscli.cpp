@@ -135,10 +135,12 @@ int main(int argc, char** argv)
             return 1;
         }
 
-	auto mnt = fac->mount(&fsman, url);
-        auto dir = mnt.first->root();
+        auto fs = fac->mount(url);
+        fsman.mount(url, fs);
+
+        auto dir = fs->root();
         if (p.isHostbased() && p.path.size() > 0) {
-            dir = CommandState(mnt.first->root()).lookup(p.path);
+            dir = CommandState(fs->root()).lookup(p.path);
         }
         pfs->add(path, dir);
     }

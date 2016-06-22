@@ -27,22 +27,22 @@ public:
         return dir;
     }
 
-    shared_ptr<PfsFilesystem> fs;
+    shared_ptr<PfsFilesystem> fs, subfs;
     Credential cred;
 };
 
 TEST_F(PfsTest, AddPath)
 {
-    fs->add("foo/bar/baz");
-    fs->add("foo/bar/qux");
+    fs->add("foo/bar/baz", shared_ptr<File>(nullptr));
+    fs->add("foo/bar/qux", shared_ptr<File>(nullptr));
     lookup({"foo", "bar", "baz"});
     lookup({"foo", "bar", "qux"});
 }
 
 TEST_F(PfsTest, RemovePath)
 {
-    fs->add("foo/bar/baz");
-    fs->add("foo/bar/qux");
+    fs->add("foo/bar/baz", shared_ptr<File>(nullptr));
+    fs->add("foo/bar/qux", shared_ptr<File>(nullptr));
     fs->remove("foo/bar/baz");
     lookup({"foo", "bar", "qux"});
     EXPECT_THROW(
@@ -52,9 +52,9 @@ TEST_F(PfsTest, RemovePath)
 
 TEST_F(PfsTest, Readdir)
 {
-    fs->add("foo/bar/baz");
-    fs->add("foo/bar/qux");
-    fs->add("foo/bar/foobar");
+    fs->add("foo/bar/baz", shared_ptr<File>(nullptr));
+    fs->add("foo/bar/qux", shared_ptr<File>(nullptr));
+    fs->add("foo/bar/foobar", shared_ptr<File>(nullptr));
 
     auto dir = lookup({"foo", "bar"});
     static const char* names[] = { "baz", "foobar", "qux" };

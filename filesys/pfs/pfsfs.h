@@ -213,7 +213,8 @@ public:
     void unmount() override {}
 
     /// Add a path to the filesystem
-    void add(const std::string& path, std::shared_ptr<File> mount = nullptr);
+    void add(const std::string& path, std::shared_ptr<File> mount);
+    void add(const std::string& path, std::shared_ptr<Filesystem> mount);
 
     /// Remove a path from the filesystem
     void remove(const std::string& path);
@@ -227,6 +228,7 @@ private:
     std::shared_ptr<PfsFile> root_;
     std::map<int, std::weak_ptr<PfsFile>> idmap_;
     std::map<std::string, std::shared_ptr<PfsFile>> paths_;
+    std::vector<std::shared_ptr<Filesystem>> subfs_;
 };
 
 }

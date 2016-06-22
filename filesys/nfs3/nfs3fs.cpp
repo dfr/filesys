@@ -104,8 +104,8 @@ NfsFilesystem::find(const nfs_fh3& fh, const fattr3& attr)
         });
 }
 
-pair<shared_ptr<Filesystem>, string>
-NfsFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
+shared_ptr<Filesystem>
+NfsFilesystemFactory::mount(const string& url)
 {
     using namespace oncrpc;
 
@@ -128,7 +128,7 @@ NfsFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
     }
     Mountprog3<SysClient> mountprog(mchan);
 
-    auto pfs = fsman->mount<pfs::PfsFilesystem>(p.host + ":/");
+    auto pfs = make_shared<pfs::PfsFilesystem>();
     auto chan = Channel::open(url, "tcp");
     auto clock = make_shared<detail::SystemClock>();
 
@@ -184,13 +184,10 @@ NfsFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
                 continue;
             }
 
-            pfs->add(
-                exp->ex_dir,
-                fsman->mount<NfsFilesystem>(
-                    p.host + ":" + exp->ex_dir, proto, clock, move(fh))
-                ->root());
+            auto fs = make_shared<NfsFilesystem>(proto, clock, move(fh));
+            pfs->add(exp->ex_dir, fs);
         }
     }
 
-    return make_pair(pfs, p.path);
+    return pfs;
 }

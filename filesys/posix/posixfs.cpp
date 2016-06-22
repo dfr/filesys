@@ -87,11 +87,11 @@ PosixFilesystem::remove(FileId id)
     cache_.remove(id);
 }
 
-pair<shared_ptr<Filesystem>, string>
-PosixFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
+shared_ptr<Filesystem>
+PosixFilesystemFactory::mount(const string& url)
 {
     UrlParser p(url);
-    return make_pair(fsman->mount<PosixFilesystem>(p.path, p.path), ".");
+    return make_shared<PosixFilesystem>(p.path);
 };
 
 void filesys::posix::init(FilesystemManager* fsman)

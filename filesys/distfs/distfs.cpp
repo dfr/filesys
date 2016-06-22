@@ -668,8 +668,8 @@ DistFilesystem::decommissionDevice(std::shared_ptr<DistDevice> dev)
     db_->commit(move(trans));
 }
 
-pair<shared_ptr<Filesystem>, string>
-DistFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
+shared_ptr<Filesystem>
+DistFilesystemFactory::mount(const string& url)
 {
     UrlParser p(url);
     string addr;
@@ -681,9 +681,7 @@ DistFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
     else {
         addr = it->second;
     }
-    return make_pair(
-        fsman->mount<DistFilesystem>(
-            p.path, make_rocksdb(p.path), addr), ".");
+    return make_shared<DistFilesystem>(make_rocksdb(p.path), addr);
 };
 
 void filesys::distfs::init(FilesystemManager* fsman)

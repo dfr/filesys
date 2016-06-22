@@ -453,8 +453,8 @@ NfsFilesystem::handleCallbacks()
     }
 }
 
-pair<shared_ptr<Filesystem>, string>
-NfsFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
+shared_ptr<Filesystem>
+NfsFilesystemFactory::mount(const string& url)
 {
     using namespace oncrpc;
 
@@ -487,8 +487,5 @@ NfsFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
         clientowner = ss.str();
     }
 
-    return make_pair(
-        fsman->mount<NfsFilesystem>(
-            p.host + ":/", chan, client, clock, clientowner),
-        p.path);
+    return make_shared<NfsFilesystem>(chan, client, clock, clientowner);
 }

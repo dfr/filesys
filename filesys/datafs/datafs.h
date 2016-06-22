@@ -359,8 +359,7 @@ class DataFilesystemFactory: public FilesystemFactory
 {
 public:
     std::string name() const override { return "datafs"; }
-    std::pair<std::shared_ptr<Filesystem>, std::string> mount(
-        FilesystemManager* fsman, const std::string& url) override;
+    std::shared_ptr<Filesystem> mount(const std::string& url) override;
 };
 
 void init(FilesystemManager* fsman);

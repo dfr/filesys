@@ -284,14 +284,12 @@ DataFilesystem::open(const Credential& cred, const PieceId& id, int flags)
                      [](auto sattr){ sattr->setMode(0644); });
 }
 
-pair<shared_ptr<Filesystem>, string>
-DataFilesystemFactory::mount(FilesystemManager* fsman, const string& url)
+shared_ptr<Filesystem>
+DataFilesystemFactory::mount(const string& url)
 {
     UrlParser p(url);
-    return make_pair(
-        fsman->mount<DataFilesystem>(
-            p.path,
-            make_shared<posix::PosixFilesystem>(p.path)), ".");
+    return make_shared<DataFilesystem>(
+        make_shared<posix::PosixFilesystem>(p.path));
 };
 
 void filesys::data::init(FilesystemManager* fsman)
