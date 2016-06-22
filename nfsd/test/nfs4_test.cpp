@@ -102,8 +102,10 @@ public:
 
     ~Nfs4TestBase()
     {
-        fsman_.unmountAll();
-        fs_->unmount();
+        // Make sure we destroy the client before the server since the
+        // client will try to make calls to tear down its state
+        fs_.reset();
+        svc_.reset();
     }
 
     void setCred(const Credential& cred)
@@ -150,18 +152,17 @@ public:
 
         // Issue the return asynchronously
         recallThread_ = thread([=]() {
-            fs_->compound(
-                [&](auto& enc)
-                {
-                    enc.putfh(fh);
-                    enc.delegreturn(stateid);
-                },
-                [](auto& dec)
-                {
-                    dec.putfh();
-                    dec.delegreturn();
-                });
-        });
+                fs_->proto()->compound(
+                    "delegreturn",
+                    [&](auto& enc) {
+                        enc.putfh(fh);
+                        enc.delegreturn(stateid);
+                    },
+                    [](auto& dec) {
+                        dec.putfh();
+                        dec.delegreturn();
+                    });
+            });
     }
 
     void expectLayoutRecall(const stateid4& expectedStateid)
@@ -192,24 +193,23 @@ public:
         auto fh = recall.lor_layout().lor_fh;
         auto stateid = recall.lor_layout().lor_stateid;
         recallThread_ = thread([=]() {
-            fs_->compound(
-                [&](auto& enc)
-                {
-                    enc.putfh(fh);
-                    enc.layoutreturn(
-                        false, type, iomode,
-                        layoutreturn4(
-                            LAYOUTRETURN4_FILE,
-                            layoutreturn_file4{
-                                0, length4(NFS4_UINT64_MAX),
-                                stateid}));
-                },
-                [](auto& dec)
-                {
-                    dec.putfh();
-                    dec.layoutreturn();
-                });
-        });
+                fs_->proto()->compound(
+                    "layoutreturn",
+                    [&](auto& enc) {
+                        enc.putfh(fh);
+                        enc.layoutreturn(
+                            false, type, iomode,
+                            layoutreturn4(
+                                LAYOUTRETURN4_FILE,
+                                layoutreturn_file4{
+                                    0, length4(NFS4_UINT64_MAX),
+                                        stateid}));
+                    },
+                    [](auto& dec) {
+                        dec.putfh();
+                        dec.layoutreturn();
+                    });
+            });
     }
 
     static pair<OPEN4resok, nfs_fh4> open(
@@ -218,7 +218,8 @@ public:
     {
         OPEN4resok res;
         nfs_fh4 fh;
-        fs->compound(
+        fs->proto()->compound(
+            "open",
             [&](auto& enc)
             {
                 enc.putrootfh();
@@ -243,7 +244,8 @@ public:
     {
         OPEN4resok res;
         nfs_fh4 fh;
-        fs->compound(
+        fs->proto()->compound(
+            "open",
             [&](auto& enc)
             {
                 enc.putrootfh();
@@ -273,7 +275,8 @@ public:
     {
         OPEN4resok res;
         nfs_fh4 fh;
-        fs->compound(
+        fs->proto()->compound(
+            "open",
             [&](auto& enc)
             {
                 enc.putrootfh();
@@ -296,7 +299,8 @@ public:
         shared_ptr<NfsFilesystem> fs,
         const nfs_fh4& fh, const stateid4& stateid)
     {
-        fs->compound(
+        fs->proto()->compound(
+            "delegreturn",
             [&](auto& enc)
             {
                 enc.putfh(fh);
@@ -313,7 +317,8 @@ public:
         shared_ptr<NfsFilesystem> fs,
         const nfs_fh4& fh, const stateid4& stateid)
     {
-        fs->compound(
+        fs->proto()->compound(
+            "close",
             [&](auto& enc)
             {
                 enc.putfh(fh);
@@ -346,7 +351,9 @@ TEST_F(Nfs4Test, ReaddirLarge)
 TEST_F(Nfs4Test, Replay)
 {
     nfs_fh4 fh;
-    fs_->compound(
+    auto proto = fs_->proto();
+    proto->compound(
+        "",
         [](auto& enc) {
             enc.putrootfh();
             enc.getfh();
@@ -358,9 +365,10 @@ TEST_F(Nfs4Test, Replay)
 
     // The previous call will have used slot zero since we are stricly
     // single threaded in this test
-    fs_->forceReplay(0);
+    proto->forceReplay(0);
 
-    fs_->compound(
+    proto->compound(
+        "",
         [](auto& enc) {
             enc.putrootfh();
             enc.getfh();
@@ -373,10 +381,13 @@ TEST_F(Nfs4Test, Replay)
 
 TEST_F(Nfs4Test, Sequence)
 {
+    auto proto = fs_->proto();
+
     // A sequence op which is not first in the compound must return an
     // error. Note that NfsFilesystem::compound will supply the first
     // sequence op.
-    fs_->compound(
+    proto->compound(
+        "",
         [this](auto& enc) {
             enc.sequence(fs_->sessionid(), 99, 99, 99, false);
         },
@@ -394,7 +405,8 @@ TEST_F(Nfs4Test, Sequence)
 
     // Any op which is not specifically intended to work without a
     // sequence must not be first in the compound
-    fs_->compoundNoSequence(
+    proto->compoundNoSequence(
+        "",
         [](auto& enc) {
             enc.putrootfh();
         },
@@ -412,7 +424,8 @@ TEST_F(Nfs4Test, Sequence)
 
     // An operation other than sequence which can start a compound
     // must be the only operation in the compound
-    fs_->compoundNoSequence(
+    proto->compoundNoSequence(
+        "",
         [](auto& enc) {
             enc.destroy_clientid(1234);
             enc.putrootfh();
@@ -579,6 +592,7 @@ TEST_F(Nfs4Test, ShareStress)
 
 TEST_F(Nfs4Test, OpenUpgrade)
 {
+    auto proto = fs_->proto();
     open_owner4 oo1{ fs_->clientid(), { 1, 0, 0, 0 } };
     NfsAttr xattr;
     fattr4 attr;
@@ -599,7 +613,8 @@ TEST_F(Nfs4Test, OpenUpgrade)
         oo1, move(attr));
 
     // Writes should fail with NFS4ERR_OPENMODE
-    fs_->compound(
+    proto->compound(
+        "",
         [&](auto& enc)
         {
             enc.putfh(fh);
@@ -633,7 +648,8 @@ TEST_F(Nfs4Test, OpenUpgrade)
     EXPECT_EQ(res1.stateid.seqid + 1, res2.stateid.seqid);
 
     // The write should now succeed
-    fs_->compound(
+    proto->compound(
+        "",
         [&](auto& enc)
         {
             enc.putfh(fh);
@@ -646,7 +662,8 @@ TEST_F(Nfs4Test, OpenUpgrade)
         });
 
     // Trying to use the old stateid should generate an error
-    fs_->compound(
+    proto->compound(
+        "",
         [&](auto& enc)
         {
             enc.putfh(fh);
@@ -688,7 +705,7 @@ TEST_F(Nfs4Test, ExpireClientWithState)
     EXPECT_EQ(1, svc_->expireClients());
 
     // Force the client to recover
-    fs_->compound([](auto&){}, [](auto&){});
+    fs_->proto()->compound("", [](auto&){}, [](auto&){});
 }
 
 TEST_F(Nfs4Test, RevokeExpiredState)
@@ -721,7 +738,7 @@ TEST_F(Nfs4Test, RevokeExpiredState)
 
     // Force the original client to notice that it has lost state,
     // exercising test_stateid and free_stateid
-    fs_->compound([](auto&){}, [](auto&){});
+    fs_->proto()->compound("", [](auto&){}, [](auto&){});
 
     // Make sure that of2 didn't get revoked
     uint8_t buf[] = {'f', 'o', 'o'};
@@ -992,7 +1009,8 @@ TEST_F(Nfs4Test, RecallWriteLayout)
 
     // Using that stateid, request a write layout
     LAYOUTGET4resok lret;
-    fs_->compound(
+    fs_->proto()->compound(
+        "",
         [&](auto& enc)
         {
             enc.putfh(fh);
@@ -1067,7 +1085,8 @@ TEST_F(Nfs4Test, RecallReadLayout)
 
     // Using that stateid, request a read layout
     LAYOUTGET4resok lret;
-    fs_->compound(
+    fs_->proto()->compound(
+        "layoutget",
         [&](auto& enc)
         {
             enc.putfh(fh);

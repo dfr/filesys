@@ -35,10 +35,6 @@ public:
     {
         return fs_->find(exportFileHandle(fh));
     }
-    void unmount() override
-    {
-        return fs_->unmount();
-    }
     bool isData() const override {
         return true;
     }

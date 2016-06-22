@@ -52,7 +52,6 @@ public:
 
     ~DistTestBase()
     {
-        fsman_.unmountAll();
     }
 
     void setCred(const Credential& cred)

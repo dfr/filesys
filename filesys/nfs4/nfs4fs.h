@@ -29,6 +29,7 @@ constexpr detail::Clock::duration ATTR_TIMEOUT = std::chrono::seconds(5);
 class NfsDelegation;
 class NfsFilesystem;
 class NfsOpenFile;
+class NfsProto;
 
 class NfsGetattr: public Getattr
 {
@@ -136,7 +137,7 @@ public:
         const Credential& cred, std::uint64_t seek) override;
     std::shared_ptr<Fsattr> fsstat(const Credential& cred) override;
 
-    std::shared_ptr<NfsFilesystem> nfs() const;
+    auto nfs() const { return fs_.lock(); }
     const nfs_fh4& fh() const { return fh_; }
     const NfsAttr& attr() const { return attr_; }
     std::shared_ptr<NfsFile> lookupp();
@@ -158,8 +159,8 @@ public:
     }
 
     std::shared_ptr<Buffer> read(
-        const stateid4& stateid, std::uint64_t offset, std::uint32_t size,
-        bool& eof);
+        const stateid4& stateid,
+        std::uint64_t offset, std::uint32_t size, bool& eof);
     std::uint32_t write(
         const stateid4& stateid, std::uint64_t offset,
         std::shared_ptr<Buffer> data);
@@ -172,6 +173,7 @@ public:
 private:
     std::mutex mutex_;
     std::weak_ptr<NfsFilesystem> fs_;
+    std::shared_ptr<NfsProto> proto_;
     std::weak_ptr<NfsOpenFile> open_;
     std::weak_ptr<NfsDelegation> delegation_;
     nfs_fh4 fh_;
@@ -188,8 +190,10 @@ class NfsOpenFile: public OpenFile
 {
 public:
     NfsOpenFile(
-        std::shared_ptr<NfsFile> file, const stateid4& stateid, int flags)
-        : file_(file),
+        std::shared_ptr<NfsProto> proto, std::shared_ptr<NfsFile> file,
+        const stateid4& stateid, int flags)
+        : proto_(proto),
+          file_(file),
           stateid_(stateid),
           flags_(flags)
     {
@@ -207,7 +211,6 @@ public:
 
     auto stateid() const { return stateid_; }
     const nfs_fh4& fh() const { return file_->fh(); }
-    std::shared_ptr<NfsFilesystem> nfs() const { return file_->nfs(); }
     auto flags() const { return flags_; }
 
     void setStateid(const stateid4& stateid)
@@ -226,6 +229,7 @@ public:
     }
 
 private:
+    std::shared_ptr<NfsProto> proto_;
     std::shared_ptr<NfsFile> file_;
     stateid4 stateid_;
     int flags_;
@@ -241,7 +245,9 @@ class NfsDelegation
 {
 public:
     NfsDelegation(
-        std::shared_ptr<NfsFile> file, std::shared_ptr<NfsOpenFile> of,
+        std::shared_ptr<NfsProto> proto,
+        std::shared_ptr<NfsFile> file,
+        std::shared_ptr<NfsOpenFile> of,
         open_delegation4&& delegation);
 
     ~NfsDelegation();
@@ -253,6 +259,7 @@ public:
     }
 
 private:
+    std::shared_ptr<NfsProto> proto_;
     std::shared_ptr<NfsFile> file_;
     std::shared_ptr<NfsOpenFile> open_;
     stateid4 stateid_;
@@ -262,7 +269,10 @@ private:
 class NfsDirectoryIterator: public DirectoryIterator
 {
 public:
-    NfsDirectoryIterator(std::shared_ptr<NfsFile> dir, std::uint64_t seek);
+    NfsDirectoryIterator(
+        std::shared_ptr<NfsProto> proto,
+        std::shared_ptr<NfsFile> dir,
+        std::uint64_t seek);
 
     bool valid() const override;
     FileId fileid() const override;
@@ -280,6 +290,7 @@ private:
         READDIR
     } state_;
 
+    std::shared_ptr<NfsProto> proto_;
     std::shared_ptr<NfsFile> dir_;
     mutable std::shared_ptr<File> file_;
     mutable std::unique_ptr<entry4> entry_;
@@ -292,6 +303,67 @@ struct NfsFsinfo
 {
     std::uint32_t maxread;
     std::uint32_t maxwrite;
+};
+
+class NfsProto
+{
+public:
+    NfsProto(
+        NfsFilesystem* fs,
+        std::shared_ptr<oncrpc::Channel> chan,
+        std::shared_ptr<oncrpc::Client> client,
+        const std::string& clientowner,
+        std::uint32_t cbprog);
+    ~NfsProto();
+
+    auto clientid() const { return clientid_; }
+    auto sessionid() const { return sessionid_; }
+    auto channel() const { return chan_; }
+
+    /// Send a compound request
+    void compoundNoSequence(
+        const std::string& tag,
+        std::function<void(CompoundRequestEncoder&)> args,
+        std::function<void(CompoundReplyDecoder&)> res);
+
+    /// Send a compound request with OP_SEQUENCE for Exactly Once
+    /// Semantics
+    void compound(
+        const std::string& tag,
+        std::function<void(CompoundRequestEncoder&)> args,
+        std::function<void(CompoundReplyDecoder&)> res);
+
+    // Strictly for unit-testing - decrement the sequence number in a
+    // slot to test the server replay cache
+    void forceReplay(int slot) {
+        slots_[slot].sequence_--;
+    }
+
+private:
+    // Connect to server, establishing clientid and session
+    void connect();
+
+    // Disconnect from the server, cleaning up clientid and session
+    void disconnect();
+
+    struct Slot {
+        sequenceid4 sequence_ = 1;
+        bool busy_ = false;
+    };
+
+    std::mutex mutex_;
+    NfsFilesystem* fs_;
+    std::shared_ptr<oncrpc::Channel> chan_;
+    std::shared_ptr<oncrpc::Client> client_;
+    client_owner4 clientOwner_;
+    std::uint32_t cbprog_;
+    clientid4 clientid_ = 0;
+    sequenceid4 sequence_;             // sequence of the client pseudo slot
+    sessionid4 sessionid_;
+    std::vector<Slot> slots_;
+    int highestSlot_;                  // current highest slot in-use
+    int targetHighestSlot_;            // server's target slot limit
+    std::condition_variable slotWait_; // wait for free slot
 };
 
 class NfsFilesystem: public Filesystem,
@@ -313,24 +385,15 @@ public:
     std::shared_ptr<File> root() override;
     const FilesystemId& fsid() const override;
     std::shared_ptr<File> find(const FileHandle& fh) override;
-    void unmount() override;
 
-    auto channel() const { return chan_; }
-    auto clientid() const { return clientid_; }
-    auto sessionid() const { return sessionid_; }
+    auto proto() const { return proto_; }
+    auto clientid() const { return proto_->clientid(); }
+    auto sessionid() const { return proto_->sessionid(); }
     auto clock() const { return clock_; }
     auto idmapper() const { return idmapper_; }
 
-    /// Send a compound request
-    void compoundNoSequence(
-        std::function<void(CompoundRequestEncoder&)> args,
-        std::function<void(CompoundReplyDecoder&)> res);
-
-    /// Send a compound request with OP_SEQUENCE for Exactly Once
-    /// Semantics
-    void compound(
-        std::function<void(CompoundRequestEncoder&)> args,
-        std::function<void(CompoundReplyDecoder&)> res);
+    /// Unmount, returning delegations and closing open files
+    void unmount();
 
     // Find or create an NfsFile instance that corresponds to the
     // given filehandle
@@ -351,44 +414,26 @@ public:
 
     const NfsFsinfo& fsinfo() const { return fsinfo_; }
 
-    // Strictly for unit-testing - decrement the sequence number in a
-    // slot to test the server replay cache
-    void forceReplay(int slot) {
-        slots_[slot].sequence_--;
-    }
-
-private:
-    // Connect to server, establishing clientid and session
-    void connect();
-
-    // Disconnect from the server, cleaning up clientid and session
-    void disconnect();
-
     // Iterate over current state and identify any revoked state
     void freeRevokedState();
 
+    // Recover client state after a server restart
+    void recover();
+
+    // Set the number of slots to use for callbacks
+    void setSlots(int slotCount)
+    {
+        cbsvc_.setSlots(slotCount);
+    }
+
+private:
     // Service incoming RPC messages on the back channel
     void handleCallbacks();
 
-    struct Slot {
-        sequenceid4 sequence_ = 1;
-        bool busy_ = false;
-    };
-
     std::mutex mutex_;
-    std::shared_ptr<oncrpc::Channel> chan_;
-    std::shared_ptr<oncrpc::Client> client_;
+    std::shared_ptr<NfsProto> proto_;
     std::shared_ptr<detail::Clock> clock_;
     std::shared_ptr<IIdMapper> idmapper_;
-    std::string tag_;
-    client_owner4 clientOwner_;
-    clientid4 clientid_ = 0;
-    sequenceid4 sequence_;             // sequence of the client pseudo slot
-    sessionid4 sessionid_;
-    std::vector<Slot> slots_;
-    int highestSlot_;                  // current highest slot in-use
-    int targetHighestSlot_;            // server's target slot limit
-    std::condition_variable slotWait_; // wait for free slot
     std::shared_ptr<NfsFile> root_;
     NfsFsinfo fsinfo_;
     detail::LRUCache<nfs_fh4, NfsFile, NfsFhHash> cache_;

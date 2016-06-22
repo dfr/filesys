@@ -210,7 +210,6 @@ public:
     std::shared_ptr<File> root() override;
     const FilesystemId& fsid() const override;
     std::shared_ptr<File> find(const FileHandle& fh) override;
-    void unmount() override {}
 
     /// Add a path to the filesystem
     void add(const std::string& path, std::shared_ptr<File> mount);

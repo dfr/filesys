@@ -244,7 +244,6 @@ public:
     std::shared_ptr<File> root() override;
     const FilesystemId& fsid() const override;
     std::shared_ptr<File> find(const FileHandle& fh) override;
-    void unmount() override {}
     auto proto() const { return proto_; }
     auto clock() const { return clock_; }
     std::shared_ptr<NfsFile> find(const nfs_fh3& fh);

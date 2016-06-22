@@ -65,7 +65,6 @@ public:
 
     ~Nfs3TestBase()
     {
-        fsman_.unmountAll();
     }
 
     void setCred(const Credential& cred)

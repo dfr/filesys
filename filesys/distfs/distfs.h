@@ -473,7 +473,6 @@ public:
     ~DistFilesystem() override;
 
     // Filesystem overrides
-    void unmount() override;
     bool isMetadata() const override { return true; }
     std::vector<std::shared_ptr<Device>> devices(std::uint64_t& gen) override;
     std::shared_ptr<Device> findDevice(std::uint64_t& devid) override;

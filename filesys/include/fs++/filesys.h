@@ -504,12 +504,6 @@ public:
     /// Find a file given a file haldne
     virtual std::shared_ptr<File> find(const FileHandle& fh) = 0;
 
-    /// Unmount the file system, clearing any associated state. We do
-    /// this explicitly rather than via the destructor to avoid
-    /// problems caused by the restrictions of operating inside the
-    /// destructor.
-    virtual void unmount() = 0;
-
     /// Return true if this is a metadata filesystem (e.g. data is
     /// stored elsewhere and accessed using some network protocol)
     virtual bool isMetadata() const { return false; }
@@ -581,13 +575,6 @@ public:
     void mount(const std::string& name, std::shared_ptr<Filesystem> fs)
     {
         filesystems_[name] = fs;
-    }
-
-    void unmountAll()
-    {
-        for (auto fs: filesystems_)
-            fs.second->unmount();
-        filesystems_.clear();
     }
 
     void add(std::shared_ptr<FilesystemFactory> fsfac)

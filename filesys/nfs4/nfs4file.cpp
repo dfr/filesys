@@ -16,6 +16,7 @@ using namespace std;
 NfsFile::NfsFile(
     std::shared_ptr<NfsFilesystem> fs, nfs_fh4&& fh, fattr4&& attr)
     : fs_(fs),
+      proto_(fs->proto()),
       fh_(move(fh)),
       attrTime_(fs->clock()->now()),
       attr_(move(attr)),
@@ -26,6 +27,7 @@ NfsFile::NfsFile(
 NfsFile::NfsFile(
     std::shared_ptr<NfsFilesystem> fs, nfs_fh4&& fh)
     : fs_(fs),
+      proto_(fs->proto()),
       fh_(move(fh)),
       attrTime_(fs->clock()->now()),
       writeverf_({{0,0,0,0, 0,0,0,0}})
@@ -63,9 +65,9 @@ bool NfsFile::access(const Credential& cred, int accmode)
         else
             flags |= ACCESS4_EXECUTE;
     }
-    auto fs = nfs();
     bool res;
-    fs->compound(
+    proto_->compound(
+        "access",
         [this, flags](auto& enc) {
             enc.putfh(fh_);
             enc.access(flags);
@@ -80,11 +82,11 @@ bool NfsFile::access(const Credential& cred, int accmode)
 shared_ptr<Getattr> NfsFile::getattr()
 {
     auto deleg = delegation_.lock();
-    auto fs = nfs();
     if (!deleg) {
-        auto now = fs->clock()->now();
+        auto now = nfs()->clock()->now();
         if (now - attrTime_ > ATTR_TIMEOUT) {
-            fs->compound(
+            proto_->compound(
+                "getattr",
                 [this](auto& enc) {
                     bitmap4 wanted;
                     setSupportedAttrs(wanted);
@@ -97,18 +99,17 @@ shared_ptr<Getattr> NfsFile::getattr()
                 });
         }
     }
-    return make_shared<NfsGetattr>(attr_, fs->idmapper());
+    return make_shared<NfsGetattr>(attr_, nfs()->idmapper());
 }
 
 void NfsFile::setattr(const Credential&, function<void(Setattr*)> cb)
 {
-    auto fs = nfs();
-
     NfsSetattr sattr;
     cb(&sattr);
     fattr4 attr;
     sattr.encode(attr);
-    fs->compound(
+    proto_->compound(
+        "setattr",
         [this, &attr](auto& enc) {
             bitmap4 wanted;
             setSupportedAttrs(wanted);
@@ -125,8 +126,6 @@ void NfsFile::setattr(const Credential&, function<void(Setattr*)> cb)
 
 shared_ptr<File> NfsFile::lookup(const Credential&, const string& name)
 {
-    auto fs = nfs();
-
     if (attr_.type_ != NF4DIR)
         throw system_error(ENOTDIR, system_category());
 
@@ -136,7 +135,8 @@ shared_ptr<File> NfsFile::lookup(const Credential&, const string& name)
 
     nfs_fh4 fh;
     fattr4 attr;
-    fs->compound(
+    proto_->compound(
+        "lookup",
         [this, &name](auto& enc) {
             bitmap4 wanted;
             setSupportedAttrs(wanted);
@@ -160,7 +160,7 @@ shared_ptr<File> NfsFile::lookup(const Credential&, const string& name)
             fh = move(dec.getfh().object);
         });
 
-    return fs->find(move(fh), move(attr));
+    return fs_.lock()->find(move(fh), move(attr));
 }
 
 shared_ptr<OpenFile> NfsFile::open(
@@ -168,7 +168,6 @@ shared_ptr<OpenFile> NfsFile::open(
     function<void(Setattr*)> cb)
 {
     std::unique_lock<std::mutex> lock(mutex_);
-    auto fs = nfs();
 
     // If we are opening non-exclusively, first check to see if it
     // already exists since we might already have a delegation
@@ -176,7 +175,8 @@ shared_ptr<OpenFile> NfsFile::open(
         try {
             nfs_fh4 fh;
             fattr4 attr;
-            fs->compound(
+            proto_->compound(
+                "open",
                 [this, &name](auto& enc) {
                     bitmap4 wanted;
                     setSupportedAttrs(wanted);
@@ -193,7 +193,7 @@ shared_ptr<OpenFile> NfsFile::open(
                     attr = move(dec.getattr().obj_attributes);
                     fh = move(dec.getfh().object);
                 });
-            auto file = fs->find(move(fh), move(attr));
+            auto file = nfs()->find(move(fh), move(attr));
             if (file->open_.lock()) {
                 // If we don't already have the file open, use the
                 // full logic below so that we handle truncate
@@ -211,11 +211,12 @@ shared_ptr<OpenFile> NfsFile::open(
     }
 
     // We open everything with the same owner
-    open_owner4 oo{ fs->clientid(), { 1, 0, 0, 0 } };
+    open_owner4 oo{ proto_->clientid(), { 1, 0, 0, 0 } };
     nfs_fh4 fh;
     fattr4 attr;
     OPEN4resok res;
-    fs->compound(
+    proto_->compound(
+        "open",
         [this, flags, &name, &oo, cb](auto& enc) {
             bitmap4 wanted;
             setSupportedAttrs(wanted);
@@ -274,17 +275,16 @@ shared_ptr<OpenFile> NfsFile::open(
             attr = move(dec.getattr().obj_attributes);
             fh = move(dec.getfh().object);
         });
-    auto f = fs->find(move(fh), move(attr));
-    auto of = make_shared<NfsOpenFile>(f, res.stateid, flags);
+    auto f = nfs()->find(move(fh), move(attr));
+    auto of = make_shared<NfsOpenFile>(proto_, f, res.stateid, flags);
     f->open_ = of;
-    f->delegation_ = fs->addDelegation(f, of, move(res.delegation));
+    f->delegation_ = nfs()->addDelegation(f, of, move(res.delegation));
     return of;
 }
 
 std::shared_ptr<OpenFile> NfsFile::open(const Credential& cred, int flags)
 {
     std::unique_lock<std::mutex> lock(mutex_);
-    auto fs = nfs();
 
     if (flags & OpenFlags::EXCLUSIVE)
         throw system_error(EINVAL, system_category());
@@ -308,7 +308,7 @@ std::shared_ptr<OpenFile> NfsFile::open(const Credential& cred, int flags)
                         attr_.change_++;
                         lastChange_ = attr_.change_;
                     }
-                    attr_.time_modify_ = toNfsTime(fs->clock()->now());
+                    attr_.time_modify_ = toNfsTime(nfs()->clock()->now());
                     attr_.size_ = 0;
                 }
                 else {
@@ -322,9 +322,10 @@ std::shared_ptr<OpenFile> NfsFile::open(const Credential& cred, int flags)
     lock.unlock();
 
     // We open everything with the same owner
-    open_owner4 oo{ fs->clientid(), { 1, 0, 0, 0 } };
+    open_owner4 oo{ nfs()->clientid(), { 1, 0, 0, 0 } };
     OPEN4resok res;
-    fs->compound(
+    proto_->compound(
+        "open",
         [this, flags, &oo](auto& enc) {
             enc.putfh(fh_);
             int access = 0;
@@ -358,20 +359,20 @@ std::shared_ptr<OpenFile> NfsFile::open(const Credential& cred, int flags)
         return of;
     }
     else {
-        of = make_shared<NfsOpenFile>(shared_from_this(), res.stateid, flags);
+        of = make_shared<NfsOpenFile>(
+            proto_, shared_from_this(), res.stateid, flags);
     }
     open_ = of;
-    delegation_ = fs->addDelegation(
+    delegation_ = nfs()->addDelegation(
         shared_from_this(), of, move(res.delegation));
     return of;
 }
 
 string NfsFile::readlink(const Credential&)
 {
-    auto fs = nfs();
-
     linktext4 data;
-    fs->compound(
+    proto_->compound(
+        "readlink",
         [this](auto& enc) {
             bitmap4 wanted;
             setSupportedAttrs(wanted);
@@ -410,8 +411,8 @@ std::shared_ptr<File> NfsFile::mkfifo(
 
 void NfsFile::remove(const Credential&, const string& name)
 {
-    auto fs = nfs();
-    fs->compound(
+    proto_->compound(
+        "remove",
         [this, &name](auto& enc) {
             bitmap4 wanted;
             setSupportedAttrs(wanted);
@@ -447,8 +448,8 @@ void NfsFile::remove(const Credential&, const string& name)
 
 void NfsFile::rmdir(const Credential&, const string& name)
 {
-    auto fs = nfs();
-    fs->compound(
+    proto_->compound(
+        "rmdir",
         [this, &name](auto& enc) {
             bitmap4 wanted;
             setSupportedAttrs(wanted);
@@ -486,9 +487,9 @@ void NfsFile::rename(
     const Credential&, const string& toName,
     shared_ptr<File> fromDir, const string& fromName)
 {
-    auto fs = nfs();
     auto from = dynamic_cast<NfsFile*>(fromDir.get());
-    fs->compound(
+    proto_->compound(
+        "rename",
         [this, from, &fromName, &toName](auto& enc) {
             bitmap4 wanted;
             setSupportedAttrs(wanted);
@@ -514,9 +515,9 @@ void NfsFile::rename(
 void NfsFile::link(
     const Credential&, const std::string& name, std::shared_ptr<File> file)
 {
-    auto fs = nfs();
     auto from = dynamic_cast<NfsFile*>(file.get());
-    fs->compound(
+    proto_->compound(
+        "link",
         [this, from, &name](auto& enc) {
             bitmap4 wanted;
             setSupportedAttrs(wanted);
@@ -537,14 +538,15 @@ void NfsFile::link(
 
 shared_ptr<DirectoryIterator> NfsFile::readdir(const Credential&, uint64_t seek)
 {
-    return make_shared<NfsDirectoryIterator>(shared_from_this(), seek);
+    return make_shared<NfsDirectoryIterator>(
+        proto_, shared_from_this(), seek);
 }
 
 std::shared_ptr<Fsattr> NfsFile::fsstat(const Credential&)
 {
     auto res = make_shared<NfsFsattr>();
-    auto fs = nfs();
-    fs->compound(
+    proto_->compound(
+        "fsstat",
         [this](auto& enc) {
             bitmap4 wanted;
             set(wanted, FATTR4_FILES_AVAIL);
@@ -563,20 +565,12 @@ std::shared_ptr<Fsattr> NfsFile::fsstat(const Credential&)
     return res;
 }
 
-shared_ptr<NfsFilesystem> NfsFile::nfs() const
-{
-    auto fs = fs_.lock();
-    if (!fs)
-        throw std::system_error(EIO, system_category());
-    return fs;
-}
-
 std::shared_ptr<NfsFile> NfsFile::lookupp()
 {
     nfs_fh4 fh;
     fattr4 attr;
-    auto fs = nfs();
-    fs->compound(
+    proto_->compound(
+        "lookupp",
         [this](auto& enc) {
             bitmap4 wanted;
             setSupportedAttrs(wanted);
@@ -591,21 +585,20 @@ std::shared_ptr<NfsFile> NfsFile::lookupp()
             attr = move(dec.getattr().obj_attributes);
             fh = move(dec.getfh().object);
         });
-    return fs->find(move(fh), move(attr));
+    return nfs()->find(move(fh), move(attr));
 }
 
 shared_ptr<File> NfsFile::create(
     const createtype4& objtype, const utf8string& objname,
     function<void(Setattr*)> cb)
 {
-    auto fs = nfs();
-
     NfsSetattr sattr;
     cb(&sattr);
     nfs_fh4 fh;
     fattr4 attr;
     sattr.encode(attr);
-    fs->compound(
+    proto_->compound(
+        "create",
         [this, &objtype, &objname, &attr](auto& enc) {
             bitmap4 wanted;
             setSupportedAttrs(wanted);
@@ -625,34 +618,34 @@ shared_ptr<File> NfsFile::create(
             update(move(dec.getattr().obj_attributes));
         });
 
-    return fs->find(move(fh), move(attr));
+    return nfs()->find(move(fh), move(attr));
 }
 
 void NfsFile::clearDelegation()
 {
     auto deleg = delegation_.lock();
     if (deleg) {
-        fs_.lock()->clearDelegation(deleg->stateid());
+        nfs()->clearDelegation(deleg->stateid());
         delegation_.reset();
         modified_ = false;
     }
 }
 
 std::shared_ptr<Buffer> NfsFile::read(
-    const stateid4& stateid, std::uint64_t offset, std::uint32_t count,
-    bool& eof)
+    const stateid4& stateid,
+    std::uint64_t offset, std::uint32_t count, bool& eof)
 {
-    auto fs = nfs();
     std::unique_lock<std::mutex> lock(mutex_);
     auto buf = cache_.get(offset, count);
     if (buf && buf->size() == count) {
         VLOG(1) << "fileid: " << attr_.fileid_
                 << ": read cache hit, offset: " << offset;
         eof = offset + buf->size() == attr_.size_;
-        auto now = toNfsTime(fs->clock()->now());
+        auto now = toNfsTime(nfs()->clock()->now());
         attr_.time_access_ = now;
         // XXX: avoid the rpc if we have a delegation?
-        fs_.lock()->compound(
+        proto_->compound(
+            "setattr",
             [this, now](auto& enc) {
                 NfsAttr xattr;
                 set(xattr.attrmask_, FATTR4_TIME_ACCESS_SET);
@@ -673,11 +666,12 @@ std::shared_ptr<Buffer> NfsFile::read(
             << ": read cache miss, offset: " << offset;
     lock.unlock();
 
-    if (count > fs->fsinfo().maxread)
-        count = fs->fsinfo().maxread;
+    if (count > nfs()->fsinfo().maxread)
+        count = nfs()->fsinfo().maxread;
 
     READ4resok res;
-    fs->compound(
+    proto_->compound(
+        "read",
         [this, &stateid, offset, count](auto& enc) {
             bitmap4 wanted;
             setSupportedAttrs(wanted);
@@ -697,10 +691,9 @@ std::shared_ptr<Buffer> NfsFile::read(
 }
 
 std::uint32_t NfsFile::write(
-    const stateid4& stateid, std::uint64_t offset,
-    std::shared_ptr<Buffer> data)
+    const stateid4& stateid,
+    std::uint64_t offset, std::shared_ptr<Buffer> data)
 {
-    auto fs = nfs();
     std::unique_lock<std::mutex> lock(mutex_);
     auto deleg = delegation_.lock();
     if (deleg && deleg->isWrite()) {
@@ -712,16 +705,17 @@ std::uint32_t NfsFile::write(
         }
         if (offset + data->size() > attr_.size_)
             attr_.size_ = offset + data->size();
-        attr_.time_modify_ = toNfsTime(fs->clock()->now());
+        attr_.time_modify_ = toNfsTime(nfs()->clock()->now());
         cache_.add(detail::DataCache::DIRTY, offset, data);
         return data->size();
     }
     lock.unlock();
 
-    if (data->size() > fs->fsinfo().maxwrite)
-        data = make_shared<Buffer>(data, 0, fs->fsinfo().maxwrite);
+    if (data->size() > nfs()->fsinfo().maxwrite)
+        data = make_shared<Buffer>(data, 0, nfs()->fsinfo().maxwrite);
     WRITE4resok res;
-    fs->compound(
+    proto_->compound(
+        "write",
         [this, &stateid, offset, data](auto& enc) {
             bitmap4 wanted;
             setSupportedAttrs(wanted);
@@ -816,9 +810,9 @@ retry:
         if (maxEnd > minStart) {
             VLOG(1) << "fileid: " << attr_.fileid_
                     << ": committing [" << minStart << "..." << maxEnd << ")";
-            auto fs = nfs();
             verifier4 writeverf;
-            fs->compound(
+            proto_->compound(
+                "commit",
                 [this, minStart, maxEnd](auto& enc) {
                     enc.putfh(fh_);
                     enc.commit(minStart, maxEnd - minStart);
@@ -880,9 +874,10 @@ void NfsFile::recover()
         auto fs = nfs();
 
         // We open everything with the same owner
-        open_owner4 oo{ fs->clientid(), { 1, 0, 0, 0 } };
+        open_owner4 oo{ nfs()->clientid(), { 1, 0, 0, 0 } };
         OPEN4resok res;
-        fs->compound(
+        proto_->compound(
+            "recover",
             [this, of, &oo](auto& enc) {
                 enc.putfh(fh_);
                 int access = 0;
@@ -933,7 +928,8 @@ void NfsFile::testState()
     if (of) {
         auto fs = nfs();
         bool bad = false;
-        fs->compound(
+        proto_->compound(
+            "test_stateid",
             [of](auto& enc) {
                 enc.test_stateid(vector<stateid4>{of->stateid()});
             },
@@ -943,7 +939,8 @@ void NfsFile::testState()
                     bad = true;
             });
         if (bad) {
-            fs->compound(
+            proto_->compound(
+                "free_stateid",
                 [of](auto& enc) {
                     enc.free_stateid(of->stateid());
                 },
@@ -961,8 +958,8 @@ NfsOpenFile::~NfsOpenFile()
     if (!dead_) {
         try {
             file_->flush(stateid_, true);
-            auto fs = file_->nfs();
-            fs->compound(
+            proto_->compound(
+                "close",
                 [this](auto& enc) {
                     enc.putfh(file_->fh());
                     enc.close(0, stateid_);

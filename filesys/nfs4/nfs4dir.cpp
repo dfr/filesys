@@ -11,8 +11,11 @@ using namespace filesys::nfs4;
 using namespace std;
 
 NfsDirectoryIterator::NfsDirectoryIterator(
-    std::shared_ptr<NfsFile> dir, std::uint64_t seek)
-    : dir_(dir)
+    std::shared_ptr<NfsProto> proto,
+    std::shared_ptr<NfsFile> dir,
+    std::uint64_t seek)
+    : proto_(proto),
+      dir_(dir)
 {
     if (seek == 0)
         state_ = ISDOT;
@@ -102,7 +105,8 @@ void NfsDirectoryIterator::readdir(nfs_cookie4 cookie)
         std::fill_n(verf_.data(), verf_.size(), 0);
     }
     try {
-        dir_->nfs()->compound(
+        proto_->compound(
+            "readdir",
             [this, cookie](auto& enc) {
                 bitmap4 wanted;
                 setSupportedAttrs(wanted);

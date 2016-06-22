@@ -313,7 +313,6 @@ public:
     std::shared_ptr<File> root() override;
     const FilesystemId& fsid() const override;
     std::shared_ptr<File> find(const FileHandle& fh) override;
-    void unmount() override;
     bool isData() const override { return true; }
 
     // DataStore overrides

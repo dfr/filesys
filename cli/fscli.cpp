@@ -169,6 +169,4 @@ int main(int argc, char** argv)
     }
     if (input != &cin)
         delete input;
-
-    fsman.unmountAll();
 }

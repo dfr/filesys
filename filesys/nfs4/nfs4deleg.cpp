@@ -13,9 +13,12 @@ using namespace filesys::nfs4;
 using namespace std;
 
 NfsDelegation::NfsDelegation(
-    shared_ptr<NfsFile> file, shared_ptr<NfsOpenFile> of,
+    shared_ptr<NfsProto> proto,
+    shared_ptr<NfsFile> file,
+    shared_ptr<NfsOpenFile> of,
     open_delegation4&& delegation)
-    : file_(file),
+    : proto_(proto),
+      file_(file),
       open_(of),
       delegation_(move(delegation))
 {
@@ -32,8 +35,8 @@ NfsDelegation::~NfsDelegation()
     file_->clearDelegation();
     file_->flush(stateid_, false);
 
-    auto fs = open_->nfs();
-    fs->compound(
+    proto_->compound(
+        "delegreturn",
         [this](auto& enc) {
             enc.putfh(open_->fh());
             enc.delegreturn(stateid_);

@@ -220,7 +220,6 @@ public:
     std::shared_ptr<File> root() override;
     const FilesystemId& fsid() const override;
     std::shared_ptr<File> find(const FileHandle& fh) override;
-    void unmount() override {}
 
     std::shared_ptr<PosixFile> find(
         std::shared_ptr<PosixFile> parent,

@@ -131,17 +131,10 @@ DistFilesystem::DistFilesystem(unique_ptr<Database> db, const string& addr)
 
 DistFilesystem::~DistFilesystem()
 {
-    for (auto& entry: dscache_)
-        entry.second->unmount();
+    unbind(svcreg_);
     dscache_.clear();
-
     sockman_->stop();
     thread_.join();
-}
-
-void DistFilesystem::unmount()
-{
-    unbind(svcreg_);
 }
 
 vector<shared_ptr<Device>> DistFilesystem::devices(uint64_t& gen)
@@ -222,11 +215,7 @@ void DistFilesystem::status(const STATUSargs& args)
         if (it == devicesToRestore_.end()) {
             // Purge any existing connection to the device since it
             // has apparently restarted
-            auto ds = dscache_.remove(dev->id());
-            if (ds) {
-                ds->unmount();
-                ds.reset();
-            }
+            dscache_.remove(dev->id());
             LOG(INFO) << "Scheduling a task to restore device " << dev->id();
             devicesToRestore_.insert(dev);
             sockman_->add(

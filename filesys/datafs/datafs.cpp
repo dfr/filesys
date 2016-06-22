@@ -126,12 +126,6 @@ DataFilesystem::find(const FileHandle& fh)
     return find(cred, PieceId{FileId(fileid), offset, size});
 }
 
-void
-DataFilesystem::unmount()
-{
-    store_->unmount();
-}
-
 shared_ptr<File>
 DataFilesystem::findPiece(const Credential& cred, const PieceId& id)
 {
