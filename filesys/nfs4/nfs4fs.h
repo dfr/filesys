@@ -168,6 +168,7 @@ public:
     void update(fattr4&& attr);
     void update(std::unique_lock<std::mutex>& lock, fattr4&& attr);
     void recover();
+    void close();
     void testState();
 
 private:
@@ -212,6 +213,7 @@ public:
     auto stateid() const { return stateid_; }
     const nfs_fh4& fh() const { return file_->fh(); }
     auto flags() const { return flags_; }
+    auto dead() const { return dead_; }
 
     void setStateid(const stateid4& stateid)
     {

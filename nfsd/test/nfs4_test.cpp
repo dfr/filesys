@@ -1137,3 +1137,18 @@ TEST_F(Nfs4Test, RecallReadLayout)
     close(fs_, fh, res1.stateid);
     close(fs2, fh, res2.stateid);
 }
+
+TEST_F(Nfs4Test, CloseOnUnmount)
+{
+    // We should forcibly close any open files then the filesystem is
+    // unmounted
+    Credential cred(0, 0, {}, true);
+    auto of = fs_->root()->open(
+        cred, "foo", OpenFlags::RDWR+OpenFlags::CREATE, setMode666);
+
+    fs_->unmount();
+
+    uint8_t buf[] = {'f', 'o', 'o'};
+    auto data = make_shared<Buffer>(3, buf);
+    EXPECT_THROW(of->write(0, data), system_error);
+}

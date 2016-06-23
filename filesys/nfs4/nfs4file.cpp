@@ -922,6 +922,24 @@ void NfsFile::recover()
     }
 }
 
+void NfsFile::close()
+{
+    auto of = open_.lock();
+    if (of && !of->dead()) {
+        proto_->compound(
+            "close",
+            [this, of](auto& enc) {
+                enc.putfh(fh_);
+                enc.close(0, of->stateid());
+            },
+            [](auto& dec) {
+                dec.putfh();
+                dec.close();
+            });
+        of->setDead();
+    }
+}
+
 void NfsFile::testState()
 {
     auto of = open_.lock();

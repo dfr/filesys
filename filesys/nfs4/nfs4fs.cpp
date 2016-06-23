@@ -132,10 +132,14 @@ NfsFilesystem::unmount()
 {
     // Clear our delegation cache to return the delegations back to
     // the server
+    VLOG(1) << "returning delegations";
     delegations_.clear();
 
-    // XXX we should keep track of NfsOpenFile instances and
-    // force-close them here
+    VLOG(1) << "closing open files";
+    auto lock = cache_.lock();
+    for (auto& e: cache_) {
+        e.second->close();
+    }
 
     proto_.reset();
 }
