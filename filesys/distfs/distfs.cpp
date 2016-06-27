@@ -437,7 +437,7 @@ void DistFilesystem::addDataStore(std::shared_ptr<DataStore> ds)
     auto fsid = ds->fsid();
     distfs_owner owner;
     owner.do_verifier = {{0,0,0,0, 0,0,0,0}};
-    owner.do_ownerid = DSOwnerId(fsid);
+    owner.do_ownerid = fsid;
 
     int id = nextDeviceId_++;
     auto dev = make_shared<DistDevice>(
