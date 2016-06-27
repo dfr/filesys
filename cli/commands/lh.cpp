@@ -14,7 +14,7 @@ using namespace std;
 
 namespace filesys {
 
-static void printByteArray(const vector<uint8_t>& buf)
+static void printByteArray(const oncrpc::bounded_vector<uint8_t, 128>& buf)
 {
     static char hexdigits[] = "0123456789abcdef";
     for (auto byte: buf) {

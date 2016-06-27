@@ -146,7 +146,10 @@ struct AccessFlags
 struct FileHandle
 {
     int version = 1;
-    std::vector<std::uint8_t> handle; // filesystem-specific handle
+
+    /// filesystem-specific handle
+    oncrpc::bounded_vector<std::uint8_t, 128> handle;
+
     int operator==(const FileHandle& other) const
     {
         return version == other.version &&
