@@ -56,15 +56,16 @@ std::string filesys::leafEntry(const std::string& path)
 string filesys::humanizeNumber(long val)
 {
     static char suffix[] = "KMGTPE";
+    double divisor = 1024.0;
     int i;
 
-    if (val < 1000l)
+    if (val < divisor)
         return to_string(val);
 
-    double v = double(val / 1000);
+    double v = double(val) / divisor;
     i = 0;
-    while (v > 1000.0 && i < 6) {
-        v /= 1000.0;
+    while (v > divisor && i < 6) {
+        v /= divisor;
         i++;
     }
     char buf[10];
