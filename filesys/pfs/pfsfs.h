@@ -98,12 +98,13 @@ private:
 class PfsFsattr: public Fsattr
 {
 public:
-    size_t tbytes() const override { return 0; }
-    size_t fbytes() const override { return 0; }
-    size_t abytes() const override { return 0; }
-    size_t tfiles() const override { return 0; }
-    size_t ffiles() const override { return 0; }
-    size_t afiles() const override { return 0; }
+    size_t totalSpace() const override { return 0; }
+    size_t freeSpace() const override { return 0; }
+    size_t availSpace() const override { return 0; }
+    size_t totalFiles() const override { return 0; }
+    size_t freeFiles() const override { return 0; }
+    size_t availFiles() const override { return 0; }
+
     int linkMax() const override
     {
         return 0;

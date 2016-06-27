@@ -66,12 +66,13 @@ class NfsFsattr: public Fsattr
 public:
     NfsFsattr(const FSSTAT3resok& stat, const PATHCONF3resok& pc);
 
-    size_t tbytes() const override { return tbytes_; }
-    size_t fbytes() const override { return fbytes_; }
-    size_t abytes() const override { return abytes_; }
-    size_t tfiles() const override { return tfiles_; }
-    size_t ffiles() const override { return ffiles_; }
-    size_t afiles() const override { return afiles_; }
+    size_t totalSpace() const override { return tbytes_; }
+    size_t freeSpace() const override { return fbytes_; }
+    size_t availSpace() const override { return abytes_; }
+    size_t totalFiles() const override { return tfiles_; }
+    size_t freeFiles() const override { return ffiles_; }
+    size_t availFiles() const override { return afiles_; }
+
     int linkMax() const override
     {
         return linkMax_;

@@ -440,12 +440,13 @@ public:
         : storage_(storage)
     {}
 
-    size_t tbytes() const override { return storage_.totalSpace; }
-    size_t fbytes() const override { return storage_.freeSpace; }
-    size_t abytes() const override { return storage_.availSpace; }
-    size_t tfiles() const override { return 0; }
-    size_t ffiles() const override { return 0; }
-    size_t afiles() const override { return 0; }
+    size_t totalSpace() const override { return storage_.totalSpace; }
+    size_t freeSpace() const override { return storage_.freeSpace; }
+    size_t availSpace() const override { return storage_.availSpace; }
+    size_t totalFiles() const override { return 0; }
+    size_t freeFiles() const override { return 0; }
+    size_t availFiles() const override { return 0; }
+
     int linkMax() const override
     {
         return std::numeric_limits<int>::max();

@@ -272,13 +272,14 @@ shared_ptr<DirectoryIterator> PosixFile::readdir(
     return make_shared<PosixDirectoryIterator>(fs_.lock(), shared_from_this());
 }
 
-shared_ptr<Fsattr> PosixFile::fsstat(const Credential&)
+shared_ptr<Fsattr> PosixFile::fsstat(const Credential& cred)
 {
     auto res = make_shared<PosixFsattr>();
     if (::fstatfs(fd_, &res->stat) < 0)
         throw system_error(errno, system_category());
     res->linkMax_ = ::fpathconf(fd_, _PC_LINK_MAX);
     res->nameMax_ = ::fpathconf(fd_, _PC_NAME_MAX);
+    res->privcred_ = cred.privileged();
     return res;
 }
 

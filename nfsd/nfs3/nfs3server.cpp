@@ -1010,12 +1010,12 @@ FSSTAT3res NfsServer::fsstat(const FSSTAT3args& args)
             NFS3_OK,
             FSSTAT3resok{
                 post_op_attr(true, exportAttr(obj)),
-                stat->tbytes(),
-                stat->abytes(),
-                stat->fbytes(),
-                stat->tfiles(),
-                stat->afiles(),
-                stat->ffiles(),
+                stat->totalSpace(),
+                stat->freeSpace(),
+                stat->availSpace(),
+                stat->totalFiles(),
+                stat->freeFiles(),
+                stat->availFiles(),
                 0}};
     }
     catch (system_error& e) {

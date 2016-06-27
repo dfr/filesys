@@ -114,9 +114,9 @@ CREATEPIECEres DataServer::createPiece(const CREATEPIECEargs& args)
             Credential cred{0, 0, {}, true};
             auto fsattr = ds->root()->fsstat(cred);
             StorageStatus storage;
-            storage.totalSpace = fsattr->tbytes();
-            storage.freeSpace = fsattr->fbytes();
-            storage.availSpace = fsattr->abytes();
+            storage.totalSpace = fsattr->totalSpace();
+            storage.freeSpace = fsattr->freeSpace();
+            storage.availSpace = fsattr->availSpace();
 
             return CREATEPIECEres(DISTFS_OK, CREATEPIECEresok{nfh, storage});
         }

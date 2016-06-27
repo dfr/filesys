@@ -2678,32 +2678,32 @@ fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)
             case FATTR4_FILES_AVAIL:
                 if (!fsattr)
                     fsattr = file->fsstat(cred);
-                xattr.files_avail_ = fsattr->afiles();
+                xattr.files_avail_ = fsattr->availFiles();
                 break;
             case FATTR4_FILES_FREE:
                 if (!fsattr)
                     fsattr = file->fsstat(cred);
-                xattr.files_free_ = fsattr->ffiles();
+                xattr.files_free_ = fsattr->freeFiles();
                 break;
             case FATTR4_FILES_TOTAL:
                 if (!fsattr)
                     fsattr = file->fsstat(cred);
-                xattr.files_total_ = fsattr->tfiles();
+                xattr.files_total_ = fsattr->totalFiles();
                 break;
             case FATTR4_SPACE_AVAIL:
                 if (!fsattr)
                     fsattr = file->fsstat(cred);
-                xattr.space_avail_ = fsattr->abytes();
+                xattr.space_avail_ = fsattr->availSpace();
                 break;
             case FATTR4_SPACE_FREE:
                 if (!fsattr)
                     fsattr = file->fsstat(cred);
-                xattr.space_free_ = fsattr->fbytes();
+                xattr.space_free_ = fsattr->freeSpace();
                 break;
             case FATTR4_SPACE_TOTAL:
                 if (!fsattr)
                     fsattr = file->fsstat(cred);
-                xattr.space_total_ = fsattr->tbytes();
+                xattr.space_total_ = fsattr->totalSpace();
                 break;
             case FATTR4_MAXREAD:
                 xattr.maxread_ = FLAGS_iosize;

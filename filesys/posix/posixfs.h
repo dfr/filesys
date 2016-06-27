@@ -77,30 +77,35 @@ public:
 class PosixFsattr: public Fsattr
 {
 public:
-    size_t tbytes() const override
+    size_t totalSpace() const override
     {
         return stat.f_blocks * stat.f_bsize;
     }
-    size_t fbytes() const override
+    size_t freeSpace() const override
     {
         return stat.f_bfree * stat.f_bsize;
     }
-    size_t abytes() const override
+    size_t availSpace() const override
     {
-        return stat.f_bavail * stat.f_bsize;
+        if (privcred_)
+            return stat.f_bfree * stat.f_bsize;
+        else
+            return stat.f_bavail * stat.f_bsize;
     }
-    size_t tfiles() const override
+
+    size_t totalFiles() const override
     {
         return stat.f_files;
     }
-    size_t ffiles() const override
+    size_t freeFiles() const override
     {
         return stat.f_ffree;
     }
-    size_t afiles() const override
+    size_t availFiles() const override
     {
         return stat.f_ffree;
     }
+
     int linkMax() const override
     {
         return linkMax_;
@@ -113,6 +118,7 @@ public:
     struct ::statfs stat;
     int linkMax_;
     int nameMax_;
+    bool privcred_;
 };
 
 class PosixFile: public File, public std::enable_shared_from_this<PosixFile>

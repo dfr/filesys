@@ -78,12 +78,13 @@ public:
 class NfsFsattr: public Fsattr
 {
 public:
-    size_t tbytes() const override { return attr_.space_total_; }
-    size_t fbytes() const override { return attr_.space_free_; }
-    size_t abytes() const override { return attr_.space_avail_; }
-    size_t tfiles() const override { return attr_.files_total_; }
-    size_t ffiles() const override { return attr_.files_free_; }
-    size_t afiles() const override { return attr_.files_avail_; }
+    size_t totalSpace() const override { return attr_.space_total_; }
+    size_t freeSpace() const override { return attr_.space_free_; }
+    size_t availSpace() const override { return attr_.space_avail_; }
+    size_t totalFiles() const override { return attr_.files_total_; }
+    size_t freeFiles() const override { return attr_.files_free_; }
+    size_t availFiles() const override { return attr_.files_avail_; }
+
     int linkMax() const override
     {
         return 0;

@@ -27,9 +27,9 @@ static void reportStatusHelper(
     auto fsattr = ds->root()->fsstat(cred);
     distfs::STATUSargs args;
     args.device = device;
-    args.storage.totalSpace = fsattr->tbytes();
-    args.storage.freeSpace = fsattr->fbytes();
-    args.storage.availSpace = fsattr->abytes();
+    args.storage.totalSpace = fsattr->totalSpace();
+    args.storage.freeSpace = fsattr->freeSpace();
+    args.storage.availSpace = fsattr->availSpace();
     auto chan = oncrpc::Channel::open(addr);
     distfs::DistfsMds1<oncrpc::SysClient> mds(chan);
     mds.status(args);

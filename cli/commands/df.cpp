@@ -54,9 +54,9 @@ public:
         for (auto& mnt: mntlist) {
             auto stat = mnt.second->fsstat(state.cred());
             tf(mnt.first,
-               humanizeNumber(stat->tbytes()),
-               humanizeNumber(stat->tbytes() - stat->fbytes()),
-               humanizeNumber(stat->abytes()));
+               humanizeNumber(stat->totalSpace()),
+               humanizeNumber(stat->totalSpace() - stat->freeSpace()),
+               humanizeNumber(stat->availSpace()));
         }
     }
 };

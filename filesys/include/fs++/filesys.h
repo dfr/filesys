@@ -272,13 +272,29 @@ class Fsattr
 {
 public:
     virtual ~Fsattr() {}
-    virtual size_t tbytes() const = 0;
-    virtual size_t fbytes() const = 0;
-    virtual size_t abytes() const = 0;
-    virtual size_t tfiles() const = 0;
-    virtual size_t ffiles() const = 0;
-    virtual size_t afiles() const = 0;
+
+    /// Total filesystem capacity in bytes
+    virtual size_t totalSpace() const = 0;
+
+    /// Space free in bytes
+    virtual size_t freeSpace() const = 0;
+
+    /// Space available for uses with the current credential in bytes
+    virtual size_t availSpace() const = 0;
+
+    /// Maximum number of files in filesystem
+    virtual size_t totalFiles() const = 0;
+
+    /// Number of free files in filesystem
+    virtual size_t freeFiles() const = 0;
+
+    /// Available capacity for new files for the current credential
+    virtual size_t availFiles() const = 0;
+
+    /// Maximum size of symbolic link data
     virtual int linkMax() const = 0;
+
+    /// Maximum length of a file name
     virtual int nameMax() const = 0;
 };
 
