@@ -2273,15 +2273,24 @@ void NfsServer::compound(oncrpc::CallContext&& ctx)
                         state.session->client()->setExpiry(leaseExpiry());
                     }
                     if (state.slot) {
-                        if (seqargs.sa_sequenceid == state.slot->sequence) {
-                            state.slot->reply->copyTo(xresults);
+                        auto slotp = state.slot;
+                        if (seqargs.sa_sequenceid == slotp->sequence) {
+                            slotp->reply->copyTo(xresults);
                             return;
                         }
-                        state.slot->sequence++;
+                        slotp->sequence++;
                         auto& ctx = CallContext::current();
-                        state.slot->reply = make_unique<oncrpc::Message>(
-                            ctx.channel()->bufferSize());
-                        xreply = state.slot->reply.get();
+                        auto sz = ctx.channel()->bufferSize();
+                        if (slotp->reply && slotp->reply->bufferSize() != sz)
+                            slotp->reply.reset();
+                        if (!slotp->reply) {
+                            slotp->reply = make_unique<oncrpc::Message>(sz);
+                        }
+                        else {
+                            slotp->reply->rewind();
+                            slotp->reply->setWriteSize(sz);
+                        }
+                        xreply = slotp->reply.get();
                     }
 
                     oncrpc::XdrWord* statusp =
