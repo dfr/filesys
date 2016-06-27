@@ -61,8 +61,8 @@ NfsFile::fs()
     return fs_.lock();
 }
 
-void
-NfsFile::handle(FileHandle& fh)
+FileHandle
+NfsFile::handle()
 {
     throw system_error(EOPNOTSUPP, system_category());
 }

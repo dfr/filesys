@@ -67,8 +67,7 @@ public:
             for (auto& entry: files) {
                 auto name = entry.first;
                 auto f = entry.second;
-                FileHandle fh;
-                f->handle(fh);
+                FileHandle fh = f->handle();
                 cout << setw(15) << left << name << " FH:";
                 printByteArray(fh.handle);
                 cout << endl;

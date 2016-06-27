@@ -52,15 +52,17 @@ shared_ptr<Filesystem> ObjFile::fs()
     return fs_.lock();
 }
 
-void
-ObjFile::handle(FileHandle& fh)
+FileHandle
+ObjFile::handle()
 {
     auto& fsid = fs_.lock()->fsid();
+    FileHandle fh;
     fh.handle.resize(fsid.size() + sizeof(FileId));
     copy(fsid.begin(), fsid.end(), fh.handle.begin());
     oncrpc::XdrMemory xm(
         fh.handle.data() + fsid.size(), sizeof(std::uint64_t));
     xdr(meta_.fileid, static_cast<oncrpc::XdrSink*>(&xm));
+    return fh;
 }
 
 bool ObjFile::access(const Credential& cred, int accmode)

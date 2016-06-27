@@ -423,7 +423,7 @@ public:
     virtual std::shared_ptr<Filesystem> fs() = 0;
 
     /// Get a file handle for this file
-    virtual void handle(FileHandle& fh) = 0;
+    virtual FileHandle handle() = 0;
 
     /// Return true if the file permissions will allow the requested.
     /// The value of accmode should be a logical-or of AccessFlags values.

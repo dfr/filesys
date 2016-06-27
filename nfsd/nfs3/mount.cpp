@@ -41,8 +41,7 @@ mountres3 MountServer::mnt(const dirpath& dir)
         VLOG(1) << "Checking mount point " << entry.first;
         if (dir == entry.first || dir == "/" + entry.first) {
             mountres3_ok res;
-            FileHandle fh;
-            entry.second->root()->handle(fh);
+            FileHandle fh = entry.second->root()->handle();
             oncrpc::XdrMemory xm(FHSIZE3);
             xdr(fh, static_cast<oncrpc::XdrSink*>(&xm));
             res.fhandle.resize(xm.writePos());

@@ -81,14 +81,11 @@ static shared_ptr<File> importFileHandle(const nfs_fh3& nfh)
 
 static nfs_fh3 exportFileHandle(shared_ptr<File> file)
 {
-    FileHandle fh;
+    FileHandle fh = file->handle();
     nfs_fh3 nfh;
-
-    file->handle(fh);
     nfh.data.resize(XdrSizeof(fh));
     XdrMemory xm(nfh.data.data(), nfh.data.size());
     xdr(fh, static_cast<XdrSink*>(&xm));
-
     return nfh;
 }
 

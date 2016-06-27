@@ -26,15 +26,17 @@ shared_ptr<Filesystem> PfsFile::fs()
     return fs_.lock();
 }
 
-void
-PfsFile::handle(FileHandle& fh)
+FileHandle
+PfsFile::handle()
 {
     auto& fsid = fs_.lock()->fsid();
+    FileHandle fh;
     fh.handle.resize(fsid.size() + sizeof(FileId));
     copy(fsid.begin(), fsid.end(), fh.handle.begin());
     oncrpc::XdrMemory xm(
         fh.handle.data() + fsid.size(), sizeof(std::uint64_t));
     xdr(fileid_, static_cast<oncrpc::XdrSink*>(&xm));
+    return fh;
 }
 
 bool PfsFile::access(const Credential& cred, int accmode)

@@ -22,10 +22,10 @@ shared_ptr<Filesystem> DataRoot::fs()
     return fs_.lock();
 }
 
-void
-DataRoot::handle(FileHandle& fh)
+FileHandle
+DataRoot::handle()
 {
-    fh = fs_.lock()->pieceHandle(PieceId{FileId(0), 0, 0});
+    return fs_.lock()->pieceHandle(PieceId{FileId(0), 0, 0});
 }
 
 bool DataRoot::access(const Credential& cred, int accmode)

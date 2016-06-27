@@ -81,8 +81,7 @@ FINDPIECEres DataServer::findPiece(const FINDPIECEargs& args)
         if (ds) {
             PieceId id{FileId(args.fileid), args.offset, args.size};
             auto file = ds->findPiece(cred, id);
-            FileHandle fh;
-            file->handle(fh);
+            FileHandle fh = file->handle();
             auto nfh = exportFileHandle(fh);
             VLOG(1) << "Returning handle: " << nfh;
             return FINDPIECEres(DISTFS_OK, FINDPIECEresok{nfh});
@@ -106,8 +105,7 @@ CREATEPIECEres DataServer::createPiece(const CREATEPIECEargs& args)
         if (ds) {
             PieceId id{FileId(args.fileid), args.offset, args.size};
             auto file = ds->createPiece(cred, id);
-            FileHandle fh;
-            file->handle(fh);
+            FileHandle fh = file->handle();
             auto nfh = exportFileHandle(fh);
             VLOG(1) << "Returning handle: " << nfh;
 

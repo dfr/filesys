@@ -50,7 +50,7 @@ public:
 
         // Verify that the returned file handle matches the exported filesystem
         FileHandle fh, resfh;
-        objfs_->root()->handle(fh);
+        fh = objfs_->root()->handle();
         auto& info = res.mountinfo();
         XdrMemory xm(info.fhandle.data(), info.fhandle.size());
         xdr(resfh, static_cast<XdrSource*>(&xm));

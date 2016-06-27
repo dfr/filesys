@@ -39,13 +39,15 @@ shared_ptr<Filesystem> NfsFile::fs()
     return fs_.lock();
 }
 
-void
-NfsFile::handle(FileHandle& fh)
+FileHandle
+NfsFile::handle()
 {
     using namespace oncrpc;
     try {
+        FileHandle fh;
         XdrMemory xm(const_cast<uint8_t*>(fh_.data()), fh_.size());
         xdr(fh, static_cast<XdrSource*>(&xm));
+        return fh;
     }
     catch (XdrError&) {
         throw std::system_error(ESTALE, std::system_category());

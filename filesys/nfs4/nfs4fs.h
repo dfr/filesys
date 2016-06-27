@@ -105,7 +105,7 @@ public:
 
     // File overrides
     std::shared_ptr<Filesystem> fs() override;
-    void handle(FileHandle& fh) override;
+    FileHandle handle() override;
     bool access(const Credential& cred, int accmode) override;
     std::shared_ptr<Getattr> getattr() override;
     void setattr(const Credential& cred, std::function<void(Setattr*)> cb) override;

@@ -25,10 +25,10 @@ shared_ptr<Filesystem> DataFile::fs()
     return fs_.lock();
 }
 
-void
-DataFile::handle(FileHandle& fh)
+FileHandle
+DataFile::handle()
 {
-    fh = fs_.lock()->pieceHandle(id_);
+    return fs_.lock()->pieceHandle(id_);
 }
 
 bool DataFile::access(const Credential& cred, int accmode)

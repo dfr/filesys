@@ -64,8 +64,7 @@ static inline std::shared_ptr<filesys::File> importFileHandle(
 static inline filesys::nfs4::nfs_fh4 exportFileHandle(
     std::shared_ptr<filesys::File> file)
 {
-    filesys::FileHandle fh;
-    file->handle(fh);
+    filesys::FileHandle fh = file->handle();
     filesys::nfs4::nfs_fh4 nfh;
     nfh.resize(oncrpc::XdrSizeof(fh));
     oncrpc::XdrMemory xm(nfh.data(), nfh.size());
