@@ -127,7 +127,7 @@ void DistDevice::calculatePriority()
 {
     auto lk = lock();
     if (storage_.totalSpace) {
-        priority_ = float(storage_.freeSpace) / float(storage_.totalSpace);
+        priority_ = float(storage_.availSpace) / float(storage_.totalSpace);
     }
     else {
         priority_ = 0.0f;
