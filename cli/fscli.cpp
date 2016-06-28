@@ -23,6 +23,7 @@ using namespace std;
 
 DEFINE_string(c, "", "file of commands to execute");
 DEFINE_string(realm, "", "Local krb5 realm name");
+DEFINE_string(fsid, "", "Override file system identifier for new filesystems");
 
 deque<string> filesys::parsePath(const string& path)
 {

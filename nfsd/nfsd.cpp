@@ -38,6 +38,7 @@ DEFINE_int32(threads, 0, "Number of worker threads");
 DEFINE_string(listen, "[::],0.0.0.0", "Addresses to listen for connections");
 DEFINE_string(mds, "", "URL to contact metadata server");
 DEFINE_bool(daemon, false, "Run the server as a background task");
+DEFINE_string(fsid, "", "Override file system identifier for new filesystems");
 
 static map<string, int> flavors {
     { "none", AUTH_NONE },

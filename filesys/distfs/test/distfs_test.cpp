@@ -17,6 +17,7 @@
 
 //DEFINE_int32(iosize, 65536, "maximum size for read or write requests");
 DEFINE_string(realm, "", "Local krb5 realm name");
+DEFINE_string(fsid, "", "Override file system identifier for new filesystems");
 
 using namespace filesys;
 using namespace filesys::data;

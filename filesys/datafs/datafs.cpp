@@ -4,6 +4,7 @@
  */
 
 #include <cassert>
+#include <cctype>
 #include <iomanip>
 #include <random>
 #include <sstream>
@@ -18,6 +19,8 @@
 using namespace filesys;
 using namespace filesys::data;
 using namespace std;
+
+DECLARE_string(fsid);
 
 namespace {
 
@@ -63,6 +66,17 @@ private:
 
 }
 
+static inline int fromHex(char ch)
+{
+    if (ch >= '0' && ch <= '9')
+        return ch - '0';
+    if (ch >= 'a' && ch <= 'f')
+        return ch - 'a' + 10;
+    if (ch >= 'A' && ch <= 'F')
+        return ch - 'A' + 10;
+    abort();
+}
+
 DataFilesystem::DataFilesystem(shared_ptr<Filesystem> store)
     : store_(store)
 {
@@ -73,17 +87,41 @@ DataFilesystem::DataFilesystem(shared_ptr<Filesystem> store)
             sattr->setMode(0644);
         });
 
-    // Initially, we just store a 128-bit random fsid
+    // Initially, we just store a 128-bit random fsid. If the command
+    // line flag --fsid is present, use that value for the new
+    // filesystem's fsid.
     bool eof;
     auto buf = meta->read(0, 16, eof);
     if (buf->size() != 16) {
-        std::random_device rnd;
         buf = make_shared<Buffer>(16);
-        uint32_t* p = reinterpret_cast<uint32_t*>(buf->data());
-        p[0] = rnd();
-        p[1] = rnd();
-        p[2] = rnd();
-        p[3] = rnd();
+        if (FLAGS_fsid.size() > 0) {
+            // Verify that the value is a 128-bit hex number
+            bool valid = true;
+            for (auto ch: FLAGS_fsid) {
+                if (!std::isxdigit(ch)) {
+                    valid = false;
+                    break;
+                }
+            }
+            if (!valid || FLAGS_fsid.size() != 32) {
+                LOG(FATAL) << "fsid override should be 128-bit hex numner: "
+                           << FLAGS_fsid;
+                abort();
+            }
+            auto p = buf->data();
+            for (int i = 0; i < 16; i++) {
+                p[i] = (fromHex(FLAGS_fsid[2*i]) * 16 +
+                        fromHex(FLAGS_fsid[2*i+1]));
+            }
+        }
+        else {
+            std::random_device rnd;
+            uint32_t* p = reinterpret_cast<uint32_t*>(buf->data());
+            p[0] = rnd();
+            p[1] = rnd();
+            p[2] = rnd();
+            p[3] = rnd();
+        }
         meta->write(0, buf);
     }
 
