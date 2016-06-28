@@ -20,12 +20,45 @@ start_precmd="${name}_prestart"
 
 : ${unfsd_enable:="NO"}
 : ${unfsd_role:="SIMPLE"}
+: ${unfsd_ec2_storage:="NO"}
 : ${unfsd_storage:="/storage"}
 : ${unfsd_flags:= "--daemon"}
 : ${unfsd_mds_addr:="udp://$(hostname):2049"}
 
 unfsd_prestart()
 {
+    if [ ${unfsd_ec2_storage} = "YES" ]; then
+	if zpool status storage > /dev/null 2>&1; then
+	    # Storage is already healthy so leave it alone
+	else
+	    # Fetch a list of EC2 disks
+	    disks=`fetch -qo - http://169.254.169.254/latest/meta-data/block-device-mapping/ | grep -E '^ephemeral[0-9]+$'`
+	    pooldevs=""
+	    for disk in ${disks}; do
+		dev=`fetch -qo - http://169.254.169.254/latest/meta-data/block-device-mapping/${disk}`
+		case "$dev" in
+		    sd[a-j])
+			dev="/dev/xbd`echo ${dev} | cut -c3 | tr 'a-j' '0-9'`"
+			;;
+		    xvd[a-z])
+			dev="/dev/xbd`echo ${dev} | cut -c4 | tr 'a-j' '0-9'`"
+			;;
+		    *)
+			echo "Can't map ${disk} to FreeBSD device"
+			continue
+			;;
+		esac
+		if [ -c ${dev} ]; then
+		    pooldevs="${pooldevs} ${dev}"
+		fi
+	    done
+	    if [ "${pooldevs}" != "" ]; then
+		zpool create storage ${pooldevs}
+	    else
+		mkdir -p /storage
+	    fi
+	fi
+    fi
     case ${unfsd_role} in
 	SIMPLE)
 	    rc_flags="${rc_flags} 'objfs://${unfsd_storage}'"

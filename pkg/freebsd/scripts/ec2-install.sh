@@ -13,11 +13,20 @@ env ASSUME_ALWAYS_YES=YES pkg install awscli </dev/null | cat
 cd /
 tar xvf /tmp/dist.tar.gz
 
-# Configure services
+# We override the storage fsid so that we can present a consistent
+# identifier if the contents of our ephemeral disks are lost
+fsid=`uuidgen | tr -d '-'`
+
+# Configure services. We disable ephemeralswap so that we can use any
+# ephemeral disks for storage. The actual storage is configured in the
+# unfsd startup script since it may disappear if the instance
+# restarts.
 cat >> /etc/rc.conf <<EOF
+ec2_ephemeralswap_enable="NO"
 unfsd_enable="YES"
 unfsd_storage="/storage"
-unfsd_flags="--daemon --grace_time=0 --threads=8"
+unfsd_ec2_storage="YES"
+unfsd_flags="--daemon --grace_time=0 --threads=8 --fsid=${fsid}"
 unfsd_mds_addr="udp://mds.vpc.rabson.org:2049"
 unfsd_role="DATA"
 EOF
