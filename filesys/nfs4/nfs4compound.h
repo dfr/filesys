@@ -229,6 +229,7 @@ public:
         slotid4 slotid, slotid4 highest_slotid, bool cachethis,
         std::vector<referring_call_list4> referring_call_lists);
     void notify_deviceid(const std::vector<notify4>& changes);
+    void recall_any(uint32_t objects_to_keep, const bitmap4& type_mask);
 
 private:
     const std::string& tag_;
@@ -252,6 +253,7 @@ public:
     void layoutrecall();
     CB_SEQUENCE4resok sequence();
     void notify_deviceid();
+    void recall_any();
 
 private:
     const std::string& tag_;

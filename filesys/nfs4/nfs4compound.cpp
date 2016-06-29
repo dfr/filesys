@@ -744,6 +744,12 @@ void CallbackRequestEncoder::notify_deviceid(
     add(OP_CB_NOTIFY_DEVICEID, changes);
 }
 
+void CallbackRequestEncoder::recall_any(
+    uint32_t objects_to_keep, const bitmap4& type_mask)
+{
+    add(OP_CB_RECALL_ANY, objects_to_keep, type_mask);
+}
+
 CallbackReplyDecoder::CallbackReplyDecoder(
     const std::string& tag, oncrpc::XdrSource* xdrs)
     : tag_(tag),
@@ -814,4 +820,9 @@ CB_SEQUENCE4resok CallbackReplyDecoder::sequence()
 void CallbackReplyDecoder::notify_deviceid()
 {
     check(OP_CB_NOTIFY_DEVICEID);
+}
+
+void CallbackReplyDecoder::recall_any()
+{
+    check(OP_CB_RECALL_ANY);
 }

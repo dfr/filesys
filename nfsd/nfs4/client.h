@@ -14,6 +14,8 @@
 #include "filestate.h"
 #include "state.h"
 
+DECLARE_int32(max_state);
+
 namespace nfsd {
 namespace nfs4 {
 
@@ -85,6 +87,7 @@ public:
     {
         state_.clear();
         revokedState_.clear();
+        recallableStateCount_ = 0;
     }
 
     void setConfirmed()
@@ -149,6 +152,8 @@ public:
         auto ns = std::make_shared<NfsState>(
             NfsState::DELEGATION, id, shared_from_this(), fs,
             owner, access, 0, of);
+        assert(state_.find(id) == state_.end());
+        recallableStateCount_++;
         state_[id] = ns;
         return ns;
     }
@@ -172,6 +177,8 @@ public:
             checkDeviceState(lock, dev, ds);
         }
         ns->setDevices(devices);
+        assert(state_.find(id) == state_.end());
+        recallableStateCount_++;
         state_[id] = ns;
         return ns;
     }
@@ -186,6 +193,9 @@ public:
                 auto fs = ns->fs();
                 if (fs)
                     fs->revoke(it->second);
+                if (ns->type() == NfsState::DELEGATION ||
+                    ns->type() == NfsState::LAYOUT)
+                    recallableStateCount_--;
                 if (ns->type() == NfsState::LAYOUT)
                     clearLayout(lock, ns);
             }
@@ -218,6 +228,9 @@ public:
         if (fs) {
             fs->revoke(ns);
         }
+        if (ns->type() == NfsState::DELEGATION ||
+            ns->type() == NfsState::LAYOUT)
+            recallableStateCount_--;
         if (ns->type() == NfsState::LAYOUT)
             clearLayout(lock, ns);
         state_.erase(ns->id());
@@ -233,6 +246,9 @@ public:
             if (fs) {
                 fs->revoke(ns);
             }
+            if (ns->type() == NfsState::DELEGATION ||
+                ns->type() == NfsState::LAYOUT)
+                recallableStateCount_--;
             if (ns->type() == NfsState::LAYOUT)
                 clearLayout(lock, ns);
             revokedState_[ns->id()] = ns;
@@ -281,6 +297,8 @@ public:
         }
     }
 
+    void sendRecallAny();
+
 private:
     std::mutex mutex_;
     filesys::nfs4::clientid4 id_;
@@ -311,6 +329,7 @@ private:
         std::shared_ptr<NfsState>,
         filesys::nfs4::NfsStateidHashIgnoreSeqid,
         filesys::nfs4::NfsStateidEqualIgnoreSeqid> revokedState_;
+    int recallableStateCount_ = 0;
 
     // Pseudo-slot for create_session
     filesys::nfs4::sequenceid4 sequence_;

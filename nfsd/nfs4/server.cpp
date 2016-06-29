@@ -2460,6 +2460,11 @@ int NfsServer::expireClients()
 restart:
     for (auto& e: clientsById_) {
         auto client = e.second;
+
+        // Send a CB_RECALL_ANY message if the client has excessive
+        // recallable state
+        client->sendRecallAny();
+
         if (client->expiry() < now) {
             // Set the client's expired flag - this will be reset if
             // it renews

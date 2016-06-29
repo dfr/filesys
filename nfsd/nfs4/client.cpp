@@ -14,6 +14,8 @@ using namespace filesys::nfs4;
 using namespace nfsd::nfs4;
 using namespace std;
 
+DEFINE_int32(max_state, 0, "Target maximum number of recallable state objects per client (0 for unlimited)");
+
 NfsClient::NfsClient(
     clientid4 id, const client_owner4& owner,
     const string& principal,
@@ -179,4 +181,37 @@ void NfsClient::deviceCallback(shared_ptr<Device> dev, Device::State state)
     default:
         break;
     }
+}
+
+void NfsClient::sendRecallAny()
+{
+    if (FLAGS_max_state == 0 || recallableStateCount_ <= FLAGS_max_state)
+        return;
+
+    shared_ptr<NfsSession> session;
+    for (auto s: sessions_) {
+        if (s->hasBackChannel()) {
+            session = s;
+            break;
+        }
+    }
+    if (!session) {
+        LOG(ERROR) << "No back channel";
+        return;
+    }
+    
+    VLOG(1) << "recallable state count: " << recallableStateCount_
+            << ": sending CB_RECALL_ANY";
+    session->callback(
+        "RecallAny",
+        [=](auto& enc) {
+            bitmap4 mask;
+            set(mask, RCA4_TYPE_MASK_RDATA_DLG);
+            set(mask, RCA4_TYPE_MASK_WDATA_DLG);
+            // XXX: Add flex files bits
+            enc.recall_any(FLAGS_max_state * 3 / 4, mask);
+        },
+        [](auto& dec) {
+            dec.recall_any();
+        });
 }
