@@ -140,7 +140,7 @@ int main(int argc, char** argv)
     auto threadpool = make_shared<ThreadPool>(FLAGS_threads);
 
     nfs3::init(svcreg, threadpool, sec, boundAddrs);
-    nfs4::init(svcreg, threadpool, sec, boundAddrs);
+    nfs4::init(sockman, svcreg, threadpool, sec, boundAddrs);
 
     if (FLAGS_mds.size() > 0) {
         auto ds = dynamic_pointer_cast<DataStore>(fs);

@@ -21,7 +21,17 @@ using namespace std;
 static shared_ptr<NfsServer> nfsService;
 static shared_ptr<DataServer> dataService;
 
+static void heartbeat(shared_ptr<oncrpc::SocketManager> sockman)
+{
+    nfsService->expireClients();
+    sockman->add(chrono::system_clock::now() + 1s,
+                 [=]() {
+                     heartbeat(sockman);
+                 });
+}
+
 void nfsd::nfs4::init(
+    shared_ptr<oncrpc::SocketManager> sockman,
     shared_ptr<ServiceRegistry> svcreg,
     shared_ptr<ThreadPool> threadpool,
     const vector<int>& sec,
@@ -38,4 +48,10 @@ void nfsd::nfs4::init(
     threadpool->addService(
         DISTFS_DS, DS_V1, svcreg,
         std::bind(&DataServer::dispatch, dataService.get(), _1));
+
+    // Add a timeout to handle client expiry
+    sockman->add(chrono::system_clock::now() + 1s,
+                 [=]() {
+                     heartbeat(sockman);
+                 });
 }

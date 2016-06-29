@@ -16,6 +16,7 @@ class ThreadPool;
 namespace nfs4 {
 
 void init(
+    std::shared_ptr<oncrpc::SocketManager> sockman,
     std::shared_ptr<oncrpc::ServiceRegistry> svcreg,
     std::shared_ptr<ThreadPool> threadpool,
     const std::vector<int>& sec,
