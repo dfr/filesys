@@ -63,6 +63,17 @@ public:
         std::shared_ptr<NfsClient> client,
         const filesys::nfs4::open_owner4& owner);
 
+    bool isOpen(
+        std::shared_ptr<NfsClient> client)
+    {
+        auto lk = lock();
+        return isOpen(lk, client);
+    }
+
+    bool isOpen(
+        std::unique_lock<std::mutex>& lock,
+        std::shared_ptr<NfsClient> client);
+
     std::shared_ptr<NfsState> findDelegation(
         std::shared_ptr<NfsClient> client)
     {

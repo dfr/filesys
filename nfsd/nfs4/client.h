@@ -130,13 +130,14 @@ public:
         const filesys::nfs4::state_owner4& owner,
         int access,
         int deny,
-        std::shared_ptr<filesys::OpenFile> of)
+        std::shared_ptr<filesys::OpenFile> of,
+        filesys::detail::Clock::time_point expiry)
     {
         std::unique_lock<std::mutex> lock(mutex_);
         auto id = newStateId();
         auto ns = std::make_shared<NfsState>(
             NfsState::OPEN, id, shared_from_this(), fs,
-            owner, access, deny, of);
+            owner, access, deny, of, expiry);
         state_[id] = ns;
         return ns;
     }
@@ -145,13 +146,14 @@ public:
         std::shared_ptr<NfsFileState> fs,
         const filesys::nfs4::state_owner4& owner,
         int access,
-        std::shared_ptr<filesys::OpenFile> of)
+        std::shared_ptr<filesys::OpenFile> of,
+        filesys::detail::Clock::time_point expiry)
     {
         std::unique_lock<std::mutex> lock(mutex_);
         auto id = newStateId();
         auto ns = std::make_shared<NfsState>(
             NfsState::DELEGATION, id, shared_from_this(), fs,
-            owner, access, 0, of);
+            owner, access, 0, of, expiry);
         assert(state_.find(id) == state_.end());
         recallableStateCount_++;
         state_[id] = ns;
@@ -161,7 +163,8 @@ public:
     std::shared_ptr<NfsState> addLayout(
         std::shared_ptr<NfsFileState> fs,
         filesys::nfs4::layoutiomode4 iomode,
-        const std::vector<std::shared_ptr<filesys::Device>>& devices)
+        const std::vector<std::shared_ptr<filesys::Device>>& devices,
+        filesys::detail::Clock::time_point expiry)
     {
         std::unique_lock<std::mutex> lock(mutex_);
         auto id = newStateId();
@@ -170,7 +173,7 @@ public:
                       filesys::nfs4::OPEN4_SHARE_ACCESS_READ);
         auto ns = std::make_shared<NfsState>(
             NfsState::LAYOUT, id, shared_from_this(), fs,
-            filesys::nfs4::state_owner4{id_, {}}, access, 0, nullptr);
+            filesys::nfs4::state_owner4{id_, {}}, access, 0, nullptr, expiry);
         for (auto dev: devices) {
             auto& ds = devices_[dev];
             ds.layouts.insert(ns);
@@ -298,6 +301,8 @@ public:
     }
 
     void sendRecallAny();
+
+    void expireState(filesys::detail::Clock::time_point now);
 
 private:
     std::mutex mutex_;

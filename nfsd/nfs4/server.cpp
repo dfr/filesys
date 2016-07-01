@@ -760,7 +760,7 @@ OPEN4res NfsServer::open(
         resok.cinfo.after = dir->getattr()->change();
         if (!ns) {
             ns = client->addOpen(
-                fs, args.owner, share_access, share_deny, of);
+                fs, args.owner, share_access, share_deny, of, leaseExpiry());
         }
         state.curr.stateid = ns->id();
         fs->addOpen(ns);
@@ -776,7 +776,8 @@ OPEN4res NfsServer::open(
                        want_deleg == OPEN4_SHARE_ACCESS_WANT_WRITE_DELEG);
                 if (want_deleg == OPEN4_SHARE_ACCESS_WANT_READ_DELEG) {
                     deleg = client->addDelegation(
-                        fs, args.owner, OPEN4_SHARE_ACCESS_READ, of);
+                        fs, args.owner, OPEN4_SHARE_ACCESS_READ, of,
+                        leaseExpiry());
                     VLOG(1) << "Creating read delegation: " << deleg->id();
                     delegation = open_delegation4(
                         OPEN_DELEGATE_READ,
@@ -789,7 +790,8 @@ OPEN4res NfsServer::open(
                 }
                 else {
                     deleg = client->addDelegation(
-                        fs, args.owner, OPEN4_SHARE_ACCESS_WRITE, of);
+                        fs, args.owner, OPEN4_SHARE_ACCESS_WRITE, of,
+                        leaseExpiry());
                     VLOG(1) << "Creating write delegation: " << deleg->id();
                     delegation = open_delegation4(
                         OPEN_DELEGATE_WRITE,
@@ -807,6 +809,15 @@ OPEN4res NfsServer::open(
         else {
             deleg.reset();
         }
+
+        // Refresh expiry for any existing recallable state
+        auto expiry = leaseExpiry();
+        if (deleg)
+            deleg->setExpiry(expiry);
+        auto layout = fs->findLayout(client);
+        if (layout)
+            layout->setExpiry(expiry);
+
         if (deleg) {
             if (deleg->access() == OPEN4_SHARE_ACCESS_READ) {
                 delegation = open_delegation4(
@@ -1735,27 +1746,38 @@ LAYOUTCOMMIT4res NfsServer::layoutcommit(
 
     if (!state.curr.file)
         return LAYOUTCOMMIT4res(NFS4ERR_NOFILEHANDLE);
-    auto oldsize = state.curr.file->getattr()->size();
-    state.curr.file->setattr(
-        cred,
-        [&args, oldsize](auto sattr) {
-            if (args.loca_last_write_offset.no_newoffset) {
-                if (args.loca_last_write_offset.no_offset() + 1 > oldsize) {
-                    sattr->setSize(
-                        args.loca_last_write_offset.no_offset() + 1);
+    try {
+        auto client = state.session->client();
+        auto ns = client->findState(state, args.loca_stateid);
+        ns->setExpiry(leaseExpiry());
+        auto oldsize = state.curr.file->getattr()->size();
+        state.curr.file->setattr(
+            cred,
+            [&args, oldsize](auto sattr) {
+                if (args.loca_last_write_offset.no_newoffset) {
+                    if (args.loca_last_write_offset.no_offset() + 1 > oldsize) {
+                        sattr->setSize(
+                            args.loca_last_write_offset.no_offset() + 1);
+                    }
                 }
-            }
-            if (args.loca_time_modify.nt_timechanged) {
-                sattr->setMtime(
-                    importTime(args.loca_time_modify.nt_time()));
-            }
-        });
-    auto newsize = state.curr.file->getattr()->size();
-    return LAYOUTCOMMIT4res(
-        NFS4_OK,
-        LAYOUTCOMMIT4resok{
-            oldsize != newsize ?
-                newsize4(true, length4(newsize)) : newsize4(false)});
+                if (args.loca_time_modify.nt_timechanged) {
+                    sattr->setMtime(
+                        importTime(args.loca_time_modify.nt_time()));
+                }
+            });
+        auto newsize = state.curr.file->getattr()->size();
+        return LAYOUTCOMMIT4res(
+            NFS4_OK,
+            LAYOUTCOMMIT4resok{
+                oldsize != newsize ?
+                    newsize4(true, length4(newsize)) : newsize4(false)});
+    }
+    catch (system_error& e) {
+        return LAYOUTCOMMIT4res(exportStatus(e));
+    }
+    catch (nfsstat4 status) {
+        return LAYOUTCOMMIT4res(status);
+    }
 }
 
 LAYOUTGET4res NfsServer::layoutget(
@@ -1947,7 +1969,8 @@ LAYOUTGET4res NfsServer::layoutget(
                 fs->removeLayout(oldns);
             }
 
-            auto newns = client->addLayout(fs, args.loga_iomode, devices);
+            auto newns = client->addLayout(
+                fs, args.loga_iomode, devices, leaseExpiry());
             newns->setOffset(args.loga_offset);
             newns->setLength(args.loga_length);
             fs->addLayout(newns);
@@ -2460,6 +2483,9 @@ int NfsServer::expireClients()
 restart:
     for (auto& e: clientsById_) {
         auto client = e.second;
+
+        // Expire old recallable state
+        client->expireState(now);
 
         // Send a CB_RECALL_ANY message if the client has excessive
         // recallable state

@@ -215,3 +215,25 @@ void NfsClient::sendRecallAny()
             dec.recall_any();
         });
 }
+
+void NfsClient::expireState(filesys::detail::Clock::time_point now)
+{
+    // Recall any old state which isn't open on this client
+    std::unique_lock<std::mutex> lock(mutex_);
+    std::vector<std::shared_ptr<NfsState>> toRecall;
+    for (auto& e: state_) {
+        auto ns = e.second;
+        if (ns->type() == NfsState::DELEGATION ||
+            ns->type() == NfsState::LAYOUT) {
+            if (ns->expiry() < now) {
+                auto fs = ns->fs();
+                if (fs && fs->isOpen(shared_from_this()))
+                    continue;
+                toRecall.push_back(ns);
+            }
+        }
+    }
+    lock.unlock();
+    for (auto ns: toRecall)
+        ns->recall();
+}

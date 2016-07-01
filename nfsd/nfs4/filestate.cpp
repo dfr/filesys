@@ -67,6 +67,15 @@ shared_ptr<NfsState> NfsFileState::findOpen(
     return nullptr;
 }
 
+bool NfsFileState::isOpen(
+    unique_lock<mutex>& lock, shared_ptr<NfsClient> client)
+{
+    for (auto ns: opens_)
+        if (ns->client() == client)
+            return true;
+    return false;
+}
+
 shared_ptr<NfsState> NfsFileState::findDelegation(
     unique_lock<mutex>& lock, shared_ptr<NfsClient> client)
 {

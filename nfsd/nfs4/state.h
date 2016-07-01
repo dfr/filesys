@@ -32,7 +32,8 @@ public:
         const filesys::nfs4::state_owner4& owner,
         int access,
         int deny,
-        std::shared_ptr<filesys::OpenFile> of)
+        std::shared_ptr<filesys::OpenFile> of,
+        filesys::detail::Clock::time_point expiry)
         : type_(type),
           id_(id),
           client_(client),
@@ -40,7 +41,8 @@ public:
           owner_(owner),
           access_(access),
           deny_(deny),
-          of_(of)
+          of_(of),
+          expiry_(expiry)
     {
     }
 
@@ -97,6 +99,12 @@ public:
         devices_ = devs;
     }
 
+    auto expiry() const { return expiry_; }
+    void setExpiry(filesys::detail::Clock::time_point expiry)
+    {
+        expiry_ = expiry;
+    }
+
 private:
     StateType type_;
     filesys::nfs4::stateid4 id_;
@@ -111,6 +119,7 @@ private:
     std::shared_ptr<filesys::OpenFile> of_;
     bool revoked_ = false;
     bool recalled_ = false;
+    filesys::detail::Clock::time_point expiry_;
 };
 
 }

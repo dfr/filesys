@@ -60,8 +60,8 @@ void NfsState::recall()
                 if (stat == NFS4ERR_NOMATCHING_LAYOUT) {
                     // Client seems to have forgotten about the layout -
                     // revoke it now
-                    LOG(ERROR) << "Client returned NFS4ERR_NOMATCHING_LAYOUT:"
-                               << " revoking layout now";
+                    VLOG(1) << "Client returned NFS4ERR_NOMATCHING_LAYOUT:"
+                            << " revoking layout now";
                     auto cl = client_.lock();
                     if (cl) {
                         cl->revokeState(shared_from_this());
