@@ -13,7 +13,6 @@ cc_library(
         "//rpcxx",
         "//filesys:hdrs",
         "//filesys:access",
-        "//filesys:urlparser",
         "//keyval",
         "//third_party/glog",
     ],

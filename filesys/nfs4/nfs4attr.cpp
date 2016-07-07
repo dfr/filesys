@@ -7,7 +7,7 @@
 #include <grp.h>
 
 #include <fs++/filesys.h>
-#include <fs++/urlparser.h>
+#include <rpc++/urlparser.h>
 #include <glog/logging.h>
 
 #include "nfs4fs.h"

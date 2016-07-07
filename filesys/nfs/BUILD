@@ -10,7 +10,6 @@ cc_library(
     deps = [
         "//filesys:hdrs",
 	"//filesys:access",
-        "//filesys:urlparser",
         "//filesys:xdr",
 	"//filesys/nfs3",
 	"//filesys/nfs4",

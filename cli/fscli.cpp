@@ -9,7 +9,7 @@
 #include <iostream>
 
 #include <fs++/filesys.h>
-#include <fs++/urlparser.h>
+#include <rpc++/urlparser.h>
 
 #include "filesys/pfs/pfsfs.h"
 
@@ -125,7 +125,7 @@ int main(int argc, char** argv)
 	string url = argv[i];
 	string path = "/";
 
-	UrlParser p(url);
+        oncrpc::UrlParser p(url);
         auto it = p.query.find("path");
         if (it != p.query.end()) {
             path = it->second;

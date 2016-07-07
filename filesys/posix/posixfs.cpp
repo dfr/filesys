@@ -10,7 +10,7 @@
 #include <sys/stat.h>
 
 #include <fs++/filesys.h>
-#include <fs++/urlparser.h>
+#include <rpc++/urlparser.h>
 #include <glog/logging.h>
 #include <glog/stl_logging.h>
 
@@ -90,7 +90,7 @@ PosixFilesystem::remove(FileId id)
 shared_ptr<Filesystem>
 PosixFilesystemFactory::mount(const string& url)
 {
-    UrlParser p(url);
+    oncrpc::UrlParser p(url);
     return make_shared<PosixFilesystem>(p.path);
 };
 

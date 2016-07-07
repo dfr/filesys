@@ -5,7 +5,7 @@
 
 #include <random>
 
-#include <fs++/urlparser.h>
+#include <rpc++/urlparser.h>
 
 #include <glog/logging.h>
 #include <glog/stl_logging.h>
@@ -660,7 +660,7 @@ DistFilesystem::decommissionDevice(std::shared_ptr<DistDevice> dev)
 shared_ptr<Filesystem>
 DistFilesystemFactory::mount(const string& url)
 {
-    UrlParser p(url);
+    oncrpc::UrlParser p(url);
     string addr;
 
     auto it = p.query.find("addr");
@@ -675,6 +675,6 @@ DistFilesystemFactory::mount(const string& url)
 
 void filesys::distfs::init(FilesystemManager* fsman)
 {
-    UrlParser::addPathbasedScheme("distfs");
+    oncrpc::UrlParser::addPathbasedScheme("distfs");
     fsman->add(make_shared<DistFilesystemFactory>());
 }

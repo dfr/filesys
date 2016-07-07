@@ -10,7 +10,7 @@
 #include <unistd.h>
 
 #include <glog/logging.h>
-#include <fs++/urlparser.h>
+#include <rpc++/urlparser.h>
 
 #include "nfs.h"
 #include "filesys/nfs3/nfs3fs.h"
@@ -67,6 +67,6 @@ NfsFilesystemFactory::mount(const std::string& url)
 
 void filesys::nfs::init(FilesystemManager* fsman)
 {
-    UrlParser::addHostbasedScheme("nfs");
+    oncrpc::UrlParser::addHostbasedScheme("nfs");
     fsman->add(std::make_shared<NfsFilesystemFactory>());
 }

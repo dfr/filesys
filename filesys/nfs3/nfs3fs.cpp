@@ -7,11 +7,11 @@
 #include <sstream>
 
 #include <fs++/filesys.h>
-#include <fs++/urlparser.h>
 #include <fs++/proto/mount.h>
 #include <rpc++/channel.h>
 #include <rpc++/client.h>
 #include <rpc++/errors.h>
+#include <rpc++/urlparser.h>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <glog/stl_logging.h>
@@ -133,9 +133,7 @@ NfsFilesystemFactory::mount(const string& url)
     auto clock = make_shared<detail::SystemClock>();
 
     auto exports = mountprog.listexports();
-    string path;
-    if (p.path.size() > 0)
-        path = "/" + p.path;
+    string path = p.path;
     for (auto exp = exports.get(); exp; exp = exp->ex_next.get()) {
         if (path.size() > 0 && exp->ex_dir != path)
             continue;

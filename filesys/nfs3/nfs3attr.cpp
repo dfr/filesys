@@ -4,7 +4,6 @@
  */
 
 #include <fs++/filesys.h>
-#include <fs++/urlparser.h>
 #include <glog/logging.h>
 
 #include "nfs3fs.h"

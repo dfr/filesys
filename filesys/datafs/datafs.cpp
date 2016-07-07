@@ -10,7 +10,7 @@
 #include <sstream>
 #include <system_error>
 
-#include <fs++/urlparser.h>
+#include <rpc++/urlparser.h>
 #include <glog/logging.h>
 
 #include "datafs.h"
@@ -319,13 +319,13 @@ DataFilesystem::open(const Credential& cred, const PieceId& id, int flags)
 shared_ptr<Filesystem>
 DataFilesystemFactory::mount(const string& url)
 {
-    UrlParser p(url);
+    oncrpc::UrlParser p(url);
     return make_shared<DataFilesystem>(
         make_shared<posix::PosixFilesystem>(p.path));
 };
 
 void filesys::data::init(FilesystemManager* fsman)
 {
-    UrlParser::addPathbasedScheme("datafs");
+    oncrpc::UrlParser::addPathbasedScheme("datafs");
     fsman->add(make_shared<DataFilesystemFactory>());
 }

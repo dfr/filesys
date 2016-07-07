@@ -7,8 +7,8 @@
 #include <random>
 #include <system_error>
 
+#include <rpc++/urlparser.h>
 #include <rpc++/xdr.h>
-#include <fs++/urlparser.h>
 #include <glog/logging.h>
 
 #include "objfs.h"
@@ -200,12 +200,12 @@ ObjFilesystem::setFsid()
 shared_ptr<Filesystem>
 ObjFilesystemFactory::mount(const string& url)
 {
-    UrlParser p(url);
+    oncrpc::UrlParser p(url);
     return make_shared<ObjFilesystem>(make_rocksdb(p.path));
 };
 
 void filesys::objfs::init(FilesystemManager* fsman)
 {
-    UrlParser::addPathbasedScheme("objfs");
+    oncrpc::UrlParser::addPathbasedScheme("objfs");
     fsman->add(make_shared<ObjFilesystemFactory>());
 }
