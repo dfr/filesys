@@ -114,6 +114,10 @@ public:
     {
         return nameMax_;
     }
+    int repairQueueSize() const override
+    {
+        return 0;
+    }
 
     struct ::statfs stat;
     int linkMax_;

@@ -91,6 +91,7 @@ public:
     size_t availFiles() const override;
     int linkMax() const override;
     int nameMax() const override;
+    int repairQueueSize() const override;
 
 private:
     std::shared_ptr<ObjFilesystem> fs_;

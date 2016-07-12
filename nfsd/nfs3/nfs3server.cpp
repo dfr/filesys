@@ -194,7 +194,8 @@ static wcc_attr exportWcc(shared_ptr<File> file)
 }
 
 NfsServer::NfsServer(const vector<int>& sec)
-    : sec_(sec)
+    : sec_(sec),
+      stats_(NFSPROC3_COMMIT + 1)
 {
 }
 
@@ -207,6 +208,9 @@ void NfsServer::dispatch(oncrpc::CallContext&& ctx)
         { RPCSEC_GSS_KRB5I, "krb5i" },
         { RPCSEC_GSS_KRB5P, "krb5p" },
     };
+
+    if (ctx.proc() < stats_.size())
+        stats_[ctx.proc()]++;
 
     // Check the auth flavor is allowed. Allow any auth flavor for
     // null
@@ -1146,4 +1150,47 @@ COMMIT3res NfsServer::commit(const COMMIT3args& args)
                     wcc_data{pre_op_attr(false), post_op_attr(false)}}};
         }
     }
+}
+
+bool NfsServer::get(
+    std::shared_ptr<oncrpc::RestRequest> req,
+    std::unique_ptr<oncrpc::RestEncoder>&& res)
+{
+    static vector<const char*> opnames = {
+        "null",
+        "getattr",
+        "setattr",
+        "lookup",
+        "access",
+        "readlink",
+        "read",
+        "write",
+        "create",
+        "mkdir",
+        "symlink",
+        "mknod",
+        "remove",
+        "rmdir",
+        "rename",
+        "link",
+        "readdir",
+        "readdirplus",
+        "fsstat",
+        "fsinfo",
+        "pathconf",
+        "commit"
+    };
+
+    auto enc = res->object();
+    auto ops = enc->field("operations")->object();
+    for (int i = 0; i < int(stats_.size()); i++) {
+        if (i >= opnames.size())
+            continue;
+        if (stats_[i])
+            ops->field(opnames[i])->number(stats_[i]);
+    }
+    ops.reset();
+    enc.reset();
+
+    return true;
 }

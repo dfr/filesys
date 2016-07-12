@@ -93,6 +93,10 @@ public:
     {
         return NAME_MAX;
     }
+    int repairQueueSize() const override
+    {
+        return 0;
+    }
 
     NfsAttr attr_;
 };

@@ -5,12 +5,15 @@
 
 #pragma once
 
+#include <rpc++/rest.h>
 #include <fs++/proto/nfs_prot.h>
 
 namespace nfsd {
 namespace nfs3 {
 
-class NfsServer: public filesys::nfs3::NfsProgram3Service
+class NfsServer: public filesys::nfs3::NfsProgram3Service,
+                 public oncrpc::RestHandler,
+                 public std::enable_shared_from_this<NfsServer>
 {
 public:
     NfsServer(const std::vector<int>& sec);
@@ -40,8 +43,27 @@ public:
     filesys::nfs3::PATHCONF3res pathconf(const filesys::nfs3::PATHCONF3args& args) override;
     filesys::nfs3::COMMIT3res commit(const filesys::nfs3::COMMIT3args& args) override;
 
+    // RestHandler overrides
+    bool get(
+        std::shared_ptr<oncrpc::RestRequest> req,
+        std::unique_ptr<oncrpc::RestEncoder>&& res) override;
+
+    /// Set a REST registry object to allow access to the server state
+    /// for monitoring and managment interfaces. This should be called
+    /// on startup, before any clients are connected.
+    void setRestRegistry(std::shared_ptr<oncrpc::RestRegistry> restreg)
+    {
+        assert(!restreg_);
+        restreg_ = restreg;
+        restreg_->add("/nfs3", true, shared_from_this());
+    }
+
 private:
     std::vector<int> sec_;
+    std::shared_ptr<oncrpc::RestRegistry> restreg_;
+
+    // Statistics
+    std::vector<int> stats_;     // per-rpc op counts
 };
 
 }

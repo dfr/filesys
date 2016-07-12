@@ -81,6 +81,10 @@ public:
     {
         return nameMax_;
     }
+    int repairQueueSize() const override
+    {
+        return 0;
+    }
 
 private:
     size_t tbytes_;

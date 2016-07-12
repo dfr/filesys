@@ -248,3 +248,9 @@ int ObjFsattr::nameMax() const
 {
     return OBJFS_NAME_MAX;
 }
+
+int ObjFsattr::repairQueueSize() const
+{
+    return 0;
+}
+

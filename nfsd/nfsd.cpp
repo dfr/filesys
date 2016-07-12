@@ -11,6 +11,7 @@
 #include <netinet/tcp.h>
 
 #include <rpc++/cred.h>
+#include <rpc++/rest.h>
 #include <rpc++/server.h>
 #include <rpc++/urlparser.h>
 #include <fs++/filesys.h>
@@ -18,6 +19,7 @@
 #include <glog/logging.h>
 
 #include "threadpool.h"
+#include "version.h"
 
 #include "nfs3/nfs3.h"
 #include "nfs4/nfs4.h"
@@ -26,6 +28,12 @@ using namespace filesys;
 using namespace nfsd;
 using namespace oncrpc;
 using namespace std;
+
+namespace {
+
+#include "nfsd/ui/ui.h"
+
+}
 
 DEFINE_int32(port, 2049, "port to listen for connections");
 DEFINE_int32(iosize, 65536, "maximum size for read or write requests");
@@ -39,6 +47,10 @@ DEFINE_string(listen, "[::],0.0.0.0", "Addresses to listen for connections");
 DEFINE_string(mds, "", "URL to contact metadata server");
 DEFINE_bool(daemon, false, "Run the server as a background task");
 DEFINE_string(fsid, "", "Override file system identifier for new filesystems");
+DEFINE_string(allow, "", "Networks allowed to send requests");
+DEFINE_string(deny, "", "Networks not allowed to send requests");
+
+namespace {
 
 static map<string, int> flavors {
     { "none", AUTH_NONE },
@@ -63,6 +75,98 @@ static vector<int> parseSec()
         res.push_back(i->second);
     }
     return res;
+}
+
+class ExportVersion: public oncrpc::RestHandler
+{
+public:
+    bool get(
+        std::shared_ptr<oncrpc::RestRequest> req,
+        std::unique_ptr<oncrpc::RestEncoder>&& res) override
+    {
+        auto obj = res->object();
+        obj->field("commit")->string(nfsd::version::commit);
+        obj->field("date")->number(long(nfsd::version::date));
+        return true;
+    }
+};
+
+static inline char toHexChar(int digit)
+{
+    static char hex[] = {
+        '0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'
+    };
+    return hex[digit];
+}
+
+static inline std::string toHex(uint64_t id)
+{
+    std::string res;
+    res.resize(16);
+    for (int i = 0; i < 16; i++) {
+        res[i] = toHexChar(id >> 60);
+        id <<= 4;
+    }
+    return res;
+}
+
+class ExportFsattr: public oncrpc::RestHandler
+{
+public:
+    ExportFsattr(std::shared_ptr<Filesystem> fs)
+        : fs_(fs)
+    {
+    }
+
+    bool get(
+        std::shared_ptr<oncrpc::RestRequest> req,
+        std::unique_ptr<oncrpc::RestEncoder>&& res) override
+    {
+        Credential cred(0, 0, {}, true);
+        auto stat = fs_->root()->fsstat(cred);
+        auto obj = res->object();
+
+        auto stats = obj->field("stats")->object();
+        stats->field("totalSpace")->number(long(stat->totalSpace()));
+        stats->field("freeSpace")->number(long(stat->freeSpace()));
+        stats->field("availSpace")->number(long(stat->availSpace()));
+        stats->field("totalFiles")->number(long(stat->totalFiles()));
+        stats->field("freeFiles")->number(long(stat->freeFiles()));
+        stats->field("availFiles")->number(long(stat->availFiles()));
+        stats->field("repairQueueSize")->number(stat->repairQueueSize());
+        stats.reset();
+
+        auto devs = obj->field("devices")->array();
+        std::uint64_t gen;
+        auto list = fs_->devices(gen);
+        for (auto devp: list) {
+            const char* stateNames[] = {
+                "unknown", "restoring", "missing", "dead", "healthy"
+            };
+            auto dev = devs->element()->object();
+            dev->field("id")->string(toHex(devp->id()));
+            dev->field("state")->string(stateNames[devp->state()]);
+            auto addrs = dev->field("addresses")->array();
+            for (auto& ai: devp->addresses()) {
+                auto entry = addrs->element()->object();
+                entry->field("netid")->string(ai.netid());
+                entry->field("uaddr")->string(ai.uaddr());
+                entry->field("host")->string(ai.host());
+                entry->field("port")->number(ai.port());
+            }
+            addrs.reset();
+            dev.reset();
+        }
+        devs.reset();
+
+        obj.reset();
+        return true;
+    }
+
+private:
+    std::shared_ptr<Filesystem> fs_;
+};
+
 }
 
 int main(int argc, char** argv)
@@ -91,9 +195,55 @@ int main(int argc, char** argv)
     if (FLAGS_daemon)
         ::daemon(true, true);
 
+    shared_ptr<Filter> filter;
+    if (FLAGS_allow.size() > 0 || FLAGS_deny.size() > 0) {
+        filter = make_shared<Filter>();
+        try {
+            auto s = FLAGS_allow;
+            while (s.size() > 0) {
+                auto i = s.find(',');
+                string addr;
+                if (i == string::npos) {
+                    addr = s;
+                    s = "";
+                }
+                else {
+                    addr = s.substr(0, i);
+                    s = s.substr(i + 1);
+                }
+                filter->allow(Network(addr));
+            }
+            s = FLAGS_deny;
+            while (s.size() > 0) {
+                auto i = s.find(',');
+                string addr;
+                if (i == string::npos) {
+                    addr = s;
+                    s = "";
+                }
+                else {
+                    addr = s.substr(0, i);
+                    s = s.substr(i + 1);
+                }
+                filter->deny(Network(addr));
+            }
+        }
+        catch (runtime_error& e) {
+            cerr << e.what() << endl;
+            return 1;
+        }
+    }
+
     auto svcreg = make_shared<ServiceRegistry>();
+    svcreg->setFilter(filter);
     if (FLAGS_realm.size() > 0)
         svcreg->mapCredentials(FLAGS_realm, make_shared<LocalCredMapper>());
+
+    auto restreg = make_shared<RestRegistry>();
+    restreg->setFilter(filter);
+    registerUiContent(restreg);
+    restreg->add("/version", true, make_shared<ExportVersion>());
+    restreg->add("/fsattr", true, make_shared<ExportFsattr>(fs));
 
     auto sockman = make_shared<SocketManager>();
     sockman->setIdleTimeout(std::chrono::seconds(FLAGS_idle_timeout));
@@ -124,7 +274,7 @@ int main(int argc, char** argv)
                 throw system_error(errno, system_category());
             int one = 1;
             ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-            auto sock = make_shared<ListenSocket>(fd, svcreg);
+            auto sock = make_shared<ListenSocket>(fd, svcreg, restreg);
             sock->bind(ai.addr);
             sock->listen();
             sock->setBufferSize(FLAGS_iosize + 512);
@@ -139,8 +289,8 @@ int main(int argc, char** argv)
 
     auto threadpool = make_shared<ThreadPool>(FLAGS_threads);
 
-    nfs3::init(svcreg, threadpool, sec, boundAddrs);
-    nfs4::init(sockman, svcreg, threadpool, sec, boundAddrs);
+    nfs3::init(svcreg, restreg, threadpool, sec, boundAddrs);
+    nfs4::init(sockman, svcreg, restreg, threadpool, sec, boundAddrs);
 
     if (FLAGS_mds.size() > 0) {
         auto ds = dynamic_pointer_cast<DataStore>(fs);

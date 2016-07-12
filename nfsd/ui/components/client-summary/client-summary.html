@@ -1,0 +1,28 @@
+<div flex layout="column" layout-fill>
+  <md-toolbar layout="row">
+    <h2 flex class="md-title">
+      {{channels}}
+      <span ng-if="!confirmed">(not confirmed)</span>
+    </h2>
+    <md-button ng-click="revoke()">
+      Revoke
+    </md-button>
+  </md-toolbar>
+  <md-tabs flex layout="column" layout-fill>
+    <md-tab flex layout="column" layout-fill label="Opens">
+      <md-tab-content flex layout-fill>
+	<state-list client-id="id" list="opens"></state-list>
+      </md-tab-content>
+    </md-tab>
+    <md-tab flex layout="column" layout-fill label="Delegations">
+      <md-tab-content flex layout-fill>
+	<state-list client-id="id" list="delegations"></state-list>
+      </md-tab-content>
+    </md-tab>
+    <md-tab flex layout="column" layout-fill label="Layouts">
+      <md-tab-content flex layout-fill>
+	<state-list client-id="id" list="layouts"></state-list>
+      </md-tab-content>
+    </md-tab>
+  </md-tabs>
+</div>

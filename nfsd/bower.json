@@ -1,0 +1,15 @@
+{
+  "name": "nfsd",
+  "description": "Management UI for nfsd",
+  "version": "0.0.1",
+  "license": "BSD",
+  "private": true,
+  "dependencies": {
+    "angular": "1.5.x",
+    "angular-route": "1.5.x",
+    "angular-resource": "1.5.x",
+    "angular-aria": "1.5.x",
+    "angular-animate": "1.5.x",
+    "angular-material": "1.1.x"
+  }
+}

@@ -1,0 +1,20 @@
+<div flex layout-fill layout="column">
+  <div layout-fill layout="row">
+    <md-sidenav flex="33"
+		class="md-whiteframe-z2"
+		md-component-id="left"
+		md-is-locked-open="true">
+      <md-list>
+	<md-list-item ng-repeat="id in list">
+	  <md-button ng-click="selectState(id)"
+		     ng-class="{'selected': id == selected}">
+	    {{id}}
+	  </md-button>
+	</md-list-item>
+      </md-list>
+    </md-sidenav>
+    <md-content flex="66" class="md-padding">
+      <state-summary client-id="clientId" state-id="selected"></state-summary>
+    </md-content>
+  </div>
+</div>

@@ -1,0 +1,39 @@
+<div layout="column">
+  <md-toolbar layout="row">
+    <md-button ng-click="showV4 = !showV4" aria-label="Show V4 Operations">
+      <md-icon ng-show="showV4" md-svg-icon="menu-open"></md-icon>
+      <md-icon ng-show="!showV4" md-svg-icon="menu-closed"></md-icon>
+    </md-button>
+    <span><h2 class="md-title">NFSv4 Operations</h2></span>
+  </md-toolbar>
+  <div ng-show="showV4" layout="column" class="md-margin">
+    <div layout="row">
+      <div flex="33"><h2 class="md-title">Operation</h2></div>
+      <div flex="66"><h2 class="md-title">Count</h2></div>
+    </div>
+    <div layout="row"
+	 ng-repeat="entry in ops4 | orderBy: 'name'">
+      <div flex="33">{{entry.name}}</div>
+      <div flex="66">{{entry.count}}</div>
+    </div>
+  </div>
+  <br>
+  <md-toolbar layout="row">
+    <md-button ng-click="showV3 = !showV3" aria-label="Show V3 Operations">
+      <md-icon ng-show="showV3" md-svg-icon="menu-open"></md-icon>
+      <md-icon ng-show="!showV3" md-svg-icon="menu-closed"></md-icon>
+    </md-button>
+    <span><h2 class="md-title">NFSv3 Operations</h2></span>
+  </md-toolbar>
+  <div ng-show="showV3" layout="column" class="md-margin">
+    <div layout="row">
+      <div flex="33"><h2 class="md-title">Operation</h2></div>
+      <div flex="66"><h2 class="md-title">Count</h2></div>
+    </div>
+    <div layout="row"
+	 ng-repeat="entry in ops3 | orderBy: 'name'">
+      <div flex="33">{{entry.name}}</div>
+      <div flex="66">{{entry.count}}</div>
+    </div>
+  </div>
+</div>

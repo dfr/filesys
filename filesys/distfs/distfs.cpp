@@ -279,9 +279,11 @@ DistFilesystem::resilverPiece(PieceId id, system_clock::duration delay)
 {
     LOG(INFO) << "Resilvering " << id << " after "
               << duration_cast<milliseconds>(delay).count() << " ms";
+    repairQueueSize_++;
     sockman_->add(
         system_clock::now() + delay,
         [this, id]() {
+            repairQueueSize_--;
             auto piece = findPiece(id, false, nullptr);
             int n = replicas_ - int(piece->loc().size());
             if (n > 0) {

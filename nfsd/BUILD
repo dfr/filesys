@@ -6,11 +6,14 @@
 cc_binary(
     name = "nfsd",
     copts = ["-std=c++14"],
-    srcs = glob(["*.cpp", "*.h"]),
+    srcs = glob(["*.cpp", "*.h"]) + [
+        "//nfsd/ui",
+    ],
     deps = [
         ":nfs3",
 	":nfs4",
         ":threadpool",
+        ":version",
         "//rpcxx",
         "//filesys",
     ],
@@ -21,6 +24,13 @@ cc_library(
     name = "threadpool",
     copts = ["-std=c++14"],
     srcs = glob(["*.h"]),
+)
+
+cc_library(
+    name = "version",
+    copts = ["-std=c++14"],
+    srcs = ["version.h"] + [":gen_version"],
+    visibility = ["//visibility:public"]
 )
 
 cc_library(
@@ -51,6 +61,7 @@ cc_library(
     ],
     deps = [
         ":threadpool",
+        ":version",
         "//rpcxx",
         "//filesys",
     ]
@@ -72,4 +83,11 @@ cc_test(
         "//third_party/gtest:gtest_main",
     ],
     linkstatic = 1,
+)
+
+genrule(
+    name = "gen_version",
+    outs = ["version.cpp"],
+    cmd = "$(location gen-version.sh) > $(OUTS)",
+    tools = ["gen-version.sh"],
 )

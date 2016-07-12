@@ -1,0 +1,52 @@
+<div layout="column">
+  <md-toolbar layout="row">
+    <md-button ng-click="showFS = !showFS" aria-label="Show FS Stats">
+      <md-icon ng-show="showFS" md-svg-icon="menu-open"></md-icon>
+      <md-icon ng-show="!showFS" md-svg-icon="menu-closed"></md-icon>
+    </md-button>
+    <span><h2 class="md-title">Filesystem statistics</h2></span>
+  </md-toolbar>
+  <div ng-show="showFS" layout="column" class="md-margin">
+    <div layout="row">
+      <b flex="20">File count:</b>
+      <div>{{humanizeNumber(fsattr.totalFiles - fsattr.freeFiles)}}</div>
+    </div>
+    <div layout="row">
+      <b flex="20">Space used:</b>
+      <div>{{humanizeNumber(fsattr.totalSpace - fsattr.freeSpace)}}</div>
+    </div>
+    <div layout="row">
+      <b flex="20">Free space:</b>
+      <div>{{humanizeNumber(fsattr.freeSpace)}}</div>
+    </div>
+    <div layout="row">
+      <b flex="20">Repair queue:</b>
+      <div>{{fsattr.repairQueueSize}}</div>
+    </div>
+  </div>
+  <md-toolbar ng-show="!hideDevs" layout="row">
+    <md-button ng-click="showDevs = !showDevs" aria-label="Show Devices">
+      <md-icon ng-show="showDevs" md-svg-icon="menu-open"></md-icon>
+      <md-icon ng-show="!showDevs" md-svg-icon="menu-closed"></md-icon>
+    </md-button>
+    <span><h2 class="md-title">Devices</h2></span>
+  </md-toolbar>
+  <div ng-show="showDevs && !hideDevs" layout="column" class="md-margin">
+    <div layout="row">
+      <div flex="33"><h2 class="md-title">ID</h2></div>
+      <div flex="33"><h2 class="md-title">Addresses</h2></div>
+      <div flex="33"><h2 class="md-title">State</h2></div>
+    </div>
+    <div layout="row" ng-repeat="dev in devices">
+      <div flex="33">{{dev.id}}</div>
+      <div flex="33">
+	<a ng-repeat="addr in formatAddresses(dev)",
+	   href="http://{{addr}}"
+	   target="_blank">
+	  {{addr}}
+	</a>
+      </div>
+      <div flex="33"><span ng-style="{color:dev.color}">{{dev.state}}</span></div>
+    </div>
+  </div>
+</div>

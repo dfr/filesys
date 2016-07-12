@@ -33,6 +33,7 @@ static void heartbeat(shared_ptr<oncrpc::SocketManager> sockman)
 void nfsd::nfs4::init(
     shared_ptr<oncrpc::SocketManager> sockman,
     shared_ptr<ServiceRegistry> svcreg,
+    shared_ptr<RestRegistry> restreg,
     shared_ptr<ThreadPool> threadpool,
     const vector<int>& sec,
     const vector<AddressInfo>& addrs)
@@ -43,6 +44,10 @@ void nfsd::nfs4::init(
     threadpool->addService(
         NFS4_PROGRAM, NFS_V4, svcreg,
         std::bind(&NfsServer::dispatch, nfsService.get(), _1));
+
+    if (restreg) {
+        nfsService->setRestRegistry(restreg);
+    }
 
     dataService = make_shared<DataServer>(sec);
     threadpool->addService(

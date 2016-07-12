@@ -113,6 +113,10 @@ public:
     {
         return NAME_MAX;
     }
+    int repairQueueSize() const override
+    {
+        return 0;
+    }
 };
 
 class PfsFile: public File, public std::enable_shared_from_this<PfsFile>

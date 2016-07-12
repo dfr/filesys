@@ -1,0 +1,28 @@
+<div layout="column">
+  <div layout="row">
+    <b flex="33">Revoked:</b>
+    <div flex="66">{{revoked}}</div>
+  </div>
+  <div layout="row">
+    <b flex="33">Share access:</b>
+    <div flex="66">
+      <span ng-if="accessRead()">read</span>
+      <span ng-if="accessWrite()">write</span>
+    </div>
+  </div>
+  <div layout="row">
+    <b flex="33">Share deny:</b>
+    <div flex="66">
+      <span ng-if="denyRead()">read</span>
+      <span ng-if="denyWrite()">write</span>
+    </div>
+  </div>
+  <div layout="row">
+    <b flex="33">Expiry:</b>
+    <div flex="66">{{expiry}}</div>
+  </div>
+  <div layout="row">
+    <b flex="33">File handle:</b>
+    <div flex="66">{{fh}}</div>
+  </div>
+</div>

@@ -8,6 +8,7 @@
 
 #include <unordered_set>
 #include <fs++/filesys.h>
+#include <rpc++/rest.h>
 #include "filesys/nfs4/nfs4proto.h"
 #include "filesys/nfs4/nfs4util.h"
 
@@ -24,7 +25,8 @@ class NfsFileState;
 class NfsSession;
 class NfsState;
 
-class NfsClient: public std::enable_shared_from_this<NfsClient>
+class NfsClient: public oncrpc::RestHandler,
+                 public std::enable_shared_from_this<NfsClient>
 {
     struct DeviceState {
         filesys::Device::CallbackHandle callback = 0;
@@ -40,15 +42,21 @@ public:
         filesys::detail::Clock::time_point expiry,
         const filesys::nfs4::state_protect4_a& spa);
 
-    ~NfsClient()
-    {
-        for (auto& entry: devices_) {
-            auto dev = entry.first;
-            auto& ds = entry.second;
-            if (ds.callback)
-                dev->removeStateCallback(ds.callback);
-        }
-    }
+    ~NfsClient();
+
+    // RestHandler overrides
+    bool get(
+        std::shared_ptr<oncrpc::RestRequest> req,
+        std::unique_ptr<oncrpc::RestEncoder>&& res) override;
+    bool post(
+        std::shared_ptr<oncrpc::RestRequest> req,
+        std::unique_ptr<oncrpc::RestEncoder>&& res) override;
+
+    void encodeState(
+        std::unique_ptr<oncrpc::RestEncoder>&& enc,
+        std::shared_ptr<NfsState> ns);
+
+    void setRestRegistry(std::shared_ptr<oncrpc::RestRegistry> restreg);
 
     auto id() const { return id_; }
     auto& owner() const { return owner_; }
@@ -57,6 +65,13 @@ public:
     auto sequence() const { return sequence_; }
     auto& reply() const { return reply_; }
     auto spa() const { return spa_; }
+    auto& state() const { return state_; }
+    auto& sessions() const { return sessions_; }
+
+    int stateCount()
+    {
+        return int(state_.size());
+    }
 
     bool hasState()
     {
@@ -115,8 +130,6 @@ public:
     {
         return sessions_.size();
     }
-
-    auto& sessions() const { return sessions_; }
 
     filesys::nfs4::stateid4 newStateId();
 
@@ -316,6 +329,7 @@ private:
     bool confirmed_ = false;
     std::atomic_int nextSessionIndex_;
     std::unordered_set<std::shared_ptr<NfsSession>> sessions_;
+    std::shared_ptr<oncrpc::RestRegistry> restreg_;
 
     // Device state tracking
     std::unordered_map<

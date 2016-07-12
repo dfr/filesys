@@ -324,7 +324,7 @@ private:
 
 /// We maintain an instance of this for each potential data store
 class DistDevice: public Device,
-                   public std::enable_shared_from_this<DistDevice>
+                  public std::enable_shared_from_this<DistDevice>
 {
 public:
 
@@ -335,6 +335,7 @@ public:
 
     // Device overrides
     uint64_t id() const override { return id_; }
+    Device::State state() const override { return state_; }
     std::vector<oncrpc::AddressInfo> addresses() const override;
     CallbackHandle addStateCallback(std::function<void(State)> cb) override;
     void removeStateCallback(CallbackHandle h) override;
@@ -376,7 +377,6 @@ public:
 
     void write(std::shared_ptr<DistFilesystem> fs);
 
-    auto state() const { return state_; }
     void setState(State state)
     {
         auto lk = lock();
@@ -441,9 +441,11 @@ public:
     size_t totalSpace() const override;
     size_t freeSpace() const override;
     size_t availSpace() const override;
+    int repairQueueSize() const override;
 
 private:
     const StorageStatus storage_;
+    int repairQueueSize_;
 };
 
 class DistFilesystem: public objfs::ObjFilesystem,
@@ -484,6 +486,7 @@ public:
     auto repairsNS() const { return repairsNS_; }
     auto storage() const { return storage_; }
     auto replicas() const { return replicas_; }
+    auto repairQueueSize() const { return repairQueueSize_; }
 
 #if 0
     /// Assuming a 10 Pb filesystem with 10 Mb pieces, we need to
@@ -573,6 +576,7 @@ private:
 
     /// Storage summary
     StorageStatus storage_ = {0, 0, 0};
+    int repairQueueSize_ = 0;
 
     int nextDeviceId_ = 1;
     std::unordered_map<DSOwnerId,

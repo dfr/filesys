@@ -137,7 +137,14 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        auto fs = fac->mount(url);
+        shared_ptr<Filesystem> fs;
+        try {
+            fs = fac->mount(url);
+        }
+        catch (runtime_error& e) {
+            cerr << url << ": " << e.what() << endl;
+            return 1;
+        }
         fsman.mount(url, fs);
 
         auto dir = fs->root();

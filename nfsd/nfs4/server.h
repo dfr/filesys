@@ -7,6 +7,7 @@
 #pragma once
 
 #include <fs++/filesys.h>
+#include <rpc++/rest.h>
 
 #include "filesys/nfs4/nfs4proto.h"
 #include "filesys/nfs4/nfs4attr.h"
@@ -191,7 +192,8 @@ public:
         const filesys::nfs4::RECLAIM_COMPLETE4args& args) = 0;
 };
 
-class NfsServer: public INfsServer
+class NfsServer: public INfsServer, public oncrpc::RestHandler,
+                 public std::enable_shared_from_this<NfsServer>
 {
 public:
     NfsServer(
@@ -200,6 +202,7 @@ public:
         std::shared_ptr<filesys::detail::Clock> clock);
     NfsServer(const std::vector<int>& sec);
 
+    // INfsServer overrides
     void null() override;
     filesys::nfs4::ACCESS4res access(
         CompoundState& state,
@@ -363,6 +366,11 @@ public:
         CompoundState& state,
         const filesys::nfs4::RECLAIM_COMPLETE4args& args) override;
 
+    // RestHandler overrides
+    bool get(
+        std::shared_ptr<oncrpc::RestRequest> req,
+        std::unique_ptr<oncrpc::RestEncoder>&& res) override;
+
     virtual void dispatch(oncrpc::CallContext&& ctx);
     void compound(oncrpc::CallContext&& ctx);
     filesys::nfs4::nfsstat4 dispatchop(
@@ -449,6 +457,17 @@ public:
             bool changed,
             const filesys::nfs4::layoutrecall4& recall)> hook);
 
+    /// Set a REST registry object to allow access to the server state
+    /// for monitoring and managment interfaces. This should be called
+    /// on startup, before any clients are connected.
+    void setRestRegistry(std::shared_ptr<oncrpc::RestRegistry> restreg)
+    {
+        assert(clientsById_.size() == 0);
+        assert(!restreg_);
+        restreg_ = restreg;
+        restreg_->add("/nfs4", false, shared_from_this());
+    }
+
 private:
     std::mutex mutex_;
     std::vector<int> sec_;
@@ -457,6 +476,10 @@ private:
     std::shared_ptr<filesys::nfs4::IIdMapper> idmapper_;
     std::shared_ptr<filesys::detail::Clock> clock_;
     filesys::detail::Clock::time_point graceExpiry_;
+    std::shared_ptr<oncrpc::RestRegistry> restreg_;
+
+    // Statistics
+    std::vector<int> stats_;     // per-compound op counts
 
     // Active clients
     std::unordered_multimap<

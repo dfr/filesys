@@ -3,6 +3,8 @@
  * All rights reserved.
  */
 
+#include <rpc++/json.h>
+#include <rpc++/urlparser.h>
 #include <glog/logging.h>
 
 #include "client.h"
@@ -31,6 +33,126 @@ NfsClient::NfsClient(
 {
     sequence_ = 0;
     reply_ = CREATE_SESSION4res(NFS4ERR_SEQ_MISORDERED);
+}
+
+NfsClient::~NfsClient()
+{
+    if (restreg_) {
+        restreg_->remove(std::string("/nfs4/client/") + toHexClientid(id_));
+        restreg_.reset();
+    }
+
+    for (auto& entry: devices_) {
+        auto dev = entry.first;
+        auto& ds = entry.second;
+        if (ds.callback)
+            dev->removeStateCallback(ds.callback);
+    }
+}
+
+bool NfsClient::get(
+    std::shared_ptr<oncrpc::RestRequest> req,
+    std::unique_ptr<oncrpc::RestEncoder>&& res)
+{
+    auto& uri = req->uri();
+    if (uri.segments.size() == 3) {
+        // /nfs4/client/<id>
+        auto enc = res->object();
+        enc->field("states")->number(int(state_.size()));
+        enc->field("confirmed")->boolean(confirmed_);
+        auto sessions = enc->field("sessions")->array();
+        for (auto sp: sessions_) {
+            sessions->element()->string(toHexSessionid(sp->id()));
+        }
+        sessions.reset();
+        auto opens = enc->field("opens")->array();
+        for (auto& entry: state_) {
+            auto ns = entry.second;
+            if (ns->type() == NfsState::OPEN)
+                opens->element()->string(toHexStateid(ns->id()));
+        }
+        opens.reset();
+        auto delegations = enc->field("delegations")->array();
+        for (auto& entry: state_) {
+            auto ns = entry.second;
+            if (ns->type() == NfsState::DELEGATION)
+                delegations->element()->string(toHexStateid(ns->id()));
+        }
+        delegations.reset();
+        auto layouts = enc->field("layouts")->array();
+        for (auto& entry: state_) {
+            auto ns = entry.second;
+            if (ns->type() == NfsState::LAYOUT)
+                layouts->element()->string(toHexStateid(ns->id()));
+        }
+        layouts.reset();
+        enc.reset();
+        return true;
+    }
+    else if (uri.segments.size() == 5 && uri.segments[3] == "state") {
+        // /nfs4/client/<id>/state/<id>
+        try {
+            auto id = fromHexStateid(uri.segments[4]);
+            auto it = state_.find(id);
+            if (it == state_.end())
+                return false;
+            auto ns = it->second;
+            encodeState(move(res), ns);
+            return true;
+        }
+        catch (system_error& e) {
+            return false;
+        }
+    }
+    return false;
+}
+
+bool NfsClient::post(
+    std::shared_ptr<oncrpc::RestRequest> req,
+    std::unique_ptr<oncrpc::RestEncoder>&& res)
+{
+    auto& uri = req->uri();
+    if (uri.segments.size() == 4 && uri.segments[3] == "revoke") {
+        LOG(INFO) << req->body();
+        if (req->body() == "true")
+            revokeState();
+        return true;
+    }
+    return false;
+}
+
+void NfsClient::encodeState(
+    std::unique_ptr<oncrpc::RestEncoder>&& enc,
+    std::shared_ptr<NfsState> ns)
+{
+    auto obj = enc->object();
+    obj->field("id")->string(toHexStateid(ns->id()));
+    if (ns->type() == NfsState::OPEN) {
+        obj->field("expiry")->string("Not applicable");
+    }
+    else {
+        auto t = chrono::system_clock::to_time_t(ns->expiry());
+        ostringstream ss;
+        auto tm = *gmtime(&t);
+        ss << put_time(&tm, "%a, %d %b %Y %H:%M:%S GMT");
+        obj->field("expiry")->string(ss.str());
+    }
+    if (ns->of()) {
+        obj->field("fh")->string(
+            toHexFileHandle(exportFileHandle(ns->of()->file())));
+    }
+    obj->field("revoked")->boolean(ns->revoked());
+    obj->field("access")->number(ns->access());
+    obj->field("deny")->number(ns->deny());
+}
+
+void NfsClient::setRestRegistry(std::shared_ptr<oncrpc::RestRegistry> restreg)
+{
+    assert(!restreg_);
+    restreg_ = restreg;
+    restreg_->add(
+        std::string("/nfs4/client/") + toHexClientid(id_), false,
+        shared_from_this());
 }
 
 sessionid4 NfsClient::newSessionId()

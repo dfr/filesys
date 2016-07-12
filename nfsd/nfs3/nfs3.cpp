@@ -62,6 +62,7 @@ static void bindProgram(
 
 void nfsd::nfs3::init(
     shared_ptr<ServiceRegistry> svcreg,
+    shared_ptr<RestRegistry> restreg,
     shared_ptr<ThreadPool> threadpool,
     const vector<int>& sec,
     const vector<AddressInfo>& addrs)
@@ -71,6 +72,9 @@ void nfsd::nfs3::init(
 
     mountService->bind(svcreg);
     nfsService->bind(svcreg);
+    if (restreg) {
+        nfsService->setRestRegistry(restreg);
+    }
 
     if (addrs.size() > 0 && FLAGS_rpcbind.size() > 0) {
         LOG(INFO) << "Registering services with rpcbind";

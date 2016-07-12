@@ -18,6 +18,7 @@ namespace nfs3 {
 
 void init(
     std::shared_ptr<oncrpc::ServiceRegistry> svcreg,
+    std::shared_ptr<oncrpc::RestRegistry> restreg,
     std::shared_ptr<ThreadPool> threadpool,
     const std::vector<int>& sec,
     const std::vector<oncrpc::AddressInfo>& addrs);

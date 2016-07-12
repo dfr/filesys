@@ -10,9 +10,11 @@
 
 #include <fs++/filesys.h>
 #include <rpc++/cred.h>
+#include <rpc++/urlparser.h>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "nfsd/version.h"
 #include "server.h"
 #include "session.h"
 #include "util.h"
@@ -67,7 +69,8 @@ NfsServer::NfsServer(
     shared_ptr<detail::Clock> clock)
     : sec_(sec),
       idmapper_(idmapper),
-      clock_(clock)
+      clock_(clock),
+      stats_(59)                // OP_RECLAIM_COMPLETE + 1
 {
     // Set the grace period expiry to the default lease_time value
     graceExpiry_ = clock_->now() + seconds(FLAGS_grace_time);
@@ -1342,6 +1345,8 @@ retry:
             client = make_shared<NfsClient>(
                 id, args.eia_clientowner, ctx.principal(), leaseExpiry(),
                 args.eia_state_protect);
+            if (restreg_)
+                client->setRestRegistry(restreg_);
             clientsById_[id] = client;
             clientsByOwnerId_.insert(
                 make_pair(args.eia_clientowner.co_ownerid, client));
@@ -1399,6 +1404,8 @@ retry:
                         client = make_shared<NfsClient>(
                             id, args.eia_clientowner, ctx.principal(),
                             leaseExpiry(), args.eia_state_protect);
+                        if (restreg_)
+                            client->setRestRegistry(restreg_);
                         clientsById_[id] = client;
                         clientsByOwnerId_.insert(
                             make_pair(args.eia_clientowner.co_ownerid, client));
@@ -1478,7 +1485,13 @@ retry:
             move(spr),
             owner_,
             {},         // server scope
-            {}          // server impl id
+            {
+                nfs_impl_id4{
+                    toUtf8string("rabson.org"),
+                    toUtf8string(nfsd::version::commit),
+                    {nfsd::version::date, 0}
+                }
+            }
         });
 }
 
@@ -1555,6 +1568,8 @@ CREATE_SESSION4res NfsServer::create_session(
     auto session = make_shared<NfsSession>(
         client, ctx.channel(), fca, bca,
         args.csa_cb_program, args.csa_sec_parms);
+    if (restreg_)
+        session->setRestRegistry(restreg_);
     sessionsById_[session->id()] = session;
     client->addSession(session);
 
@@ -2161,6 +2176,104 @@ RECLAIM_COMPLETE4res NfsServer::reclaim_complete(
     return RECLAIM_COMPLETE4res{NFS4_OK};
 }
 
+bool NfsServer::get(
+    std::shared_ptr<oncrpc::RestRequest> req,
+    std::unique_ptr<oncrpc::RestEncoder>&& res)
+{
+    unique_lock<mutex> lock(mutex_);
+
+    auto& uri = req->uri();
+    assert(uri.segments.size() > 0 && uri.segments[0] == "nfs4");
+
+    if (uri.segments.size() == 1) {
+        auto enc = res->object();
+        enc->field("clients")->number(int(clientsById_.size()));
+        enc->field("sessions")->number(int(sessionsById_.size()));
+        enc->field("activeFiles")->number(int(files_.size()));
+        static vector<const char*> opnames = {
+            "op0",
+            "op1",
+            "op2",
+            "access",		// 3
+            "close",		// 4
+            "commit",		// 5
+            "create",		// 6
+            "delegpurge",	// 7
+            "delegreturn",	// 8
+            "getattr",		// 9
+            "getfh",		// 10
+            "link",		// 11
+            "lock",		// 12
+            "lockt",		// 13
+            "locku",		// 14
+            "lookup",		// 15
+            "lookupp",		// 16
+            "nverify",		// 17
+            "open",		// 18
+            "openattr",		// 19
+            "open_confirm",	// 20
+            "open_downgrade",	// 21
+            "putfh",		// 22
+            "putpubfh",		// 23
+            "putrootfh",	// 24
+            "read",		// 25
+            "readdir",		// 26
+            "readlink",		// 27
+            "remove",		// 28
+            "rename",		// 29
+            "renew",		// 30
+            "restorefh",	// 31
+            "savefh",		// 32
+            "secinfo",		// 33
+            "setattr",		// 34
+            "setclientid",	// 35
+            "setclientid_confirm",// 36
+            "verify",		// 37
+            "write",		// 38
+            "release_lockowner",// 39
+            "backchannel_ctl",	// 40
+            "bind_conn_to_session",// 41
+            "exchange_id",	// 42
+            "create_session",	// 43
+            "destroy_session",	// 44
+            "free_stateid",	// 45
+            "get_dir_delegation",// 46
+            "getdeviceinfo",	// 47
+            "getdevicelist",	// 48
+            "layoutcommit",	// 49
+            "layoutget",	// 50
+            "layoutreturn",	// 51
+            "secinfo_no_name",	// 52
+            "sequence",		// 53
+            "set_ssv",		// 54
+            "test_stateid",	// 55
+            "want_delegation",	// 56
+            "destroy_clientid",	// 57
+            "reclaim_complete", // 58
+        };
+        auto ops = enc->field("operations")->object();
+        for (int i = 0; i < int(stats_.size()); i++) {
+            if (i >= opnames.size())
+                continue;
+            if (stats_[i])
+                ops->field(opnames[i])->number(stats_[i]);
+        }
+    }
+    else if (uri.segments.size() == 2 && uri.segments[1] == "client") {
+        auto enc = res->array();
+        for (auto& entry: clientsById_) {
+            auto id = toHexClientid(entry.first);
+            auto client = entry.second;
+            enc->element()->string(id);
+        }
+    }
+    else {
+        return false;
+    }
+
+    return true;
+}
+
 void NfsServer::dispatch(oncrpc::CallContext&& ctx)
 {
     switch (ctx.proc()) {
@@ -2282,12 +2395,14 @@ void NfsServer::compound(oncrpc::CallContext&& ctx)
                     shared_ptr<NfsSession> session;
                     unique_lock<mutex> lock(mutex_);
                     auto p = sessionsById_.find(seqargs.sa_sessionid);
-                    lock.unlock();
                     if (p != sessionsById_.end()) {
                         session = p->second;
+                        stats_[OP_SEQUENCE]++;
+                        lock.unlock();
                         seqres = session->sequence(state, seqargs);
                     }
                     else {
+                        lock.unlock();
                         LOG(ERROR) << "Request received for unknown session: "
                                    << seqargs.sa_sessionid;
                         seqres = SEQUENCE4res(NFS4ERR_BADSESSION);
@@ -2387,6 +2502,13 @@ nfsstat4 NfsServer::dispatchop(
         xdr(res, xresults);                     \
         return res.status;                      \
     }
+
+    
+    unique_lock<mutex> lk(mutex_);
+    if (op >= stats_.size())
+        stats_.resize(op + 1);
+    stats_[op]++;
+    lk.unlock();
 
     switch (op) {
         OP(ACCESS, access);

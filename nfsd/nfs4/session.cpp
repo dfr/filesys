@@ -304,3 +304,32 @@ void NfsSession::recallLayout(
             dec.layoutrecall();
         });
 }
+
+bool NfsSession::get(
+    std::shared_ptr<oncrpc::RestRequest> req,
+    std::unique_ptr<oncrpc::RestEncoder>&& res)
+{
+    auto enc = res->object();
+    auto channels = enc->field("channels")->array();
+    for (auto entry: channels_) {
+        auto chan = entry.lock();
+        if (!chan)
+            continue;
+        auto addr = chan->remoteAddress();
+        channels->element()->string(
+            addr.host() + ":" + to_string(addr.port()));
+    }
+    channels.reset();
+    enc.reset();
+    return true;
+}
+
+void NfsSession::setRestRegistry(
+    std::shared_ptr<oncrpc::RestRegistry> restreg)
+{
+    assert(!restreg_);
+    restreg_ = restreg;
+    restreg_->add(
+        std::string("/nfs4/session/") + toHexSessionid(id_), true,
+        shared_from_this());
+}

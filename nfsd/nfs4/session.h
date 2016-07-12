@@ -27,7 +27,8 @@ struct CBSlot {
     filesys::nfs4::sequenceid4 sequence = 1;
 };
 
-class NfsSession: public std::enable_shared_from_this<NfsSession>
+class NfsSession: public oncrpc::RestHandler,
+                  public std::enable_shared_from_this<NfsSession>
 {
 public:
     NfsSession(
@@ -86,6 +87,13 @@ public:
         layoutRecallHook_ = hook;
     }
 
+    // RestHandler overrides
+    bool get(
+        std::shared_ptr<oncrpc::RestRequest> req,
+        std::unique_ptr<oncrpc::RestEncoder>&& res) override;
+
+    void setRestRegistry(std::shared_ptr<oncrpc::RestRegistry> restreg);
+
 private:
     enum BackChannelState {
         NONE,
@@ -103,6 +111,7 @@ private:
     std::condition_variable backChannelWait_;
     filesys::nfs4::sessionid4 id_;
     std::vector<Slot> slots_;
+    std::shared_ptr<oncrpc::RestRegistry> restreg_;
 
     // Callback slot state
     std::shared_ptr<oncrpc::Client> cbClient_;

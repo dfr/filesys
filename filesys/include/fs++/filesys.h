@@ -299,6 +299,10 @@ public:
 
     /// Maximum length of a file name
     virtual int nameMax() const = 0;
+
+    /// For fault tolerant filesystems, a count of how many work items
+    /// are queued to repair any current defects.
+    virtual int repairQueueSize() const = 0;
 };
 
 /// A stateful object for performing i/o on a File
@@ -361,6 +365,9 @@ public:
 
     /// A unique identifier for this device
     virtual uint64_t id() const = 0;
+
+    /// Current device state
+    virtual State state() const = 0;
 
     /// Return a list of network addresses for this device
     virtual std::vector<oncrpc::AddressInfo> addresses() const = 0;
@@ -572,7 +579,6 @@ public:
         const std::vector<oncrpc::AddressInfo>& boundAddrs);
 };
 
-
 class FilesystemFactory
 {
 public:
@@ -618,7 +624,6 @@ private:
     std::map<std::string, std::shared_ptr<FilesystemFactory>> factories_;
     std::map<std::string, std::shared_ptr<Filesystem>> filesystems_;
 };
-
 
 /// Check access permissions for the object with the given attributes. If
 /// access is denied, a std;:system_error with appropriate error code is
