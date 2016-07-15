@@ -182,6 +182,12 @@ retry:
                 auto resok = dec.exchange_id();
                 clientid_ = resok.eir_clientid;
                 sequence_ = resok.eir_sequenceid;
+                if (resok.eir_server_impl_id.size() > 0) {
+                    auto& iid = resok.eir_server_impl_id[0];
+                    VLOG(1) << "Server implementation ID: "
+                            << "domain: " << toString(iid.nii_domain)
+                            << ", name: " << toString(iid.nii_name);
+                }
             });
 
         LOG(INFO) << "clientid: " << std::hex << clientid_
