@@ -194,3 +194,57 @@ void ObjSetattr::setCreateverf(std::uint64_t verf)
     }
     attr_.atime = verf;
 }
+
+ObjFsattr::ObjFsattr(std::shared_ptr<ObjFilesystem> fs)
+    : fs_(fs)
+{
+    // XXX bogus - we should keep track in the fs object
+    KeyType start(1);
+    KeyType end(~0ul);
+    fileCount_ = 0;
+    for (auto iterator = fs_->defaultNS()->iterator(start);
+         iterator->valid(end); iterator->next())
+        fileCount_++;
+}
+
+size_t ObjFsattr::totalSpace() const
+{
+    return 0;
+}
+
+size_t ObjFsattr::freeSpace() const {
+    return 0;
+}
+
+size_t ObjFsattr::availSpace() const
+{
+    return 0;
+}
+
+size_t ObjFsattr::totalFiles() const
+{
+    // We don't have a good way to estimate the limit on number of
+    // files but lets just assume that it can't be more than the
+    // number of bytes of free space
+    return freeSpace();
+}
+
+size_t ObjFsattr::freeFiles() const
+{
+    return freeSpace() - fileCount_;
+}
+
+size_t ObjFsattr::availFiles() const
+{
+    return freeFiles();
+}
+
+int ObjFsattr::linkMax() const
+{
+    return std::numeric_limits<int>::max();
+}
+
+int ObjFsattr::nameMax() const
+{
+    return OBJFS_NAME_MAX;
+}

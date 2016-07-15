@@ -81,21 +81,20 @@ private:
 class ObjFsattr: public Fsattr
 {
 public:
-    size_t totalSpace() const override { return 0; }
-    size_t freeSpace() const override { return 0; }
-    size_t availSpace() const override { return 0; }
-    size_t totalFiles() const override { return 0; }
-    size_t freeFiles() const override { return 0; }
-    size_t availFiles() const override { return 0; }
+    ObjFsattr(std::shared_ptr<ObjFilesystem> fs);
 
-    int linkMax() const override
-    {
-        return std::numeric_limits<int>::max();
-    }
-    int nameMax() const override
-    {
-        return OBJFS_NAME_MAX;
-    }
+    size_t totalSpace() const override;
+    size_t freeSpace() const override;
+    size_t availSpace() const override;
+    size_t totalFiles() const override;
+    size_t freeFiles() const override;
+    size_t availFiles() const override;
+    int linkMax() const override;
+    int nameMax() const override;
+
+private:
+    std::shared_ptr<ObjFilesystem> fs_;
+    size_t fileCount_;
 };
 
 /// Subclass ObjFileMeta to add some helper methods

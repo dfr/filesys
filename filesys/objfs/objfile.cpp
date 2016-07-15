@@ -387,7 +387,7 @@ shared_ptr<Fsattr> ObjFile::fsstat(const Credential& cred)
 {
     unique_lock<mutex> lock(mutex_);
     checkAccess(cred, AccessFlags::READ);
-    return make_shared<ObjFsattr>();
+    return make_shared<ObjFsattr>(fs_.lock());
 }
 
 shared_ptr<ObjFile> ObjFile::lookupInternal(

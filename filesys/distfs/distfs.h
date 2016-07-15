@@ -433,28 +433,14 @@ struct DevCompare
     }
 };
 
-class DistFsattr: public Fsattr
+class DistFsattr: public objfs::ObjFsattr
 {
 public:
-    DistFsattr(const StorageStatus& storage)
-        : storage_(storage)
-    {}
+    DistFsattr(std::shared_ptr<DistFilesystem> fs);
 
-    size_t totalSpace() const override { return storage_.totalSpace; }
-    size_t freeSpace() const override { return storage_.freeSpace; }
-    size_t availSpace() const override { return storage_.availSpace; }
-    size_t totalFiles() const override { return 0; }
-    size_t freeFiles() const override { return 0; }
-    size_t availFiles() const override { return 0; }
-
-    int linkMax() const override
-    {
-        return std::numeric_limits<int>::max();
-    }
-    int nameMax() const override
-    {
-        return objfs::OBJFS_NAME_MAX;
-    }
+    size_t totalSpace() const override;
+    size_t freeSpace() const override;
+    size_t availSpace() const override;
 
 private:
     const StorageStatus storage_;

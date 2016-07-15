@@ -30,7 +30,7 @@ shared_ptr<Fsattr> DistFile::fsstat(const Credential& cred)
     unique_lock<mutex> lock(mutex_);
     checkAccess(cred, AccessFlags::READ);
     auto fs = dynamic_pointer_cast<DistFilesystem>(fs_.lock());
-    return make_shared<DistFsattr>(fs->storage());
+    return make_shared<DistFsattr>(fs);
 }
 
 shared_ptr<Piece> DistFile::data(
