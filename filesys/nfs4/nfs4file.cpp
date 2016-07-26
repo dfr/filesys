@@ -97,7 +97,7 @@ shared_ptr<Getattr> NfsFile::getattr()
                 },
                 [this](auto& dec) {
                     dec.putfh();
-                    update(move(dec.getattr().obj_attributes));
+                    this->update(move(dec.getattr().obj_attributes));
                 });
         }
     }
@@ -122,7 +122,7 @@ void NfsFile::setattr(const Credential&, function<void(Setattr*)> cb)
         [this](auto& dec) {
             dec.putfh();
             dec.setattr();
-            update(move(dec.getattr().obj_attributes));
+            this->update(move(dec.getattr().obj_attributes));
         });
 }
 
@@ -153,7 +153,7 @@ shared_ptr<File> NfsFile::lookup(const Credential&, const string& name)
         },
         [this, &name, &fh, &attr](auto& dec) {
             dec.putfh();
-            update(move(dec.getattr().obj_attributes));
+            this->update(move(dec.getattr().obj_attributes));
             if (name == "..")
                 dec.lookupp();
             else
@@ -190,7 +190,7 @@ shared_ptr<OpenFile> NfsFile::open(
                 },
                 [this, &name, &fh, &attr, &lock](auto& dec) {
                     dec.putfh();
-                    update(lock, move(dec.getattr().obj_attributes));
+                    this->update(lock, move(dec.getattr().obj_attributes));
                     dec.lookup();
                     attr = move(dec.getattr().obj_attributes);
                     fh = move(dec.getfh().object);
@@ -272,7 +272,7 @@ shared_ptr<OpenFile> NfsFile::open(
         },
         [this, &res, &attr, &fh, &lock](auto& dec) {
             dec.putfh();
-            update(lock, move(dec.getattr().obj_attributes));
+            this->update(lock, move(dec.getattr().obj_attributes));
             res = dec.open();
             attr = move(dec.getattr().obj_attributes);
             fh = move(dec.getfh().object);
@@ -385,7 +385,7 @@ string NfsFile::readlink(const Credential&)
         [this, &data](auto& dec) {
             dec.putfh();
             data = dec.readlink().link;
-            update(move(dec.getattr().obj_attributes));
+            this->update(move(dec.getattr().obj_attributes));
         });
     return toString(data);
 }
@@ -444,7 +444,7 @@ void NfsFile::remove(const Credential&, const string& name)
                 throw system_error(EISDIR, system_category());
             dec.restorefh();
             dec.remove();
-            update(move(dec.getattr().obj_attributes));
+            this->update(move(dec.getattr().obj_attributes));
         });
 }
 
@@ -481,7 +481,7 @@ void NfsFile::rmdir(const Credential&, const string& name)
                 throw system_error(ENOTDIR, system_category());
             dec.restorefh();
             dec.remove();
-            update(move(dec.getattr().obj_attributes));
+            this->update(move(dec.getattr().obj_attributes));
         });
 }
 
@@ -508,7 +508,7 @@ void NfsFile::rename(
             dec.savefh();
             dec.putfh();
             dec.rename();
-            update(move(dec.getattr().obj_attributes));
+            this->update(move(dec.getattr().obj_attributes));
             dec.restorefh();
             from->update(move(dec.getattr().obj_attributes));
         });
@@ -534,7 +534,7 @@ void NfsFile::link(
             dec.savefh();
             dec.putfh();
             dec.link();
-            update(move(dec.getattr().obj_attributes));
+            this->update(move(dec.getattr().obj_attributes));
         });
 }
 
@@ -617,7 +617,7 @@ shared_ptr<File> NfsFile::create(
             attr = move(dec.getattr().obj_attributes);
             fh = move(dec.getfh().object);
             dec.putfh();
-            update(move(dec.getattr().obj_attributes));
+            this->update(move(dec.getattr().obj_attributes));
         });
 
     return nfs()->find(move(fh), move(attr));
@@ -684,7 +684,7 @@ std::shared_ptr<Buffer> NfsFile::read(
         [this, &res](auto& dec) {
             dec.putfh();
             res = dec.read();
-            update(move(dec.getattr().obj_attributes));
+            this->update(move(dec.getattr().obj_attributes));
         });
     eof = res.eof;
     lock.lock();
