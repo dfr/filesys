@@ -7,7 +7,7 @@
 #include <memory>
 #include <thread>
 
-#include <fs++/datacache.h>
+#include <filesys/datacache.h>
 #include <gmock/gmock.h>
 
 using namespace filesys;

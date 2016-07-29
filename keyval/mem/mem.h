@@ -8,7 +8,7 @@
 
 #include <cstring>
 #include <map>
-#include <kv++/keyval.h>
+#include <keyval/keyval.h>
 
 namespace keyval {
 namespace memory {

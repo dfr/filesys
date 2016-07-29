@@ -9,8 +9,8 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include <fs++/filesys.h>
-#include <fs++/fstests.h>
+#include <filesys/filesys.h>
+#include <filesys/fstests.h>
 
 #include "filesys/distfs/distfs.h"
 #include "filesys/datafs/datafs.h"

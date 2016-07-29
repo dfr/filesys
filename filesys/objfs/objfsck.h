@@ -8,7 +8,7 @@
 
 #include <map>
 
-#include <kv++/keyval.h>
+#include <keyval/keyval.h>
 
 #include "filesys/objfs/objfsproto.h"
 #include "filesys/objfs/objfskey.h"

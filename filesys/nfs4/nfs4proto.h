@@ -39,8 +39,8 @@ static void xdr(oncrpc::RefType<authsys_parms, XDR> v, XDR* xdrs)
 
 #define _AUTH_SYS_DEFINE_FOR_NFSv41
 
-#include <fs++/proto/nfs4_prot.h>
-#include <fs++/proto/flex_files_layout.h>
+#include "filesys/proto/nfs4_prot.h"
+#include "filesys/proto/flex_files_layout.h"
 
 namespace filesys {
 namespace nfs4 {

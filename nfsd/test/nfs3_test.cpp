@@ -6,10 +6,10 @@
 #include <gtest/gtest.h>
 #include <gflags/gflags.h>
 
-#include <fs++/filesys.h>
-#include <fs++/fstests.h>
-#include <fs++/proto/mount.h>
+#include <filesys/filesys.h>
+#include <filesys/fstests.h>
 
+#include "filesys/proto/mount.h"
 #include "filesys/objfs/objfs.h"
 #include "filesys/nfs3/nfs3fs.h"
 #include "nfsd/nfs3/nfs3.h"

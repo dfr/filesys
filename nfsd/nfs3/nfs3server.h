@@ -6,7 +6,7 @@
 #pragma once
 
 #include <rpc++/rest.h>
-#include <fs++/proto/nfs_prot.h>
+#include "filesys/proto/nfs_prot.h"
 
 namespace nfsd {
 namespace nfs3 {

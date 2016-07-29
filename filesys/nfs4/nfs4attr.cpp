@@ -6,7 +6,7 @@
 #include <pwd.h>
 #include <grp.h>
 
-#include <fs++/filesys.h>
+#include <filesys/filesys.h>
 #include <rpc++/urlparser.h>
 #include <glog/logging.h>
 

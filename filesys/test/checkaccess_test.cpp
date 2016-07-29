@@ -6,7 +6,7 @@
 #include <cassert>
 #include <memory>
 
-#include <fs++/filesys.h>
+#include <filesys/filesys.h>
 #include <gtest/gtest.h>
 
 using namespace filesys;

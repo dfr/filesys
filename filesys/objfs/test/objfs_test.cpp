@@ -6,7 +6,7 @@
 #include <thread>
 #include <unordered_set>
 
-#include <fs++/fstests.h>
+#include <filesys/fstests.h>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 #include "filesys/objfs/objfs.h"

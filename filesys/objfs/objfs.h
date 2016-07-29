@@ -8,9 +8,9 @@
 
 #include <atomic>
 
-#include <fs++/filesys.h>
-#include <fs++/lrucache.h>
-#include <kv++/keyval.h>
+#include <filesys/filesys.h>
+#include <filesys/lrucache.h>
+#include <keyval/keyval.h>
 #include "filesys/objfs/objfsproto.h"
 #include "filesys/objfs/objfskey.h"
 

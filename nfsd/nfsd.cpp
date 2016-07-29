@@ -14,7 +14,7 @@
 #include <rpc++/rest.h>
 #include <rpc++/server.h>
 #include <rpc++/urlparser.h>
-#include <fs++/filesys.h>
+#include <filesys/filesys.h>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 

@@ -6,8 +6,7 @@
 #include <iomanip>
 #include <sstream>
 
-#include <fs++/filesys.h>
-#include <fs++/proto/mount.h>
+#include <filesys/filesys.h>
 #include <rpc++/channel.h>
 #include <rpc++/client.h>
 #include <rpc++/errors.h>
@@ -18,6 +17,7 @@
 
 #include "nfs3fs.h"
 #include "filesys/pfs/pfsfs.h"
+#include "filesys/proto/mount.h"
 
 using namespace filesys;
 using namespace filesys::nfs3;

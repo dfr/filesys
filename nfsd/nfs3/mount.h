@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include <fs++/proto/mount.h>
+#include "filesys/proto/mount.h"
 
 namespace nfsd {
 namespace nfs3 {

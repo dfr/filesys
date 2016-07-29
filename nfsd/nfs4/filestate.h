@@ -6,7 +6,7 @@
 // -*- c++ -*-
 #pragma once
 
-#include <fs++/filesys.h>
+#include <filesys/filesys.h>
 #include "filesys/nfs4/nfs4proto.h"
 
 namespace nfsd {

@@ -15,10 +15,10 @@ cc_library(
     visibility = ["//visibility:public"]
 )
 
-cc_library(
+cc_inc_library(
     name = "hdrs",
-    hdrs = glob(["include/kv++/*.h"]),
-    includes = ["include"],
+    hdrs = glob(["include/*.h"]),
+    prefix = "include",
     deps = [
         "//rpcxx",
     ],

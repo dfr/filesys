@@ -6,7 +6,7 @@
 // -*- c++ -*-
 #pragma once
 
-#include <kv++/keyval.h>
+#include <keyval/keyval.h>
 #include <rocksdb/db.h>
 
 namespace keyval {

@@ -42,10 +42,10 @@ cc_library(
     visibility = ["//visibility:public"]
 )
 
-cc_library(
+cc_inc_library(
     name = "hdrs",
-    hdrs = glob(["include/fs++/*.h"]),
-    includes = ["include"],
+    hdrs = glob(["include/*.h"]),
+    prefix = "include",
     deps = ["//rpcxx"],
     visibility = ["//visibility:public"]
 )
@@ -69,36 +69,36 @@ cc_test(
 
 genrule(
     name = "mount_prot",
-    srcs = ["include/fs++/proto/mount.x"],
-    outs = ["include/fs++/proto/mount.h"],
+    srcs = ["include/proto/mount.x"],
+    outs = ["proto/mount.h"],
     tools = ["//rpcxx/utils/rpcgen"],
-    cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::nfs3 $(location include/fs++/proto/mount.x) > $(OUTS)",
+    cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::nfs3 $(location include/proto/mount.x) > $(OUTS)",
     visibility = ["//visibility:public"]
 )
 
 genrule(
     name = "nfs_prot",
-    srcs = ["include/fs++/proto/nfs_prot.x"],
-    outs = ["include/fs++/proto/nfs_prot.h"],
+    srcs = ["include/proto/nfs_prot.x"],
+    outs = ["proto/nfs_prot.h"],
     tools = ["//rpcxx/utils/rpcgen"],
-    cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::nfs3 $(location include/fs++/proto/nfs_prot.x) > $(OUTS)",
+    cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::nfs3 $(location include/proto/nfs_prot.x) > $(OUTS)",
     visibility = ["//visibility:public"]
 )
 
 genrule(
     name = "nfs4_prot",
-    srcs = ["include/fs++/proto/nfs4_prot.x"],
-    outs = ["include/fs++/proto/nfs4_prot.h"],
+    srcs = ["include/proto/nfs4_prot.x"],
+    outs = ["proto/nfs4_prot.h"],
     tools = ["//rpcxx/utils/rpcgen"],
-    cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::nfs4 $(location include/fs++/proto/nfs4_prot.x) > $(OUTS)",
+    cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::nfs4 $(location include/proto/nfs4_prot.x) > $(OUTS)",
     visibility = ["//visibility:public"]
 )
 
 genrule(
     name = "flex_files_layout",
-    srcs = ["include/fs++/proto/flex_files_layout.x"],
-    outs = ["include/fs++/proto/flex_files_layout.h"],
+    srcs = ["include/proto/flex_files_layout.x"],
+    outs = ["proto/flex_files_layout.h"],
     tools = ["//rpcxx/utils/rpcgen"],
-    cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::nfs4 $(location include/fs++/proto/flex_files_layout.x) > $(OUTS)",
+    cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::nfs4 $(location include/proto/flex_files_layout.x) > $(OUTS)",
     visibility = ["//visibility:public"]
 )

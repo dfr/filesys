@@ -8,7 +8,7 @@
 #include <iomanip>
 #include <sstream>
 
-#include <fs++/filesys.h>
+#include <filesys/filesys.h>
 #include <rpc++/cred.h>
 #include <rpc++/urlparser.h>
 #include <gflags/gflags.h>

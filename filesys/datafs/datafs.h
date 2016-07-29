@@ -11,8 +11,8 @@
 #include <map>
 #include <vector>
 
-#include <fs++/filesys.h>
-#include <fs++/lrucache.h>
+#include <filesys/filesys.h>
+#include <filesys/lrucache.h>
 
 namespace filesys {
 namespace data {

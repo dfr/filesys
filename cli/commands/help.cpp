@@ -6,7 +6,7 @@
 #include <iomanip>
 #include <iostream>
 
-#include <fs++/filesys.h>
+#include <filesys/filesys.h>
 
 #include "cli/fscli.h"
 

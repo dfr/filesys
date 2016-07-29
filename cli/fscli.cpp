@@ -8,7 +8,7 @@
 #include <fstream>
 #include <iostream>
 
-#include <fs++/filesys.h>
+#include <filesys/filesys.h>
 #include <rpc++/urlparser.h>
 
 #include "filesys/pfs/pfsfs.h"

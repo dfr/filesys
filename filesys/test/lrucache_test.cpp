@@ -8,7 +8,7 @@
 #include <memory>
 #include <thread>
 
-#include <fs++/lrucache.h>
+#include <filesys/lrucache.h>
 #include <gmock/gmock.h>
 
 using namespace filesys::detail;

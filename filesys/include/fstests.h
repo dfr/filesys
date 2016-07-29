@@ -6,7 +6,7 @@
 // -*- c++ -*-
 #pragma once
 
-#include <fs++/filesys.h>
+#include <filesys/filesys.h>
 #include <gtest/gtest.h>
 
 static inline void setMode666(filesys::Setattr* attr)

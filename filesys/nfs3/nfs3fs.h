@@ -5,9 +5,9 @@
 
 #pragma once
 
-#include <fs++/filesys.h>
-#include <fs++/lrucache.h>
-#include <fs++/proto/nfs_prot.h>
+#include <filesys/filesys.h>
+#include <filesys/lrucache.h>
+#include "filesys/proto/nfs_prot.h"
 
 namespace filesys {
 namespace nfs3 {

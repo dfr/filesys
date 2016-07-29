@@ -5,7 +5,7 @@
 
 #include <random>
 
-#include <fs++/filesys.h>
+#include <filesys/filesys.h>
 #include <gflags/gflags.h>
 
 #include "filesys/distfs/distfsproto.h"

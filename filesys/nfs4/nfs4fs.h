@@ -10,9 +10,9 @@
 #include <string>
 #include <vector>
 
-#include <fs++/datacache.h>
-#include <fs++/filesys.h>
-#include <fs++/lrucache.h>
+#include <filesys/datacache.h>
+#include <filesys/filesys.h>
+#include <filesys/lrucache.h>
 
 #include "nfs4proto.h"
 #include "nfs4util.h"
