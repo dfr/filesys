@@ -12,7 +12,7 @@ cc_library(
         "//filesys:hdrs",
 	"//filesys:access",
 	"//filesys/posix",
-        "//third_party/glog:glog"
+        "//external:glog"
     ],
     visibility = ["//visibility:public"]
 )

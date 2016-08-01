@@ -10,12 +10,12 @@ cc_library(
     hdrs = ["distfs.h"],
     deps = [
         ":hdrs",
-        "//rpcxx",
+        "//external:rpcxx",
         "//filesys:hdrs",
         "//filesys/nfs4",
         "//filesys/objfs",
         "//keyval",
-        "//third_party/glog",
+        "//external:glog",
     ],
     visibility = ["//visibility:public"]
 )
@@ -29,8 +29,8 @@ genrule(
     name = "proto",
     srcs = ["distfsproto.x"],
     outs = ["distfsproto.h"],
-    tools = ["//rpcxx/utils/rpcgen"],
-    cmd = "$(location //rpcxx/utils/rpcgen) -txics -n filesys::distfs $(SRCS) > $(OUTS)",
+    tools = ["//external:rpcgen"],
+    cmd = "$(location //external:rpcgen) -txics -n filesys::distfs $(SRCS) > $(OUTS)",
     visibility = ["//visibility:public"]
 )
 
@@ -48,7 +48,7 @@ cc_test(
         ":distfs",
 	"//filesys",
 	"//filesys/datafs",
-        "//third_party/gtest"
+        "//external:gtest"
     ],
     linkstatic = 1,
 )
@@ -61,8 +61,8 @@ cc_binary(
         ":distfs",
 	"//filesys/nfs4",
         "//keyval",
-        "//rpcxx",
-        "//third_party/glog",
+        "//external:rpcxx",
+        "//external:glog",
     ],
     visibility = ["//visibility:public"],
 )

@@ -20,7 +20,7 @@ cc_inc_library(
     hdrs = glob(["include/*.h"]),
     prefix = "include",
     deps = [
-        "//rpcxx",
+        "//external:rpcxx",
     ],
     visibility = ["//visibility:public"]
 )

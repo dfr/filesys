@@ -10,8 +10,8 @@ cc_library(
     hdrs = ["rocks.h"],
     deps = [
         "//keyval:hdrs",
-        "//third_party/glog",
-        "//third_party/rocksdb",
+        "//external:glog",
+        "//external:rocksdb",
     ],
     visibility = ["//visibility:public"]
 )

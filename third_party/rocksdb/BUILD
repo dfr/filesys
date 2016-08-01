@@ -15,7 +15,7 @@ cc_library(
         "//:freebsd": ["-DOS_FREEBSD"],
     }),
     srcs = [":src"],
-    deps = ["//third_party/gtest"],
+    deps = ["//external:gtest"],
 )
 
 cc_binary(

@@ -9,7 +9,7 @@ cc_library(
     srcs = glob(["*.cpp", "*.h"]),
     deps = [
         "//filesys:hdrs",
-        "//third_party/glog:glog"
+        "//external:glog"
     ],
     visibility = ["//visibility:public"]
 )

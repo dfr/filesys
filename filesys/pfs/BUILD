@@ -11,8 +11,8 @@ cc_library(
     deps = [
         "//filesys:hdrs",
 	"//filesys:access",
-        "//rpcxx",
-        "//third_party/glog:glog"
+        "//external:rpcxx",
+        "//external:glog"
     ],
     visibility = ["//visibility:public"]
 )
@@ -29,7 +29,7 @@ cc_test(
     srcs = glob(["test/*.cpp"]),
     deps = [
         ":pfs",
-        "//third_party/gtest:gtest_main"
+        "//external:gtest_main"
     ],
     linkopts = select ({
         "//:freebsd": ["-pthread"],

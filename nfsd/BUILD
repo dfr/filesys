@@ -80,7 +80,7 @@ cc_test(
     deps = [
         ":nfs3",
         ":nfs4",
-        "//third_party/gtest:gtest_main",
+        "//external:gtest_main",
     ],
     linkstatic = 1,
 )

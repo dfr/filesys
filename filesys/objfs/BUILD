@@ -10,11 +10,11 @@ cc_library(
     hdrs = ["objfs.h", "objfskey.h"],
     deps = [
         ":hdrs",
-        "//rpcxx",
+        "//external:rpcxx",
         "//filesys:hdrs",
         "//filesys:access",
         "//keyval",
-        "//third_party/glog",
+        "//external:glog",
     ],
     visibility = ["//visibility:public"]
 )
@@ -31,8 +31,8 @@ cc_binary(
     deps = [
         ":objfs",
         "//keyval",
-        "//rpcxx",
-        "//third_party/glog",
+        "//external:rpcxx",
+        "//external:glog",
     ],
     visibility = ["//visibility:public"],
 )
@@ -41,8 +41,8 @@ genrule(
     name = "proto",
     srcs = ["objfsproto.x"],
     outs = ["objfsproto.h"],
-    tools = ["//rpcxx/utils/rpcgen"],
-    cmd = "$(location //rpcxx/utils/rpcgen) -tx -n filesys::objfs $(SRCS) > $(OUTS)",
+    tools = ["//external:rpcgen"],
+    cmd = "$(location //external:rpcgen) -tx -n filesys::objfs $(SRCS) > $(OUTS)",
     visibility = ["//visibility:public"]
 )
 
@@ -58,7 +58,7 @@ cc_test(
     srcs = glob(["test/*.cpp"]),
     deps = [
         ":objfs",
-        "//third_party/gtest"
+        "//external:gtest"
     ],
     linkstatic = 1,
 )

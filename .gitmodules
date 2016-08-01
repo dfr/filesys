@@ -1,18 +1,6 @@
-[submodule "third_party/glog/upstream"]
-	path = third_party/glog/upstream
-	url = https://github.com/google/glog
-[submodule "third_party/gtest/upstream"]
-	path = third_party/gtest/upstream
-	url = https://chromium.googlesource.com/external/googletest
-[submodule "third_party/gflags/upstream"]
-	path = third_party/gflags/upstream
-	url = https://github.com/gflags/gflags.git
 [submodule "rpcxx"]
 	path = rpcxx
         url = git@github.com:dfr/rpcxx.git
-[submodule "third_party/gmock/upstream"]
-	path = third_party/gmock/upstream
-	url = https://chromium.googlesource.com/external/gmock
 [submodule "third_party/rocksdb/upstream"]
 	path = third_party/rocksdb/upstream
 	url = https://github.com/dfr/rocksdb.git

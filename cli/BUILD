@@ -9,8 +9,8 @@ cc_binary(
     srcs = glob(["*.cpp", "*.h", "commands/*.cpp"]),
     deps = [
         "//filesys",
-        "//third_party/glog",
-        "//third_party/gflags"
+        "//external:glog",
+        "//external:gflags"
     ],
     linkstatic = 1,
     visibility = ["//visibility:public"],

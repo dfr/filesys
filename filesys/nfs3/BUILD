@@ -13,8 +13,8 @@ cc_library(
     deps = [
         "//filesys:hdrs",
         "//filesys/pfs",
-        "//rpcxx",
-        "//third_party/glog:glog"
+        "//external:rpcxx",
+        "//external:glog"
     ],
     visibility = ["//visibility:public"]
 )
@@ -32,8 +32,8 @@ cc_test(
     linkstatic = 1,
     deps = [
         ":nfs3",
-        "//rpcxx",
-        "//third_party/gmock:gmock_main"
+        "//external:rpcxx",
+        "//external:gmock_main"
     ],
     args = ["--gmock_verbose=error"]
 )

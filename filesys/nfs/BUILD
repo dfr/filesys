@@ -13,7 +13,7 @@ cc_library(
         "//filesys:xdr",
 	"//filesys/nfs3",
 	"//filesys/nfs4",
-        "//third_party/glog:glog"
+        "//external:glog"
     ],
     visibility = ["//visibility:public"]
 )
