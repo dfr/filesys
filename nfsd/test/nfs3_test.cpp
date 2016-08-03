@@ -41,7 +41,7 @@ public:
         // Register mount and nfs services with oncrpc
         svcreg_ = make_shared<ServiceRegistry>();
         chan_ = make_shared<LocalChannel>(svcreg_);
-        nfsd::nfs3::init(svcreg_, nullptr, nullptr, {AUTH_SYS}, {});
+        nfsd::nfs3::init(svcreg_, nullptr, nullptr, {AUTH_SYS}, {}, objfs_);
 
         // Try to mount our test filesystem
         Mountprog3<oncrpc::SysClient> prog(chan_);

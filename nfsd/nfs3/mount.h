@@ -13,7 +13,8 @@ namespace nfs3 {
 class MountServer: public filesys::nfs3::Mountprog3Service
 {
 public:
-    MountServer(const std::vector<int>& sec);
+    MountServer(
+        const std::vector<int>& sec, std::shared_ptr<filesys::Filesystem> fs);
 
     // IMountprog3 overrides
     void null() override;
@@ -25,6 +26,7 @@ public:
 
 private:
     std::vector<int> sec_;
+    std::shared_ptr<filesys::Filesystem> fs_;
 };
 
 }

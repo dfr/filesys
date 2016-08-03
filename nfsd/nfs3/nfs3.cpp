@@ -65,10 +65,11 @@ void nfsd::nfs3::init(
     shared_ptr<RestRegistry> restreg,
     shared_ptr<ThreadPool> threadpool,
     const vector<int>& sec,
-    const vector<AddressInfo>& addrs)
+    const vector<AddressInfo>& addrs,
+    shared_ptr<filesys::Filesystem> fs)
 {
-    mountService = make_shared<MountServer>(sec);
-    nfsService = make_shared<NfsServer>(sec);
+    mountService = make_shared<MountServer>(sec, fs);
+    nfsService = make_shared<NfsServer>(sec, fs);
 
     mountService->bind(svcreg);
     nfsService->bind(svcreg);

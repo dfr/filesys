@@ -65,9 +65,11 @@ static nfsstat4 exportStatus(const system_error& e)
 
 NfsServer::NfsServer(
     const vector<int>& sec,
+    shared_ptr<Filesystem> fs,
     shared_ptr<IIdMapper> idmapper,
     shared_ptr<detail::Clock> clock)
     : sec_(sec),
+      fs_(fs),
       idmapper_(idmapper),
       clock_(clock),
       stats_(59)                // OP_RECLAIM_COMPLETE + 1
@@ -93,8 +95,8 @@ NfsServer::NfsServer(
     nextClientId_ = uint64_t(d.count() / 1000000000) << 32;
 }
 
-NfsServer::NfsServer(const vector<int>& sec)
-    : NfsServer(sec, LocalIdMapper(), make_shared<detail::SystemClock>())
+NfsServer::NfsServer(const vector<int>& sec, shared_ptr<Filesystem> fs)
+    : NfsServer(sec, fs, LocalIdMapper(), make_shared<detail::SystemClock>())
 {
 }
 
@@ -892,7 +894,7 @@ PUTPUBFH4res NfsServer::putpubfh(
     CompoundState& state)
 {
     VLOG(1) << "NfsServer::putpubfh()";
-    state.curr.file = FilesystemManager::instance().begin()->second->root();
+    state.curr.file = fs_->root();
     state.curr.stateid = STATEID_ANON;
     return PUTPUBFH4res{NFS4_OK};
 }
@@ -901,7 +903,7 @@ PUTROOTFH4res NfsServer::putrootfh(
     CompoundState& state)
 {
     VLOG(1) << "NfsServer::putrootfh()";
-    state.curr.file = FilesystemManager::instance().begin()->second->root();
+    state.curr.file = fs_->root();
     state.curr.stateid = STATEID_ANON;
     return PUTROOTFH4res{NFS4_OK};
 }
@@ -1468,10 +1470,9 @@ retry:
 
     // Figure out flags to return
     uint32_t flags = EXCHGID4_FLAG_USE_NON_PNFS;
-    auto fs = FilesystemManager::instance().begin()->second;
-    if (fs->isData() && (flags & EXCHGID4_FLAG_USE_PNFS_DS)) {
+    if (fs_->isData() && (flags & EXCHGID4_FLAG_USE_PNFS_DS)) {
         flags = EXCHGID4_FLAG_USE_PNFS_DS;
-    } else if (fs->isMetadata() && (flags & EXCHGID4_FLAG_USE_PNFS_MDS)) {
+    } else if (fs_->isMetadata() && (flags & EXCHGID4_FLAG_USE_PNFS_MDS)) {
         flags = EXCHGID4_FLAG_USE_PNFS_MDS;
     }
 
@@ -1654,9 +1655,8 @@ GETDEVICEINFO4res NfsServer::getdeviceinfo(
     if (args.gdia_layout_type != LAYOUT4_FLEX_FILES)
         return GETDEVICEINFO4res(NFS4ERR_UNKNOWN_LAYOUTTYPE);
     try {
-        auto fs = FilesystemManager::instance().begin()->second;
         uint64_t devid = importDeviceid(args.gdia_device_id);
-        auto dev = fs->findDevice(devid);
+        auto dev = fs_->findDevice(devid);
         ff_device_addr4 ffaddr;
         for (auto& ai: dev->addresses()) {
             string nettype;

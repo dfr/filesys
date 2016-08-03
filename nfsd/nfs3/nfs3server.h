@@ -16,7 +16,9 @@ class NfsServer: public filesys::nfs3::NfsProgram3Service,
                  public std::enable_shared_from_this<NfsServer>
 {
 public:
-    NfsServer(const std::vector<int>& sec);
+    NfsServer(
+        const std::vector<int>& sec,
+        std::shared_ptr<filesys::Filesystem> fs);
 
     // INfsProgram3 overrides
     void dispatch(oncrpc::CallContext&& ctx) override;

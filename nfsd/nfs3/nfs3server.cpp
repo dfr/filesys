@@ -193,7 +193,7 @@ static wcc_attr exportWcc(shared_ptr<File> file)
         exportTime(attr->ctime())};
 }
 
-NfsServer::NfsServer(const vector<int>& sec)
+NfsServer::NfsServer(const vector<int>& sec, shared_ptr<Filesystem> fs)
     : sec_(sec),
       stats_(NFSPROC3_COMMIT + 1)
 {

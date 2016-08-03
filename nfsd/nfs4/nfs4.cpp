@@ -36,11 +36,12 @@ void nfsd::nfs4::init(
     shared_ptr<RestRegistry> restreg,
     shared_ptr<ThreadPool> threadpool,
     const vector<int>& sec,
-    const vector<AddressInfo>& addrs)
+    const vector<AddressInfo>& addrs,
+    shared_ptr<filesys::Filesystem> fs)
 {
     using placeholders::_1;
 
-    nfsService = make_shared<NfsServer>(sec);
+    nfsService = make_shared<NfsServer>(sec, fs);
     threadpool->addService(
         NFS4_PROGRAM, NFS_V4, svcreg,
         std::bind(&NfsServer::dispatch, nfsService.get(), _1));

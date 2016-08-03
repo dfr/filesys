@@ -17,8 +17,9 @@ using namespace nfsd::nfs3;
 using namespace oncrpc;
 using namespace std;
 
-MountServer::MountServer(const vector<int>& sec)
-    : sec_(sec)
+MountServer::MountServer(const vector<int>& sec, shared_ptr<Filesystem> fs)
+    : sec_(sec),
+      fs_(fs)
 {
 }
 
@@ -28,7 +29,7 @@ void MountServer::null()
 
 mountres3 MountServer::mnt(const dirpath& dir)
 {
-    LOG(INFO) << "MountServer::mnt(" << dir << ")";
+    VLOG(1) << "MountServer::mnt(" << dir << ")";
 
     // RFC1816 5.2.1: AUTH_UNIX authentication or better is required
     auto& ctx = CallContext::current();
@@ -37,29 +38,29 @@ mountres3 MountServer::mnt(const dirpath& dir)
         throw NoReply();
     }
 
-    for (auto& entry: FilesystemManager::instance()) {
-        VLOG(1) << "Checking mount point " << entry.first;
-        if (dir == entry.first || dir == "/" + entry.first) {
-            mountres3_ok res;
-            FileHandle fh = entry.second->root()->handle();
-            oncrpc::XdrMemory xm(FHSIZE3);
-            xdr(fh, static_cast<oncrpc::XdrSink*>(&xm));
-            res.fhandle.resize(xm.writePos());
-            copy_n(xm.buf(), xm.writePos(), res.fhandle.data());
-            res.auth_flavors = sec_;
-            return mountres3(MNT3_OK, move(res));
-        }
+    // We only have one filesystem exported as "/"
+    if (dir == "/") {
+        mountres3_ok res;
+        FileHandle fh = fs_->root()->handle();
+        oncrpc::XdrMemory xm(FHSIZE3);
+        xdr(fh, static_cast<oncrpc::XdrSink*>(&xm));
+        res.fhandle.resize(xm.writePos());
+        copy_n(xm.buf(), xm.writePos(), res.fhandle.data());
+        res.auth_flavors = sec_;
+        return mountres3(MNT3_OK, move(res));
     }
     return mountres3(MNT3ERR_NOENT);
 }
 
 mountlist MountServer::dump()
 {
+    VLOG(1) << "MountServer::dump()";
     return nullptr;
 }
 
 void MountServer::umnt(const dirpath& dir)
 {
+    VLOG(1) << "MountServer::umnt(" << dir << ")";
     // RFC1816 5.2.3: AUTH_UNIX authentication or better is required
     auto& ctx = CallContext::current();
     if (ctx.flavor() < AUTH_SYS) {
@@ -70,6 +71,7 @@ void MountServer::umnt(const dirpath& dir)
 
 void MountServer::umntall()
 {
+    VLOG(1) << "MountServer::umntall()";
     // RFC1816 5.2.4: AUTH_UNIX authentication or better is required
     auto& ctx = CallContext::current();
     if (ctx.flavor() < AUTH_SYS) {
@@ -80,12 +82,8 @@ void MountServer::umntall()
 
 exports MountServer::listexports()
 {
-    unique_ptr<exportnode> res;
-    unique_ptr<exportnode>* p = &res;
-    for (auto& entry: FilesystemManager::instance()) {
-        *p = make_unique<exportnode>();
-        (*p)->ex_dir = dirpath(entry.first);
-        p = &(*p)->ex_next;
-    }
+    VLOG(1) << "MountServer::listexports()";
+    unique_ptr<exportnode> res = make_unique<exportnode>();
+    res->ex_dir = dirpath("/");
     return res;
 }

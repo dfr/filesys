@@ -198,9 +198,12 @@ class NfsServer: public INfsServer, public oncrpc::RestHandler,
 public:
     NfsServer(
         const std::vector<int>& sec,
+        std::shared_ptr<filesys::Filesystem> fs,
         std::shared_ptr<filesys::nfs4::IIdMapper> idmapper,
         std::shared_ptr<filesys::detail::Clock> clock);
-    NfsServer(const std::vector<int>& sec);
+    NfsServer(
+        const std::vector<int>& sec,
+        std::shared_ptr<filesys::Filesystem> fs);
 
     // INfsServer overrides
     void null() override;
@@ -471,6 +474,7 @@ public:
 private:
     std::mutex mutex_;
     std::vector<int> sec_;
+    std::shared_ptr<filesys::Filesystem> fs_;
     filesys::nfs4::server_owner4 owner_;
     filesys::nfs4::verifier4 writeverf_;
     std::shared_ptr<filesys::nfs4::IIdMapper> idmapper_;
