@@ -8,6 +8,7 @@
 
 #include <cstring>
 #include <map>
+#include <mutex>
 #include <keyval/keyval.h>
 
 namespace keyval {
@@ -45,35 +46,79 @@ public:
     void flush() override {}
 
 private:
+    std::mutex mutex_;
     std::map<std::string, std::shared_ptr<MemoryNamespace>> namespaces_;
 };
 
 class MemoryNamespace: public Namespace
 {
 public:
+    MemoryNamespace(std::mutex& mutex)
+        : mutex_(mutex)
+    {
+    }
+
+    auto lock()
+    {
+        return std::unique_lock<std::mutex>(mutex_);
+    }
+
     std::unique_ptr<Iterator> iterator() override;
     std::unique_ptr<Iterator> iterator(std::shared_ptr<Buffer> key) override;
     std::shared_ptr<Buffer> get(std::shared_ptr<Buffer> key) override;
     std::uint64_t spaceUsed(
         std::shared_ptr<Buffer> start, std::shared_ptr<Buffer> end) override;
 
-    namespaceT& map() { return map_; }
+    auto& map() { return map_; }
+    auto gen() const { return gen_; }
+
+    // These are only called from MemoryTransaction::commit with the
+    // mutex locked
+    void put(std::shared_ptr<Buffer> key, std::shared_ptr<Buffer> value);
+    void remove(std::shared_ptr<Buffer> key);
 
 private:
+    std::mutex& mutex_;
+    std::uint64_t gen_ = 1;
     namespaceT map_;
 };
 
 class MemoryIterator: public Iterator
 {
 public:
-    MemoryIterator(const namespaceT& map)
-        : map_(map),
-          it_(map.begin())
-    {}
-    MemoryIterator(const namespaceT& map, std::shared_ptr<Buffer> key)
-        : map_(map),
-          it_(map_.lower_bound(key))
-    {}
+    MemoryIterator(MemoryNamespace& ns)
+        : ns_(ns)
+    {
+        auto lk = ns.lock();
+        gen_ = ns.gen();
+        it_ = ns.map().begin();
+        read();
+    }
+
+    MemoryIterator(MemoryNamespace& ns, std::shared_ptr<Buffer> key)
+        : ns_(ns)
+    {
+        auto lk = ns.lock();
+        gen_ = ns.gen();
+        it_ = ns.map().lower_bound(key);
+        read();
+    }
+
+    // Read an entry from the map iterator. Must be called with the
+    // mutex locked.
+    void read()
+    {
+        valid_ = it_ != ns_.map().end();
+        if (valid_) {
+            key_ = it_->first;
+            value_ = it_->second;
+        }
+        else {
+            key_.reset();
+            value_.reset();
+        }
+    }
+
     void seek(std::shared_ptr<Buffer> key) override;
     void seekToFirst() override;
     void seekToLast() override;
@@ -85,8 +130,12 @@ public:
     std::shared_ptr<Buffer> value() const override;
 
 private:
-    const namespaceT& map_;
+    MemoryNamespace& ns_;
+    std::uint64_t gen_;
     namespaceT::const_iterator it_;
+    bool valid_;
+    std::shared_ptr<Buffer> key_;
+    std::shared_ptr<Buffer> value_;
 };
 
 class MemoryTransaction: public Transaction

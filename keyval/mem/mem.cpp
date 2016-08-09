@@ -19,11 +19,13 @@ MemoryDatabase::MemoryDatabase()
 // Database overrides
 shared_ptr<Namespace> MemoryDatabase::getNamespace(const string& name)
 {
+    unique_lock<mutex> lock(mutex_);
+
     auto it = namespaces_.find(name);
     if (it != namespaces_.end())
         return it->second;
 
-    auto ns = make_shared<MemoryNamespace>();
+    auto ns = make_shared<MemoryNamespace>(mutex_);
     namespaces_[name] = ns;
 
     return ns;
@@ -36,6 +38,7 @@ unique_ptr<Transaction> MemoryDatabase::beginTransaction()
 
 void MemoryDatabase::commit(unique_ptr<Transaction>&& transaction)
 {
+    unique_lock<mutex> lock(mutex_);
     auto t = reinterpret_cast<MemoryTransaction*>(transaction.get());
     t->commit();
     transaction.reset();
@@ -43,16 +46,17 @@ void MemoryDatabase::commit(unique_ptr<Transaction>&& transaction)
 
 unique_ptr<Iterator> MemoryNamespace::iterator()
 {
-    return make_unique<MemoryIterator>(map_);
+    return make_unique<MemoryIterator>(*this);
 }
 
 unique_ptr<Iterator> MemoryNamespace::iterator(shared_ptr<Buffer> key)
 {
-    return make_unique<MemoryIterator>(map_, key);
+    return make_unique<MemoryIterator>(*this, key);
 }
 
 shared_ptr<Buffer> MemoryNamespace::get(shared_ptr<Buffer> key)
 {
+    auto lk = lock();
     auto it = map_.find(key);
     if (it == map_.end())
         throw system_error(ENOENT, system_category());
@@ -65,51 +69,84 @@ uint64_t MemoryNamespace::spaceUsed(
     return 0;
 }
 
+void MemoryNamespace::put(shared_ptr<Buffer> key, shared_ptr<Buffer> value)
+{
+    gen_++;
+    map_[key] = value;
+}
+
+void MemoryNamespace::remove(shared_ptr<Buffer> key)
+{
+    gen_++;
+    map_.erase(key);
+}
+
 void MemoryIterator::seek(shared_ptr<Buffer> key)
 {
-    it_ = map_.lower_bound(key);
+    auto lk = ns_.lock();
+    gen_ = ns_.gen();
+    it_ = ns_.map().lower_bound(key);
+    read();
 }
 
 void MemoryIterator::seekToFirst()
 {
-    it_ = map_.begin();
+    auto lk = ns_.lock();
+    gen_ = ns_.gen();
+    it_ = ns_.map().begin();
+    read();
 }
 
 void MemoryIterator::seekToLast()
 {
-    seek(map_.rbegin()->first);
+    auto lk = ns_.lock();
+    auto key = ns_.map().rbegin()->first;
+    lk.unlock();
+    seek(key);
 }
 
 
 void MemoryIterator::next()
 {
+    auto lk = ns_.lock();
+    if (gen_ != ns_.gen()) {
+        gen_ = ns_.gen();
+        it_ = ns_.map().lower_bound(key_);
+    }
     ++it_;
+    read();
 }
 
 void MemoryIterator::prev()
 {
+    auto lk = ns_.lock();
+    if (gen_ != ns_.gen()) {
+        gen_ = ns_.gen();
+        it_ = ns_.map().lower_bound(key_);
+    }
     --it_;
+    read();
 }
 
 bool MemoryIterator::valid() const
 {
-    return it_ != map_.end();
+    return valid_;
 }
 
 bool MemoryIterator::valid(shared_ptr<Buffer> endKey) const
 {
     namespaceT::key_compare comp;
-    return it_ != map_.end() && comp(it_->first, endKey);
+    return valid_ && comp(key_, endKey);
 }
 
 shared_ptr<Buffer> MemoryIterator::key() const
 {
-    return it_->first;
+    return key_;
 }
 
 shared_ptr<Buffer> MemoryIterator::value() const
 {
-    return it_->second;
+    return value_;
 }
 
 void MemoryTransaction::put(
@@ -118,7 +155,7 @@ void MemoryTransaction::put(
     auto mns = dynamic_pointer_cast<MemoryNamespace>(ns);
     ops_.emplace_back(
         [=]() {
-            mns->map()[key] = val;
+            mns->put(key, val);
         });
 }
 
@@ -128,7 +165,7 @@ void MemoryTransaction::remove(
     auto mns = dynamic_pointer_cast<MemoryNamespace>(ns);
     ops_.emplace_back(
         [=]() {
-            mns->map().erase(key);
+            mns->remove(key);
         });
 }
 
