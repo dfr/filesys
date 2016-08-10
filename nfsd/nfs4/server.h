@@ -18,6 +18,10 @@
 #include "client.h"
 #include "filestate.h"
 
+namespace keyval {
+class Namespace;
+}
+
 namespace nfsd {
 namespace nfs4 {
 
@@ -204,6 +208,7 @@ public:
     NfsServer(
         const std::vector<int>& sec,
         std::shared_ptr<filesys::Filesystem> fs);
+    ~NfsServer();
 
     // INfsServer overrides
     void null() override;
@@ -374,6 +379,9 @@ public:
         std::shared_ptr<oncrpc::RestRequest> req,
         std::unique_ptr<oncrpc::RestEncoder>&& res) override;
 
+    auto clientsNS() const { return clientsNS_; }
+    auto stateNS() const { return stateNS_; }
+
     virtual void dispatch(oncrpc::CallContext&& ctx);
     void compound(oncrpc::CallContext&& ctx);
     filesys::nfs4::nfsstat4 dispatchop(
@@ -383,6 +391,17 @@ public:
     /// Return the time at which a client which renews its leases now
     /// should expire
     filesys::detail::Clock::time_point leaseExpiry();
+
+    /// Wrap db_->beginTransaction
+    std::unique_ptr<keyval::Transaction> beginTransaction();
+
+    /// Wrap db_->commit
+    void commit(std::unique_ptr<keyval::Transaction>&& trans);
+
+    /// Return true if client state is persistent
+    bool persistentState() const {
+        return db_ != nullptr;
+    }
 
     /// Return true if the server is still in its grace period
     bool inGracePeriod() const {
@@ -462,19 +481,25 @@ public:
 
     /// Set a REST registry object to allow access to the server state
     /// for monitoring and managment interfaces. This should be called
-    /// on startup, before any clients are connected.
+    /// on startup, before any clients are connected. Note: there may
+    /// be client objects loaded from the DB so make sure we hook them
+    /// up to the registry as well
     void setRestRegistry(std::shared_ptr<oncrpc::RestRegistry> restreg)
     {
-        assert(clientsById_.size() == 0);
         assert(!restreg_);
         restreg_ = restreg;
         restreg_->add("/nfs4", false, shared_from_this());
+        for (auto& entry: clientsById_)
+            entry.second->setRestRegistry(restreg);
     }
 
 private:
     std::mutex mutex_;
     std::vector<int> sec_;
     std::shared_ptr<filesys::Filesystem> fs_;
+    keyval::Database* db_;
+    std::shared_ptr<keyval::Namespace> clientsNS_;
+    std::shared_ptr<keyval::Namespace> stateNS_;
     filesys::nfs4::server_owner4 owner_;
     filesys::nfs4::verifier4 writeverf_;
     std::shared_ptr<filesys::nfs4::IIdMapper> idmapper_;

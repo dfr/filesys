@@ -17,13 +17,38 @@
 
 DECLARE_int32(max_state);
 
+namespace keyval {
+class Database;
+class Iterator;
+class Namespace;
+class Transaction;
+}
+
 namespace nfsd {
 namespace nfs4 {
 
 struct CompoundState;
 class NfsFileState;
+class NfsServer;
 class NfsSession;
 class NfsState;
+
+// Client objects are stored in the database using the
+// owner.co_ownerid as key and ClientData as value
+struct ClientData
+{
+    filesys::nfs4::client_owner4 owner;
+    std::string principal;
+    filesys::nfs4::state_protect_how4 spa;
+};
+
+template <class XDR>
+void xdr(oncrpc::RefType<ClientData, XDR> v, XDR* xdrs)
+{
+    xdr(v.owner, xdrs);
+    xdr(v.principal, xdrs);
+    xdr(v.spa, xdrs);
+}
 
 class NfsClient: public oncrpc::RestHandler,
                  public std::enable_shared_from_this<NfsClient>
@@ -36,11 +61,17 @@ class NfsClient: public oncrpc::RestHandler,
 
 public:
     NfsClient(
+        keyval::Database* db,
         filesys::nfs4::clientid4 id,
         const filesys::nfs4::client_owner4& owner,
         const std::string& principal,
         filesys::detail::Clock::time_point expiry,
         const filesys::nfs4::state_protect4_a& spa);
+    NfsClient(
+        keyval::Database* db,
+        filesys::nfs4::clientid4 id,
+        std::unique_ptr<keyval::Iterator>& iterator,
+        filesys::detail::Clock::time_point expiry);
 
     ~NfsClient();
 
@@ -59,14 +90,18 @@ public:
     void setRestRegistry(std::shared_ptr<oncrpc::RestRegistry> restreg);
 
     auto id() const { return id_; }
-    auto& owner() const { return owner_; }
-    auto& principal() const { return principal_; }
+    auto& owner() const { return data_.owner; }
+    auto& principal() const { return data_.principal; }
     auto confirmed() const { return confirmed_; }
+    auto restored() const { return restored_; }
     auto sequence() const { return sequence_; }
     auto& reply() const { return reply_; }
-    auto spa() const { return spa_; }
+    auto spa() const { return data_.spa; }
     auto& state() const { return state_; }
     auto& sessions() const { return sessions_; }
+
+    void save(keyval::Transaction* trans);
+    void remove(keyval::Transaction* trans);
 
     int stateCount()
     {
@@ -110,6 +145,16 @@ public:
         confirmed_ = true;
     }
 
+    void setRestored()
+    {
+        restored_ = true;
+    }
+
+    void clearRestored()
+    {
+        restored_ = false;
+    }
+
     void setReply(const filesys::nfs4::CREATE_SESSION4res& reply);
 
     filesys::nfs4::sessionid4 newSessionId();
@@ -149,15 +194,15 @@ public:
         std::unique_lock<std::mutex> lock(mutex_);
         auto id = newStateId();
         auto ns = std::make_shared<NfsState>(
-            NfsState::OPEN, id, shared_from_this(), fs,
+            stateNS_, StateType::OPEN, id, shared_from_this(), fs,
             owner, access, deny, of, expiry);
         state_[id] = ns;
+        fs->addOpen(ns);
         return ns;
     }
 
     std::shared_ptr<NfsState> addDelegation(
         std::shared_ptr<NfsFileState> fs,
-        const filesys::nfs4::state_owner4& owner,
         int access,
         std::shared_ptr<filesys::OpenFile> of,
         filesys::detail::Clock::time_point expiry)
@@ -165,11 +210,12 @@ public:
         std::unique_lock<std::mutex> lock(mutex_);
         auto id = newStateId();
         auto ns = std::make_shared<NfsState>(
-            NfsState::DELEGATION, id, shared_from_this(), fs,
-            owner, access, 0, of, expiry);
+            stateNS_, StateType::DELEGATION, id, shared_from_this(), fs,
+            filesys::nfs4::state_owner4{id_, {}}, access, 0, of, expiry);
         assert(state_.find(id) == state_.end());
         recallableStateCount_++;
         state_[id] = ns;
+        fs->addDelegation(ns);
         return ns;
     }
 
@@ -185,7 +231,7 @@ public:
                       filesys::nfs4::OPEN4_SHARE_ACCESS_BOTH :
                       filesys::nfs4::OPEN4_SHARE_ACCESS_READ);
         auto ns = std::make_shared<NfsState>(
-            NfsState::LAYOUT, id, shared_from_this(), fs,
+            stateNS_, StateType::LAYOUT, id, shared_from_this(), fs,
             filesys::nfs4::state_owner4{id_, {}}, access, 0, nullptr, expiry);
         for (auto dev: devices) {
             auto& ds = devices_[dev];
@@ -196,81 +242,16 @@ public:
         assert(state_.find(id) == state_.end());
         recallableStateCount_++;
         state_[id] = ns;
+        fs->addLayout(ns);
         return ns;
     }
 
-    void clearState(const filesys::nfs4::stateid4& stateid)
-    {
-        std::unique_lock<std::mutex> lock(mutex_);
-        auto it = state_.find(stateid);
-        if (it != state_.end()) {
-            auto ns = it->second;
-            if (!ns->revoked()) {
-                auto fs = ns->fs();
-                if (fs)
-                    fs->revoke(it->second);
-                if (ns->type() == NfsState::DELEGATION ||
-                    ns->type() == NfsState::LAYOUT)
-                    recallableStateCount_--;
-                if (ns->type() == NfsState::LAYOUT)
-                    clearLayout(lock, ns);
-            }
-            state_.erase(it);
-        }
-        else {
-            it = revokedState_.find(stateid);
-            if (it != revokedState_.end())
-                revokedState_.erase(it);
-        }
-    }
-
-    void clearLayouts()
-    {
-        std::unique_lock<std::mutex> lock(mutex_);
-        std::vector<filesys::nfs4::stateid4> stateids;
-        for (auto& entry: state_) {
-            if (entry.second->type() == NfsState::LAYOUT)
-                stateids.push_back(entry.second->id());
-        }
-        lock.unlock();
-        for (auto& stateid: stateids)
-            clearState(stateid);
-    }
-
-    void revokeState(std::shared_ptr<NfsState> ns)
-    {
-        std::unique_lock<std::mutex> lock(mutex_);
-        auto fs = ns->fs();
-        if (fs) {
-            fs->revoke(ns);
-        }
-        if (ns->type() == NfsState::DELEGATION ||
-            ns->type() == NfsState::LAYOUT)
-            recallableStateCount_--;
-        if (ns->type() == NfsState::LAYOUT)
-            clearLayout(lock, ns);
-        state_.erase(ns->id());
-        revokedState_[ns->id()] = ns;
-    }
-
-    void revokeState()
-    {
-        std::unique_lock<std::mutex> lock(mutex_);
-        for (auto& e: state_) {
-            auto ns = e.second;
-            auto fs = ns->fs();
-            if (fs) {
-                fs->revoke(ns);
-            }
-            if (ns->type() == NfsState::DELEGATION ||
-                ns->type() == NfsState::LAYOUT)
-                recallableStateCount_--;
-            if (ns->type() == NfsState::LAYOUT)
-                clearLayout(lock, ns);
-            revokedState_[ns->id()] = ns;
-        }
-        state_.clear();
-    }
+    void clearState(const filesys::nfs4::stateid4& stateid);
+    void clearLayouts();
+    void revokeState(std::shared_ptr<NfsState> ns);
+    void revokeState(std::shared_ptr<NfsState> ns, keyval::Transaction* trans);
+    void revokeState(keyval::Transaction* trans);
+    void revokedUnreclaimedState(keyval::Transaction* trans);
 
     void deviceCallback(
         std::shared_ptr<filesys::Device> dev,
@@ -319,14 +300,16 @@ public:
 
 private:
     std::mutex mutex_;
+    keyval::Database* db_;
+    std::shared_ptr<keyval::Namespace> clientsNS_;
+    std::shared_ptr<keyval::Namespace> stateNS_;
     filesys::nfs4::clientid4 id_;
-    filesys::nfs4::client_owner4 owner_;
-    std::string principal_;
+    ClientData data_;
     filesys::nfs4::nfs_impl_id4 impl_;
     bool expired_ = false;
     filesys::detail::Clock::time_point expiry_;
-    filesys::nfs4::state_protect_how4 spa_;
     bool confirmed_ = false;
+    bool restored_ = false;
     std::atomic_int nextSessionIndex_;
     std::unordered_set<std::shared_ptr<NfsSession>> sessions_;
     std::shared_ptr<oncrpc::RestRegistry> restreg_;

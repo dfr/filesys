@@ -109,11 +109,13 @@ static inline int operator==(
            x.co_ownerid == y.co_ownerid;
 }
 
+// RFC5661 18.16.3: The client can set the clientid field to any value
+// and the server MUST ignore it
 static inline int operator==(
     const filesys::nfs4::state_owner4& x,
     const filesys::nfs4::state_owner4& y)
 {
-    return x.clientid == y.clientid && x.owner == y.owner;
+    return x.owner == y.owner;
 }
 
 static inline int operator!=(

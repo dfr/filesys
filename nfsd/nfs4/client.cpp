@@ -5,6 +5,8 @@
 
 #include <rpc++/json.h>
 #include <rpc++/urlparser.h>
+#include <rpc++/xdr.h>
+#include <keyval/keyval.h>
 #include <glog/logging.h>
 
 #include "client.h"
@@ -19,20 +21,42 @@ using namespace std;
 DEFINE_int32(max_state, 0, "Target maximum number of recallable state objects per client (0 for unlimited)");
 
 NfsClient::NfsClient(
+    keyval::Database* db,
     clientid4 id, const client_owner4& owner,
     const string& principal,
     detail::Clock::time_point expiry,
     const state_protect4_a& spa)
-    : id_(id),
-      owner_(owner),
-      principal_(principal),
+    : db_(db),
+      id_(id),
+      data_({owner, principal, spa.spa_how}),
       expiry_(expiry),
-      spa_(spa.spa_how),
       nextSessionIndex_(0),
       nextStateIndex_(0)
 {
+    if (db_) {
+        clientsNS_ = db->getNamespace("clients");
+        stateNS_ = db->getNamespace("state");
+    }
     sequence_ = 0;
     reply_ = CREATE_SESSION4res(NFS4ERR_SEQ_MISORDERED);
+}
+
+NfsClient::NfsClient(
+    keyval::Database* db,
+    filesys::nfs4::clientid4 id,
+    std::unique_ptr<keyval::Iterator>& iterator,
+    detail::Clock::time_point expiry)
+    : db_(db),
+      clientsNS_(db->getNamespace("clients")),
+      stateNS_(db->getNamespace("state")),
+      id_(id),
+      expiry_(expiry),
+      nextSessionIndex_(0),
+      nextStateIndex_(0)
+{
+    auto val = iterator->value();
+    oncrpc::XdrMemory xm(val->data(), val->size());
+    xdr(data_, static_cast<oncrpc::XdrSource*>(&xm));
 }
 
 NfsClient::~NfsClient()
@@ -68,21 +92,21 @@ bool NfsClient::get(
         auto opens = enc->field("opens")->array();
         for (auto& entry: state_) {
             auto ns = entry.second;
-            if (ns->type() == NfsState::OPEN)
+            if (ns->type() == StateType::OPEN)
                 opens->element()->string(toHexStateid(ns->id()));
         }
         opens.reset();
         auto delegations = enc->field("delegations")->array();
         for (auto& entry: state_) {
             auto ns = entry.second;
-            if (ns->type() == NfsState::DELEGATION)
+            if (ns->type() == StateType::DELEGATION)
                 delegations->element()->string(toHexStateid(ns->id()));
         }
         delegations.reset();
         auto layouts = enc->field("layouts")->array();
         for (auto& entry: state_) {
             auto ns = entry.second;
-            if (ns->type() == NfsState::LAYOUT)
+            if (ns->type() == StateType::LAYOUT)
                 layouts->element()->string(toHexStateid(ns->id()));
         }
         layouts.reset();
@@ -114,8 +138,16 @@ bool NfsClient::post(
     auto& uri = req->uri();
     if (uri.segments.size() == 4 && uri.segments[3] == "revoke") {
         LOG(INFO) << req->body();
-        if (req->body() == "true")
-            revokeState();
+        if (req->body() == "true") {
+            if (db_) {
+                auto trans = db_->beginTransaction();
+                revokeState(trans.get());
+                db_->commit(move(trans));
+            }
+            else {
+                revokeState(nullptr);
+            }
+        }
         return true;
     }
     return false;
@@ -127,7 +159,7 @@ void NfsClient::encodeState(
 {
     auto obj = enc->object();
     obj->field("id")->string(toHexStateid(ns->id()));
-    if (ns->type() == NfsState::OPEN) {
+    if (ns->type() == StateType::OPEN) {
         obj->field("expiry")->string("Not applicable");
     }
     else {
@@ -153,6 +185,29 @@ void NfsClient::setRestRegistry(std::shared_ptr<oncrpc::RestRegistry> restreg)
     restreg_->add(
         std::string("/nfs4/client/") + toHexClientid(id_), false,
         shared_from_this());
+}
+
+void NfsClient::save(keyval::Transaction* trans)
+{
+    if (trans) {
+        auto key = make_shared<oncrpc::Buffer>(data_.owner.co_ownerid.size());
+        copy_n(data_.owner.co_ownerid.data(),
+               data_.owner.co_ownerid.size(), key->data());
+        auto value = make_shared<oncrpc::Buffer>(oncrpc::XdrSizeof(data_));
+        oncrpc::XdrMemory xm(value->data(), value->size());
+        xdr(data_, static_cast<oncrpc::XdrSink*>(&xm));
+        trans->put(clientsNS_, key, value);
+    }
+}
+
+void NfsClient::remove(keyval::Transaction* trans)
+{
+    if (trans) {
+        auto key = make_shared<oncrpc::Buffer>(data_.owner.co_ownerid.size());
+        copy_n(data_.owner.co_ownerid.data(),
+               data_.owner.co_ownerid.size(), key->data());
+        trans->remove(clientsNS_, key);
+    }
 }
 
 sessionid4 NfsClient::newSessionId()
@@ -208,6 +263,121 @@ shared_ptr<NfsState> NfsClient::findState(
     if (id.seqid > ns->id().seqid)
         throw NFS4ERR_BAD_STATEID;
     throw NFS4ERR_OLD_STATEID;
+}
+
+void NfsClient::clearState(const filesys::nfs4::stateid4& stateid)
+{
+    std::unique_lock<std::mutex> lock(mutex_);
+    auto it = state_.find(stateid);
+    if (it != state_.end()) {
+        auto ns = it->second;
+        if (!ns->revoked()) {
+            auto fs = ns->fs();
+            if (fs)
+                fs->revoke(it->second);
+            if (ns->type() == StateType::DELEGATION ||
+                ns->type() == StateType::LAYOUT)
+                recallableStateCount_--;
+            if (ns->type() == StateType::LAYOUT)
+                clearLayout(lock, ns);
+        }
+        state_.erase(it);
+    }
+    else {
+        it = revokedState_.find(stateid);
+        if (it != revokedState_.end())
+            revokedState_.erase(it);
+    }
+}
+
+void NfsClient::clearLayouts()
+{
+    std::unique_lock<std::mutex> lock(mutex_);
+    std::vector<filesys::nfs4::stateid4> stateids;
+    for (auto& entry: state_) {
+        if (entry.second->type() == StateType::LAYOUT)
+            stateids.push_back(entry.second->id());
+    }
+    lock.unlock();
+    for (auto& stateid: stateids)
+        clearState(stateid);
+}
+
+void NfsClient::revokeState(std::shared_ptr<NfsState> ns)
+{
+    if (db_) {
+        auto trans = db_->beginTransaction();
+        revokeState(ns, trans.get());
+        db_->commit(move(trans));
+    }
+    else {
+        revokeState(ns, nullptr);
+    }
+}
+
+void NfsClient::revokeState(
+    std::shared_ptr<NfsState> ns, keyval::Transaction* trans)
+{
+    ns->remove(trans);
+
+    std::unique_lock<std::mutex> lock(mutex_);
+    auto fs = ns->fs();
+    if (fs) {
+        fs->revoke(ns);
+    }
+    if (ns->type() == StateType::DELEGATION ||
+        ns->type() == StateType::LAYOUT)
+        recallableStateCount_--;
+    if (ns->type() == StateType::LAYOUT)
+        clearLayout(lock, ns);
+    state_.erase(ns->id());
+    revokedState_[ns->id()] = ns;
+}
+
+void NfsClient::revokeState(keyval::Transaction* trans)
+{
+    std::unique_lock<std::mutex> lock(mutex_);
+    for (auto& e: state_) {
+        auto ns = e.second;
+        ns->remove(trans);
+
+        auto fs = ns->fs();
+        if (fs) {
+            fs->revoke(ns);
+        }
+        if (ns->type() == StateType::DELEGATION ||
+            ns->type() == StateType::LAYOUT)
+            recallableStateCount_--;
+        if (ns->type() == StateType::LAYOUT)
+            clearLayout(lock, ns);
+        revokedState_[ns->id()] = ns;
+    }
+    state_.clear();
+}
+
+void NfsClient::revokedUnreclaimedState(keyval::Transaction* trans)
+{
+    std::unique_lock<std::mutex> lock(mutex_);
+    vector<shared_ptr<NfsState>> toRevoke;
+    for (auto& e: state_) {
+        auto ns = e.second;
+        if (ns->restored())
+            toRevoke.push_back(ns);
+    }
+    for (auto ns: toRevoke) {
+        ns->remove(trans);
+        auto fs = ns->fs();
+        if (fs) {
+            fs->revoke(ns);
+        }
+        if (ns->type() == StateType::DELEGATION ||
+            ns->type() == StateType::LAYOUT)
+            recallableStateCount_--;
+        if (ns->type() == StateType::LAYOUT)
+            clearLayout(lock, ns);
+        revokedState_[ns->id()] = ns;
+        state_.erase(ns->id());
+    }
 }
 
 void NfsClient::setReply(const CREATE_SESSION4res& reply)
@@ -345,8 +515,8 @@ void NfsClient::expireState(filesys::detail::Clock::time_point now)
     std::vector<std::shared_ptr<NfsState>> toRecall;
     for (auto& e: state_) {
         auto ns = e.second;
-        if (ns->type() == NfsState::DELEGATION ||
-            ns->type() == NfsState::LAYOUT) {
+        if (ns->type() == StateType::DELEGATION ||
+            ns->type() == StateType::LAYOUT) {
             if (ns->expiry() < now) {
                 auto fs = ns->fs();
                 if (fs && fs->isOpen(shared_from_this()))

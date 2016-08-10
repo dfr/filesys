@@ -17,6 +17,10 @@
 #include <rpc++/xdr.h>
 #include <rpc++/socket.h>
 
+namespace keyval {
+class Database;
+}
+
 namespace filesys {
 
 using oncrpc::Credential;
@@ -552,6 +556,13 @@ public:
     virtual std::shared_ptr<Device> findDevice(std::uint64_t& devid)
     {
         throw std::system_error(ENOENT, std::system_category());
+    }
+
+    /// For filesystems which are backed by a key/value database,
+    /// return the database object, otherwise return nullptr
+    virtual keyval::Database* database() const
+    {
+        return nullptr;
     }
 };
 

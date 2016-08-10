@@ -96,10 +96,10 @@ shared_ptr<NfsState> NfsFileState::findLayout(
 
 /// Return true if this owner can open with the given access and
 /// deny share reservation
-bool NfsFileState::checkShare(
+void NfsFileState::checkShare(
     shared_ptr<NfsClient> client,
     const filesys::nfs4::open_owner4& owner,
-    int access, int deny)
+    int access, int deny, bool inGracePeriod)
 {
     unique_lock<mutex> lock(mutex_);
 
@@ -112,25 +112,57 @@ retry:
         auto conflictingDeny = deny & access_;
         auto ns = findOpen(lock, client, owner);
         if (ns) {
+            // If we have an existing state entry for this owner and
+            // it exactly matches the conflict, then there is no
+            // actual conflict since this is an upgrade, downgrade or
+            // reclaim request
             if ((conflictingAccess & ns->deny()) == conflictingAccess &&
                 (conflictingDeny & ns->access()) == conflictingDeny)
-                return true;
+                return;
         }
         // Possibly revoke any conflicting state
         for (auto ns: opens_) {
             auto client = ns->client();
-            if (client && client->expired() &&
-                ((access & ns->deny()) || (deny & ns->access()))) {
-                LOG(INFO) << "Revoking expired stateid: " << ns->id();
-                lock.unlock();
-                ns->client()->revokeState(ns);
-                lock.lock();
-                goto retry;
+            if ((access & ns->deny()) || (deny & ns->access())) {
+                // This state entry conflicts
+                if (client && client->expired()) {
+                    // The owning client has expired - revoke the
+                    // conflicting state and retry
+                    LOG(INFO) << "Revoking expired stateid: " << ns->id();
+                    lock.unlock();
+                    ns->client()->revokeState(ns);
+                    lock.lock();
+                    goto retry;
+                }
+                else if (ns->restored()) {
+                    // The conflicting state was restored from the
+                    // database and has not been reclaimed - return
+                    // NFS4ERR_GRACE if we are still in the grace
+                    // period so the caller can back off and retry.
+                    //
+                    // Note: the case where a client is reclaiming its
+                    // old state will match, is handled above.
+                    if (inGracePeriod) {
+                        VLOG(1) << "Conflicting unreclaimed stateid: "
+                                << ns->id();
+                        throw NFS4ERR_GRACE;
+                    }
+                    else {
+                        // The grace period has finished, treat this
+                        // state entry as expired
+                        LOG(INFO) << "Revoking un-reclaimed stateid: "
+                                  << ns->id();
+                        lock.unlock();
+                        ns->client()->revokeState(ns);
+                        lock.lock();
+                        goto retry;
+                    }
+                }
+                VLOG(1) << "Conflicting stateid: " << ns->id();
             }
         }
-        return false;
+        throw NFS4ERR_SHARE_DENIED;
     }
-    return true;
 }
 
 void NfsFileState::updateShare(
@@ -163,13 +195,13 @@ void NfsFileState::revoke(
 {
     ns->revoke();
     switch (ns->type()) {
-    case NfsState::OPEN:
+    case StateType::OPEN:
         opens_.erase(ns);
         break;
-    case NfsState::DELEGATION:
+    case StateType::DELEGATION:
         delegations_.erase(ns);
         break;
-    case NfsState::LAYOUT:
+    case StateType::LAYOUT:
         layouts_.erase(ns);
         break;
     }

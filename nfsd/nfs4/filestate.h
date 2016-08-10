@@ -96,12 +96,15 @@ public:
         std::unique_lock<std::mutex>& lock,
         std::shared_ptr<NfsClient> client);
 
-    /// Return true if this owner can open with the given access and
-    /// deny share reservation
-    bool checkShare(
+    /// Check if this owner can open with the given access and deny
+    /// share reservation. If the open is not possible, throw an
+    /// appropriate nfsstat4 exception (either NFS4ERR_SHARE_DENIED or
+    /// NFS4ERR_GRACE depending on the restored flag of the
+    /// conflicting state entry).
+    void checkShare(
         std::shared_ptr<NfsClient> client,
         const filesys::nfs4::open_owner4& owner,
-        int access, int deny);
+        int access, int deny, bool inGracePeriod);
 
     void updateShare(std::shared_ptr<NfsState> ns)
     {

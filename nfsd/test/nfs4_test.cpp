@@ -865,7 +865,6 @@ TEST_F(Nfs4Test, WriteDelegation)
 TEST_F(Nfs4Test, RecallDelegation)
 {
     open_owner4 oo1{ fs_->clientid(), { 1, 0, 0, 0 } };
-    open_owner4 oo2{ fs_->clientid(), { 2, 0, 0, 0 } };
     NfsAttr xattr;
     fattr4 attr;
 
@@ -886,10 +885,17 @@ TEST_F(Nfs4Test, RecallDelegation)
 
     expectRecall(res1.delegation.write().stateid);
 
+    // Make a second NfsFilesystem to try to open the file and revoke
+    // the layout. We need a second NfsFilesystem so that it has a
+    // conflicting clientid
+    auto fs2 = make_shared<NfsFilesystem>(
+        chan_, client_, clock_, "fs2", idmapper_);
+    open_owner4 oo2{ fs2->clientid(), { 2, 0, 0, 0 } };
+
     // Open with oo2 for writing - should recall the delegation
     OPEN4resok res2;
     std::tie(res2, std::ignore) = open(
-        fs_, "foo",
+        fs2, "foo",
         OPEN4_SHARE_ACCESS_WRITE | OPEN4_SHARE_ACCESS_WANT_NO_DELEG,
         OPEN4_SHARE_DENY_NONE,
         oo2);
@@ -899,7 +905,7 @@ TEST_F(Nfs4Test, RecallDelegation)
 
     // Cleanup
     close(fs_, fh, res1.stateid);
-    close(fs_, fh, res2.stateid);
+    close(fs2, fh, res2.stateid);
 }
 
 TEST_F(Nfs4Test, UpgradeDelegation)

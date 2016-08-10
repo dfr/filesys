@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include <filesys/filesys.h>
+#include <keyval/keyval.h>
 #include <rpc++/cred.h>
 #include <rpc++/urlparser.h>
 #include <gflags/gflags.h>
@@ -74,6 +75,14 @@ NfsServer::NfsServer(
       clock_(clock),
       stats_(59)                // OP_RECLAIM_COMPLETE + 1
 {
+    // If the filesystem has a db, use that to store client state
+    // persistently
+    db_ = fs->database();
+    if (db_) {
+        clientsNS_ = db_->getNamespace("clients");
+        stateNS_ = db_->getNamespace("state");
+    }
+
     // Set the grace period expiry to the default lease_time value
     graceExpiry_ = clock_->now() + seconds(FLAGS_grace_time);
 
@@ -88,15 +97,106 @@ NfsServer::NfsServer(
     owner_.so_minor_id = 1;
 
     // Use the server state time as write verifier
-    auto d = duration_cast<nanoseconds>(system_clock::now().time_since_epoch());
+    auto d = duration_cast<nanoseconds>(clock_->now().time_since_epoch());
     *(uint64_t*) writeverf_.data() = d.count();
 
     // Also use time in seconds as the base for generating new client IDs
     nextClientId_ = uint64_t(d.count() / 1000000000) << 32;
+
+    // Load the clients table and re-create client objects for each entry
+    if (db_) {
+        auto expiry = leaseExpiry();
+        for (auto iterator = clientsNS_->iterator();
+             iterator->valid(); iterator->next()) {
+            auto id = nextClientId_++;
+            auto client = make_shared<NfsClient>(
+                db_, id, iterator, expiry);
+            clientsById_[id] = client;
+            clientsByOwnerId_.insert(
+                make_pair(client->owner().co_ownerid, client));
+            client->setConfirmed();
+            client->setRestored();
+            VLOG(1) << "Restored client: " << client->owner()
+                    << ", clientid: " << hex << client->id();
+        }
+
+        // Load the state table and attempt to re-create state
+        // objects. Any entries which fail to create new states (e.g. if
+        // the referenced file doesn't exist) are deleted from the
+        // database
+        auto trans = db_->beginTransaction();
+        for (auto iterator = stateNS_->iterator();
+             iterator->valid(); iterator->next()) {
+            auto key = iterator->key();
+            auto val = iterator->value();
+            StateKey sk;
+            StateData sd;
+
+            oncrpc::XdrMemory xmk(key->data(), key->size());
+            oncrpc::XdrMemory xmd(val->data(), val->size());
+            xdr(sk, static_cast<oncrpc::XdrSource*>(&xmk));
+            xdr(sd, static_cast<oncrpc::XdrSource*>(&xmd));
+
+            try {
+                // First, try to get a filesys::File object - if we can't
+                // get one, the state is stale
+                auto fs = findState(importFileHandle(sk.fh));
+
+                // Next, find a matching NfsClient object. Since we have
+                // just loaded the clients table and are not yet accepting
+                // RPC requests, there can be only one matching entry.
+                auto range = clientsByOwnerId_.equal_range(sk.clientOwner);
+                if (range.first == clientsByOwnerId_.end())
+                    throw system_error(ENOENT, system_category());
+                auto client = range.first->second;
+
+                shared_ptr<NfsState> ns;
+                switch (sk.type) {
+                case StateType::OPEN:
+                    ns = client->addOpen(
+                        fs,
+                        state_owner4{0, sk.stateOwner},
+                        sd.access,
+                        sd.deny,
+                        nullptr,    // open it here?
+                        expiry);
+                    break;
+
+                case StateType::DELEGATION:
+                    ns = client->addDelegation(
+                        fs,
+                        sd.access,
+                        nullptr,    // open it here?
+                        expiry);
+                    break;
+
+                case StateType::LAYOUT:
+                    ns = client->addLayout(
+                        fs,
+                        sd.access == OPEN4_SHARE_ACCESS_BOTH ?
+                        LAYOUTIOMODE4_RW : LAYOUTIOMODE4_READ,
+                        {},         // re-create the device list on reclaim
+                        expiry);
+                    break;
+                }
+                VLOG(1) << "Restored state: " << ns->id()
+                        << ", owner: " << ns->owner();
+                ns->setRestored();
+            }
+            catch (system_error& e) {
+                trans->remove(stateNS_, key);
+                continue;
+            }
+        }
+    }
 }
 
 NfsServer::NfsServer(const vector<int>& sec, shared_ptr<Filesystem> fs)
     : NfsServer(sec, fs, LocalIdMapper(), make_shared<detail::SystemClock>())
+{
+}
+
+NfsServer::~NfsServer()
 {
 }
 
@@ -175,8 +275,11 @@ CLOSE4res NfsServer::close(
 
     try {
         auto ns = client->findState(state, args.open_stateid);
-        if (ns->type() != NfsState::OPEN)
+        if (ns->type() != StateType::OPEN)
             return CLOSE4res(NFS4ERR_BAD_STATEID);
+        auto trans = beginTransaction();
+        ns->remove(trans.get());
+        commit(move(trans));
         client->clearState(args.open_stateid);
         unique_lock<mutex> lock(mutex_);
         auto fs = findState(lock, state.curr.file);
@@ -275,8 +378,11 @@ DELEGRETURN4res NfsServer::delegreturn(
     auto client = state.session->client();
     try {
         auto ns = client->findState(state, args.deleg_stateid);
-        if (ns->type() != NfsState::DELEGATION)
+        if (ns->type() != StateType::DELEGATION)
             return DELEGRETURN4res{NFS4ERR_BAD_STATEID};
+        auto trans = beginTransaction();
+        ns->remove(trans.get());
+        commit(move(trans));
         client->clearState(args.deleg_stateid);
         checkState(state.curr.file);
         return DELEGRETURN4res{NFS4_OK};
@@ -504,11 +610,11 @@ OPEN4res NfsServer::open(
         if (file) {
             fs = findState(lk, file);
 
-            // Check existing share reservations
+            // Check existing share reservations - this will throw an
+            // appropriate exception if there is a conflict.
             VLOG(1) << "Checking existing share reservations";
-            if (!fs->checkShare(
-                    client, args.owner, share_access, share_deny))
-                return OPEN4res(NFS4ERR_SHARE_DENIED);
+            fs->checkShare(
+                client, args.owner, share_access, share_deny, inGracePeriod());
 
             // Recall any conflicting delegations or layouts
             vector<shared_ptr<NfsState>> toRecall;
@@ -516,7 +622,7 @@ OPEN4res NfsServer::open(
                 VLOG(1) << "Checking for conflicting read or write state";
                 for (auto ns: fs->delegations()) {
                     VLOG(1) << "Checking delegation " << ns->id();
-                    if (ns->owner() != args.owner) {
+                    if (ns->owner().clientid != client->id()) {
                         toRecall.push_back(ns);
                     }
                 }
@@ -532,7 +638,7 @@ OPEN4res NfsServer::open(
                 for (auto ns: fs->delegations()) {
                     VLOG(1) << "Checking delegation " << ns->id();
                     if (ns->access() & OPEN4_SHARE_ACCESS_WRITE) {
-                        if (ns->owner() != args.owner) {
+                        if (ns->owner().clientid != client->id()) {
                             toRecall.push_back(ns);
                         }
                     }
@@ -550,10 +656,18 @@ OPEN4res NfsServer::open(
             // If we issued any recalls, ask our caller to re-try after a
             // short delay
             if (toRecall.size() > 0) {
-                for (auto ns: toRecall)
+                // Only return NFS4ERR_DELAY if the recalled state was
+                // unreclaimed
+                bool needDelay = false;
+                for (auto ns: toRecall) {
                     ns->recall();
-                VLOG(1) << "Delaying open due to recalls";
-                return OPEN4res(NFS4ERR_DELAY);
+                    if (!ns->restored())
+                        needDelay = true;
+                }
+                if (needDelay) {
+                    VLOG(1) << "Delaying open due to recalls";
+                    return OPEN4res(NFS4ERR_DELAY);
+                }
             }
         }
 
@@ -565,9 +679,14 @@ OPEN4res NfsServer::open(
         shared_ptr<OpenFile> of;
         bitmap4 attrsset;
 
+        // Note: any conflicting unreclaimed state has already been
+        // handled above in the call to checkShare which will throw
+        // NFS4ERR_GRACE if necessary. If we have persistent client
+        // state, we can allow the open even if we are in the grace
+        // period.
         switch (args.claim.claim) {
         case CLAIM_NULL: {
-            if (inGracePeriod())
+            if (!persistentState() && inGracePeriod())
                 return OPEN4res(NFS4ERR_GRACE);
 
             auto name = toString(args.claim.file());
@@ -601,20 +720,28 @@ OPEN4res NfsServer::open(
             break;
         }
         case CLAIM_FH:
-            if (inGracePeriod())
+            if (!persistentState() && inGracePeriod())
                 return OPEN4res(NFS4ERR_GRACE);
-            of = dir->open(cred, flags);
+            of = file->open(cred, flags);
             break;
 
         case CLAIM_PREVIOUS:
-            if (!inGracePeriod())
+            // Don't allow reclaims after a call to OP_RECLAIM_COMPLETE
+            if (!client->restored())
                 return OPEN4res(NFS4ERR_NO_GRACE);
-            if (args.claim.delegate_type() != OPEN_DELEGATE_NONE) {
-                LOG(ERROR) << "Unsupported delegate_type for CLAIM_PREVIOUS: "
-                           << args.claim.delegate_type();
-                return OPEN4res(NFS4ERR_RECLAIM_BAD);
+            switch (args.claim.delegate_type()) {
+            case OPEN_DELEGATE_NONE:
+            case OPEN_DELEGATE_NONE_EXT:
+                want_deleg = OPEN4_SHARE_ACCESS_WANT_NO_DELEG;
+                break;
+            case OPEN_DELEGATE_READ:
+                want_deleg = OPEN4_SHARE_ACCESS_WANT_READ_DELEG;
+                break;
+            case OPEN_DELEGATE_WRITE:
+                want_deleg = OPEN4_SHARE_ACCESS_WANT_WRITE_DELEG;
+                break;
             }
-            of = dir->open(cred, flags);
+            of = file->open(cred, flags);
             break;
 
         default:
@@ -634,6 +761,17 @@ OPEN4res NfsServer::open(
         // Check for open upgrade
         auto ns = fs->findOpen(client, args.owner);
         if (ns) {
+            // This may be a state entry which we restored from the
+            // database. Mark it as reclaimed and set the OpenFile
+            if (ns->restored()) {
+                // Only allow reclaim operations for un-reclaimed
+                // state entries
+                if (args.claim.claim != CLAIM_PREVIOUS)
+                    return OPEN4res(NFS4ERR_GRACE);
+
+                VLOG(1) << "Reclaimed state: " << ns->id();
+                ns->setReclaimed(of);
+            }
             ns->updateOpen(share_access, share_deny, of);
             fs->updateShare(ns);
         }
@@ -664,8 +802,11 @@ OPEN4res NfsServer::open(
             // for an atomic downgrade
             if (deleg) {
                 issueDelegation = true;
-                deleg->updateDelegation(OPEN4_SHARE_ACCESS_READ, of);
-                VLOG(1) << "Downgrading to read delegation: " << deleg->id();
+                if (deleg->access() != OPEN4_SHARE_ACCESS_READ) {
+                    deleg->updateDelegation(OPEN4_SHARE_ACCESS_READ, of);
+                    VLOG(1) << "Downgrading to read delegation: "
+                            << deleg->id();
+                }
             }
             else {
                 // We can issue a read delegation if there are no
@@ -701,19 +842,25 @@ OPEN4res NfsServer::open(
             // for an atomic upgrade
             if (deleg) {
                 issueDelegation = true;
-                deleg->updateDelegation(OPEN4_SHARE_ACCESS_WRITE, of);
-                VLOG(1) << "Upgrading to write delegation: " << deleg->id();
+                if (deleg->access() != OPEN4_SHARE_ACCESS_WRITE) {
+                    deleg->updateDelegation(OPEN4_SHARE_ACCESS_WRITE, of);
+                    VLOG(1) << "Upgrading to write delegation: "
+                            << deleg->id();
+                }
             }
             else {
                 /// We can issue a write delegation if there are no
                 /// existing delegations or opens at all
-                if (fs->delegations().size() == 0 && fs->opens().size() == 0)
+                if (fs->delegations().size() == 0 && fs->opens().size() == 0) {
                     issueDelegation = true;
-                VLOG(1) << "Denying write delegation: "
-                        << "existing open or delegation";
-                delegation = open_delegation4(
-                    OPEN_DELEGATE_NONE_EXT,
-                    open_none_delegation4(WND4_CONTENTION, false));
+                }
+                else {
+                    VLOG(1) << "Denying write delegation: "
+                            << "existing open or delegation";
+                    delegation = open_delegation4(
+                        OPEN_DELEGATE_NONE_EXT,
+                        open_none_delegation4(WND4_CONTENTION, false));
+                }
             }
             break;
 
@@ -723,16 +870,18 @@ OPEN4res NfsServer::open(
                 issueDelegation = true;
                 break;
             }
-            // Issue a write delegation if there are no existing
-            // delegations or opens, otherwise try to issue a read
-            // delegation
-            if (fs->delegations().size() == 0 && fs->opens().size() == 0) {
-                want_deleg = OPEN4_SHARE_ACCESS_WANT_WRITE_DELEG;
-                issueDelegation = true;
-            }
             else {
-                want_deleg = OPEN4_SHARE_ACCESS_WANT_READ_DELEG;
-                goto tryRead;
+                // Issue a write delegation if there are no existing
+                // delegations or opens, otherwise try to issue a read
+                // delegation
+                if (fs->delegations().size() == 0 && fs->opens().size() == 0) {
+                    want_deleg = OPEN4_SHARE_ACCESS_WANT_WRITE_DELEG;
+                    issueDelegation = true;
+                }
+                else {
+                    want_deleg = OPEN4_SHARE_ACCESS_WANT_READ_DELEG;
+                    goto tryRead;
+                }
             }
             break;
 
@@ -762,13 +911,17 @@ OPEN4res NfsServer::open(
             issueDelegation = false;
         }
 
+        auto trans = beginTransaction();
+        bool needCommit = false;
+
         resok.cinfo.after = dir->getattr()->change();
         if (!ns) {
             ns = client->addOpen(
                 fs, args.owner, share_access, share_deny, of, leaseExpiry());
+            ns->save(trans.get());
+            needCommit = true;
         }
         state.curr.stateid = ns->id();
-        fs->addOpen(ns);
 
         VLOG(1) << "Returning open stateid: " << ns->id();
         resok.stateid = ns->id();
@@ -781,34 +934,41 @@ OPEN4res NfsServer::open(
                        want_deleg == OPEN4_SHARE_ACCESS_WANT_WRITE_DELEG);
                 if (want_deleg == OPEN4_SHARE_ACCESS_WANT_READ_DELEG) {
                     deleg = client->addDelegation(
-                        fs, args.owner, OPEN4_SHARE_ACCESS_READ, of,
+                        fs, OPEN4_SHARE_ACCESS_READ, of,
                         leaseExpiry());
                     VLOG(1) << "Creating read delegation: " << deleg->id();
-                    delegation = open_delegation4(
-                        OPEN_DELEGATE_READ,
-                        open_read_delegation4{
-                            deleg->id(),
-                                false,
-                                nfsace4{ACE4_ACCESS_ALLOWED_ACE_TYPE, 0,
-                                    ACE4_GENERIC_READ,
-                                    toUtf8string("OWNER@")}});
                 }
                 else {
                     deleg = client->addDelegation(
-                        fs, args.owner, OPEN4_SHARE_ACCESS_WRITE, of,
+                        fs, OPEN4_SHARE_ACCESS_WRITE, of,
                         leaseExpiry());
                     VLOG(1) << "Creating write delegation: " << deleg->id();
-                    delegation = open_delegation4(
-                        OPEN_DELEGATE_WRITE,
-                        open_write_delegation4{
-                            deleg->id(),
-                                false,
-                                nfs_space_limit4(NFS_LIMIT_SIZE, ~0ul),
-                                nfsace4{ACE4_ACCESS_ALLOWED_ACE_TYPE, 0,
-                                    ACE4_GENERIC_WRITE,
-                                    toUtf8string("OWNER@")}});
                 }
-                fs->addDelegation(deleg);
+                deleg->save(trans.get());
+                needCommit = true;
+            }
+            if (want_deleg == OPEN4_SHARE_ACCESS_WANT_READ_DELEG) {
+                VLOG(1) << "Returning read delegation: " << deleg->id();
+                delegation = open_delegation4(
+                    OPEN_DELEGATE_READ,
+                    open_read_delegation4{
+                        deleg->id(),
+                        deleg->recalled(),
+                        nfsace4{ACE4_ACCESS_ALLOWED_ACE_TYPE, 0,
+                                ACE4_GENERIC_READ,
+                                toUtf8string("OWNER@")}});
+            }
+            else {
+                VLOG(1) << "Returning write delegation: " << deleg->id();
+                delegation = open_delegation4(
+                    OPEN_DELEGATE_WRITE,
+                    open_write_delegation4{
+                        deleg->id(),
+                        deleg->recalled(),
+                        nfs_space_limit4(NFS_LIMIT_SIZE, ~0ul),
+                        nfsace4{ACE4_ACCESS_ALLOWED_ACE_TYPE, 0,
+                                ACE4_GENERIC_WRITE,
+                                toUtf8string("OWNER@")}});
             }
         }
         else {
@@ -845,8 +1005,16 @@ OPEN4res NfsServer::open(
             }
         }
 
+        if (needCommit)
+            commit(move(trans));
+        else
+            trans.reset();
+
         resok.delegation = move(delegation);
         return OPEN4res(NFS4_OK, move(resok));
+    }
+    catch (nfsstat4 stat) {
+        return OPEN4res(stat);
     }
     catch (system_error& e) {
         return OPEN4res(exportStatus(e));
@@ -921,7 +1089,7 @@ READ4res NfsServer::read(
     if (!state.curr.file)
         return READ4res(NFS4ERR_NOFILEHANDLE);
 
-    if (inGracePeriod())
+    if (!persistentState() && inGracePeriod())
         return READ4res(NFS4ERR_GRACE);
 
     auto client = state.session->client();
@@ -1235,7 +1403,7 @@ WRITE4res NfsServer::write(
     if (!state.curr.file)
         return WRITE4res(NFS4ERR_NOFILEHANDLE);
 
-    if (inGracePeriod())
+    if (!persistentState() && inGracePeriod())
         return WRITE4res(NFS4ERR_GRACE);
 
     auto client = state.session->client();
@@ -1339,19 +1507,23 @@ retry:
         return EXCHANGE_ID4res(NFS4ERR_NOTSUPP);
     }
 
+    auto trans = beginTransaction();
+    bool needCommit = false;
     if (!(args.eia_flags & EXCHGID4_FLAG_UPD_CONFIRMED_REC_A)) {
         if (range.first == clientsByOwnerId_.end()) {
             // Case 1: New Owner ID
             VLOG(1) << "New client: " << args.eia_clientowner;
             auto id = nextClientId_++;
             client = make_shared<NfsClient>(
-                id, args.eia_clientowner, ctx.principal(), leaseExpiry(),
-                args.eia_state_protect);
+                db_, id, args.eia_clientowner,
+                ctx.principal(), leaseExpiry(), args.eia_state_protect);
             if (restreg_)
                 client->setRestRegistry(restreg_);
             clientsById_[id] = client;
             clientsByOwnerId_.insert(
                 make_pair(args.eia_clientowner.co_ownerid, client));
+            client->save(trans.get());
+            needCommit = true;
         }
         else {
             // We have a match by ownerid - see if we have a confirmed
@@ -1376,6 +1548,8 @@ retry:
                             for (auto it = range.first; it != range.second;
                                  ++it) {
                                 clientsById_.erase(it->second->id());
+                                it->second->remove(trans.get());
+                                needCommit = true;
                             }
                             clientsByOwnerId_.erase(range.first, range.second);
                             goto retry;
@@ -1394,6 +1568,7 @@ retry:
                             if (!it->second->confirmed()) {
                                 clientsById_.erase(it->second->id());
                                 clientsByOwnerId_.erase(it);
+                                it->second->remove(trans.get());
                                 break;
                             }
                         }
@@ -1404,13 +1579,16 @@ retry:
                         // delete the old client and release its state
                         auto id = nextClientId_++;
                         client = make_shared<NfsClient>(
-                            id, args.eia_clientowner, ctx.principal(),
-                            leaseExpiry(), args.eia_state_protect);
+                            db_, id, args.eia_clientowner,
+                            ctx.principal(), leaseExpiry(),
+                            args.eia_state_protect);
                         if (restreg_)
                             client->setRestRegistry(restreg_);
                         clientsById_[id] = client;
                         clientsByOwnerId_.insert(
                             make_pair(args.eia_clientowner.co_ownerid, client));
+                        client->save(trans.get());
+                        needCommit = true;
                     }
                     break;
                 }
@@ -1422,6 +1600,8 @@ retry:
                 for (auto it = range.first; it != range.second;
                      ++it) {
                     clientsById_.erase(it->second->id());
+                    it->second->remove(trans.get());
+                    needCommit = true;
                 }
                 clientsByOwnerId_.erase(range.first, range.second);
                 goto retry;
@@ -1457,6 +1637,11 @@ retry:
         }
     }
     assert(client);
+
+    if (needCommit)
+        commit(move(trans));
+    else
+        trans.reset();
 
     state_protect4_r spr;
     if (args.eia_state_protect.spa_how == SP4_NONE) {
@@ -1625,6 +1810,9 @@ FREE_STATEID4res NfsServer::free_stateid(
     auto client = state.session->client();
     try {
         auto ns = client->findState(state, args.fsa_stateid, true);
+        auto trans = beginTransaction();
+        ns->remove(trans.get());
+        commit(move(trans));
         client->clearState(args.fsa_stateid);
         checkState(state.curr.file);
         return FREE_STATEID4res{NFS4_OK};
@@ -1972,14 +2160,16 @@ LAYOUTGET4res NfsServer::layoutget(
 
         // Now that we have finished calling anything which might raise an
         // exception, its safe to create the layout state object
-        if (ns->type() != NfsState::LAYOUT) {
+        if (ns->type() != StateType::LAYOUT) {
             // Client presented an open, delegation or lock stateid -
             // we create a new layout state.
+            auto trans = beginTransaction();
 
-            // If there is an existing layout for this client and if
-            // so, just delete it.
+            // If there is an existing layout for this client, just
+            // delete it.
             auto oldns = fs->findLayout(client);
             if (oldns) {
+                oldns->remove(trans.get());
                 client->clearState(oldns->id());
                 fs->removeLayout(oldns);
             }
@@ -1988,7 +2178,9 @@ LAYOUTGET4res NfsServer::layoutget(
                 fs, args.loga_iomode, devices, leaseExpiry());
             newns->setOffset(args.loga_offset);
             newns->setLength(args.loga_length);
-            fs->addLayout(newns);
+
+            newns->save(trans.get());
+            commit(move(trans));
 
             ns = newns;
         }
@@ -2028,13 +2220,16 @@ LAYOUTRETURN4res NfsServer::layoutreturn(
                 return LAYOUTRETURN4res(NFS4ERR_NOFILEHANDLE);
             auto& ret = args.lora_layoutreturn.lr_layout();
             auto ns = client->findState(state, ret.lrf_stateid);
-            if (ns->type() != NfsState::LAYOUT) {
+            if (ns->type() != StateType::LAYOUT) {
                 LOG(INFO) << "Not a layout: " << ns->id();
                 return LAYOUTRETURN4res(NFS4ERR_BAD_STATEID);
             }
             // XXX: validate offset and length, parse body
             ns->updateLayout();
             auto id = ns->id();
+            auto trans = beginTransaction();
+            ns->remove(trans.get());
+            commit(move(trans));
             client->clearState(ns->id());
             checkState(state.curr.file);
             return LAYOUTRETURN4res(
@@ -2158,7 +2353,7 @@ DESTROY_CLIENTID4res NfsServer::destroy_clientid(
         // refers to a session of the clientid being destroyed.
         if (client->hasState())
             LOG(ERROR) << "Can't destroy client with state, clientid: "
-                       << client->id();
+                       << hex << client->id();
         if (client->sessionCount() > 0)
             LOG(ERROR) << "Can't destroy client with sessions, clientid: "
                        << client->id();
@@ -2173,6 +2368,15 @@ RECLAIM_COMPLETE4res NfsServer::reclaim_complete(
     const RECLAIM_COMPLETE4args& args)
 {
     VLOG(1) << "NfsServer::reclaim_complete(" << args.rca_one_fs << ")";
+
+    // Revoke any unreclaimed state and clear the restored flag - the
+    // client is back in sync with the server
+    auto client = state.session->client();
+    auto trans = beginTransaction();
+    client->revokedUnreclaimedState(trans.get());
+    client->clearRestored();
+    commit(move(trans));
+
     return RECLAIM_COMPLETE4res{NFS4_OK};
 }
 
@@ -2581,6 +2785,21 @@ detail::Clock::time_point NfsServer::leaseExpiry()
     return clock_->now() + seconds(FLAGS_lease_time + 15);
 }
 
+std::unique_ptr<keyval::Transaction> NfsServer::beginTransaction()
+{
+    if (db_)
+        return db_->beginTransaction();
+    else
+        return nullptr;
+}
+
+/// Wrap db_->commit
+void NfsServer::commit(std::unique_ptr<keyval::Transaction>&& trans)
+{
+    if (db_)
+        db_->commit(std::move(trans));
+}
+
 int NfsServer::expireClients()
 {
     unique_lock<mutex> lock(mutex_);
@@ -2659,13 +2878,16 @@ restart:
 void NfsServer::destroyClient(
     unique_lock<mutex>& lock, shared_ptr<NfsClient> client)
 {
+    auto trans = beginTransaction();
     for (auto& session: client->sessions()) {
         sessionsById_.erase(session->id());
     }
-    client->revokeState();
+    client->revokeState(trans.get());
     auto range = clientsByOwnerId_.equal_range(client->owner().co_ownerid);
     clientsById_.erase(client->id());
     clientsByOwnerId_.erase(range.first, range.second);
+    client->remove(trans.get());
+    commit(move(trans));
 }
 
 function<void(Setattr*)> NfsServer::importAttr(

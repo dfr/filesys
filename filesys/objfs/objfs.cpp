@@ -134,6 +134,12 @@ ObjFilesystem::find(const FileHandle& fh)
     }
 }
 
+Database*
+ObjFilesystem::database() const
+{
+    return db_.get();
+}
+
 shared_ptr<ObjFile>
 ObjFilesystem::find(FileId fileid)
 {
