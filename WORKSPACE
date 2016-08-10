@@ -9,6 +9,11 @@ bind(
 )
 
 bind(
+    name = "ldb",
+    actual = "//third_party/rocksdb:ldb"
+)
+
+bind(
     name = "rpcgen",
     actual = "//rpcxx/utils/rpcgen"
 )
