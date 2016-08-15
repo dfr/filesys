@@ -117,7 +117,7 @@ TYPED_TEST_P(FilesystemTest, ReadWrite)
     // Make sure the hole reads as zero
     auto block = of->read(3*this->blockSize_, this->blockSize_, eof);
     EXPECT_EQ(this->blockSize_, block->size());
-    for (int i = 0; i < this->blockSize_; i++)
+    for (int i = 0; i < block->size(); i++)
         EXPECT_EQ(0, block->data()[i]);
     EXPECT_EQ(false, eof);
 }
