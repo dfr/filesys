@@ -97,6 +97,9 @@ public:
         chan_ = make_shared<LocalChannel>(svcreg_);
         fs_ = make_shared<NfsFilesystem>(
             chan_, client_, clock_, "fs_", idmapper_);
+
+        // Exercise the delegation logic in NfsFilesystem
+        fs_->setRequestDelegations(true);
     }
 
     ~Nfs4TestBase()
@@ -1068,10 +1071,11 @@ TEST_F(Nfs4Test, RecallReadLayout)
     uint8_t buf[] = {'f', 'o', 'o'};
     auto data = make_shared<Buffer>(3, buf);
     of->write(0, data);
+    of->flush();
     of.reset();
 
-    open_owner4 oo1{ fs_->clientid(), { 1, 0, 0, 0 } };
-    open_owner4 oo2{ fs_->clientid(), { 2, 0, 0, 0 } };
+    open_owner4 oo1{ 0, { 1, 1, 1, 1 } };
+    open_owner4 oo2{ 0, { 2, 2, 2, 2 } };
     NfsAttr xattr;
     fattr4 attr;
 
@@ -1156,4 +1160,59 @@ TEST_F(Nfs4Test, CloseOnUnmount)
     uint8_t buf[] = {'f', 'o', 'o'};
     auto data = make_shared<Buffer>(3, buf);
     EXPECT_THROW(of->write(0, data), system_error);
+}
+
+TEST_F(Nfs4Test, GracePeriod)
+{
+    // Open a file, creating state on the server
+    Credential cred(0, 0, {}, true);
+    auto of = fs_->root()->open(
+        cred, "foo",
+        OpenFlags::RDWR+OpenFlags::CREATE+OpenFlags::EXLOCK,
+        setMode666);
+
+    // Restart the server - we need to advance the clock to make sure
+    // the new server's client IDs are different
+    *clock_ += 1s;
+    svcreg_->remove(NFS4_PROGRAM, NFS_V4);
+    vector<int> sec = {AUTH_SYS};
+    svc_ = make_shared<NfsServer>(sec, mds_, idmapper_, clock_);
+    svcreg_->add(
+        NFS4_PROGRAM, NFS_V4,
+        std::bind(&NfsServer::dispatch, svc_.get(), _1));
+
+    // Create a second client so that we can attempt to open the file
+    open_owner4 oo2{ 2, { 2, 0, 0, 0 } };
+    auto fs2 = make_shared<NfsFilesystem>(
+        chan_, client_, clock_, "fs2", idmapper_);
+
+    // The first client has the file open but has not yet
+    // reclaimed. We should see an NFS4ERR_GRACE when we attempt to
+    // open it.
+    openFail(
+        fs2, "foo",
+        OPEN4_SHARE_ACCESS_READ | OPEN4_SHARE_ACCESS_WANT_NO_DELEG,
+        OPEN4_SHARE_DENY_NONE,
+        oo2,
+        NFS4ERR_GRACE);
+
+    // We should be able to access other files from fs2, since the
+    // grace period rules only state restored from the previous server
+    // instance
+    fs2->root()->open(
+        cred, "bar", OpenFlags::RDWR+OpenFlags::CREATE, setMode666);
+
+    // Reclaim the file using the first client - this will detect the
+    // server restart and establish a new session
+    bool eof;
+    of->read(0, 1, eof);
+
+    // If we try the open again with fs2, we should see the error
+    // change to NFS4ERR_SHARE_DENIED
+    openFail(
+        fs2, "foo",
+        OPEN4_SHARE_ACCESS_READ | OPEN4_SHARE_ACCESS_WANT_NO_DELEG,
+        OPEN4_SHARE_DENY_NONE,
+        oo2,
+        NFS4ERR_SHARE_DENIED);
 }
