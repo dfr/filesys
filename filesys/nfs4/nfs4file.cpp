@@ -108,6 +108,8 @@ void NfsFile::setattr(const Credential&, function<void(Setattr*)> cb)
 {
     NfsSetattr sattr;
     cb(&sattr);
+    if (isset(sattr.attrmask_, FATTR4_SIZE))
+        cache_.truncate(sattr.size_);
     fattr4 attr;
     sattr.encode(attr);
     proto_->compound(
@@ -213,13 +215,14 @@ shared_ptr<OpenFile> NfsFile::open(
     }
 
     // We open everything with the same owner
+    bool requestDelegations = nfs()->requestDelegations();
     open_owner4 oo{ proto_->clientid(), { 1, 0, 0, 0 } };
     nfs_fh4 fh;
     fattr4 attr;
     OPEN4resok res;
     proto_->compound(
         "open",
-        [this, flags, &name, &oo, cb](auto& enc) {
+        [this, flags, &name, requestDelegations, &oo, cb](auto& enc) {
             bitmap4 wanted;
             setSupportedAttrs(wanted);
             enc.putfh(fh_);
@@ -231,6 +234,15 @@ shared_ptr<OpenFile> NfsFile::open(
             }
             if (flags & OpenFlags::WRITE) {
                 access |= OPEN4_SHARE_ACCESS_WRITE;
+            }
+            if (requestDelegations) {
+                if (flags & OpenFlags::WRITE)
+                    access |= OPEN4_SHARE_ACCESS_WANT_WRITE_DELEG;
+                else
+                    access |= OPEN4_SHARE_ACCESS_WANT_READ_DELEG;
+            }
+            else {
+                access |= OPEN4_SHARE_ACCESS_WANT_NO_DELEG;
             }
             if (flags & OpenFlags::SHLOCK) {
                 deny |= OPEN4_SHARE_DENY_WRITE;
@@ -324,11 +336,12 @@ std::shared_ptr<OpenFile> NfsFile::open(const Credential& cred, int flags)
     lock.unlock();
 
     // We open everything with the same owner
+    bool requestDelegations = nfs()->requestDelegations();
     open_owner4 oo{ nfs()->clientid(), { 1, 0, 0, 0 } };
     OPEN4resok res;
     proto_->compound(
         "open",
-        [this, flags, &oo](auto& enc) {
+        [this, flags, requestDelegations, &oo](auto& enc) {
             enc.putfh(fh_);
             int access = 0;
             int deny = 0;
@@ -339,6 +352,15 @@ std::shared_ptr<OpenFile> NfsFile::open(const Credential& cred, int flags)
             if (flags & OpenFlags::WRITE) {
                 access |= OPEN4_SHARE_ACCESS_WRITE;
                 //access |= OPEN4_SHARE_ACCESS_WANT_WRITE_DELEG;
+            }
+            if (requestDelegations) {
+                if (flags & OpenFlags::WRITE)
+                    access |= OPEN4_SHARE_ACCESS_WANT_WRITE_DELEG;
+                else
+                    access |= OPEN4_SHARE_ACCESS_WANT_READ_DELEG;
+            }
+            else {
+                access |= OPEN4_SHARE_ACCESS_WANT_NO_DELEG;
             }
             if (flags & OpenFlags::SHLOCK) {
                 deny |= OPEN4_SHARE_DENY_WRITE;
@@ -668,8 +690,12 @@ std::shared_ptr<Buffer> NfsFile::read(
             << ": read cache miss, offset: " << offset;
     lock.unlock();
 
-    if (count > nfs()->fsinfo().maxread)
-        count = nfs()->fsinfo().maxread;
+    // We need to push any cached writes to the server before
+    // attempting to read
+    flush(stateid, false);
+
+    if (count > proto_->fsinfo().maxRead)
+        count = proto_->fsinfo().maxRead;
 
     READ4resok res;
     proto_->compound(
@@ -694,12 +720,14 @@ std::shared_ptr<Buffer> NfsFile::read(
 
 std::uint32_t NfsFile::write(
     const stateid4& stateid,
-    std::uint64_t offset, std::shared_ptr<Buffer> data)
+    std::uint64_t offset, std::shared_ptr<Buffer> data,
+    bool cache)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     auto deleg = delegation_.lock();
-    if (deleg && deleg->isWrite()) {
-        // If we have a write delegation, cache locally
+    if (deleg && deleg->isWrite() && cache) {
+        // If we have a write delegation, cache locally without
+        // writing to the server
         if (!modified_) {
             modified_ = true;
             attr_.change_++;
@@ -713,8 +741,8 @@ std::uint32_t NfsFile::write(
     }
     lock.unlock();
 
-    if (data->size() > nfs()->fsinfo().maxwrite)
-        data = make_shared<Buffer>(data, 0, nfs()->fsinfo().maxwrite);
+    if (data->size() > proto_->fsinfo().maxWrite)
+        data = make_shared<Buffer>(data, 0, proto_->fsinfo().maxWrite);
     WRITE4resok res;
     proto_->compound(
         "write",
@@ -790,7 +818,7 @@ retry:
 
     lock.unlock();
     for (auto& w: toWrite)
-        write(stateid, w.first, w.second);
+        write(stateid, w.first, w.second, false);
     toWrite.clear();
 
     if (commit) {
@@ -876,11 +904,12 @@ void NfsFile::recover()
         auto fs = nfs();
 
         // We open everything with the same owner
+        auto deleg = delegation_.lock();
         open_owner4 oo{ nfs()->clientid(), { 1, 0, 0, 0 } };
         OPEN4resok res;
         proto_->compound(
             "recover",
-            [this, of, &oo](auto& enc) {
+            [this, of, deleg, &oo](auto& enc) {
                 enc.putfh(fh_);
                 int access = 0;
                 int deny = 0;
@@ -898,10 +927,17 @@ void NfsFile::recover()
                 if (of->flags() & OpenFlags::EXLOCK) {
                     deny |= OPEN4_SHARE_DENY_BOTH;
                 }
+                open_delegation_type4 type = OPEN_DELEGATE_NONE;
+                if (deleg) {
+                    if (deleg->isWrite())
+                        type = OPEN_DELEGATE_WRITE;
+                    else
+                        type = OPEN_DELEGATE_READ;
+                }
                 enc.open(
                     0, access, deny, oo,
                     openflag4(OPEN4_NOCREATE),
-                    open_claim4(CLAIM_PREVIOUS, OPEN_DELEGATE_NONE));
+                    open_claim4(CLAIM_PREVIOUS, move(type)));
             },
             [this, of, &res](auto& dec) {
                 dec.putfh();
@@ -920,6 +956,38 @@ void NfsFile::recover()
                     }
                 }
             });
+        if (deleg) {
+            bool recall = false;
+            switch (res.delegation.delegation_type) {
+            case OPEN_DELEGATE_NONE:
+            case OPEN_DELEGATE_NONE_EXT:
+                deleg->setInvalid();
+                clearDelegation();
+                break;
+            case OPEN_DELEGATE_READ:
+                deleg->setStateid(res.delegation.read().stateid);
+                recall = res.delegation.read().recall;
+                break;
+            case OPEN_DELEGATE_WRITE:
+                deleg->setStateid(res.delegation.write().stateid);
+                recall = res.delegation.write().recall;
+                break;
+            }
+            if (recall) {
+                // Server has already recalled the delegation - return
+                // it as soon as possible but not in this thread
+                std::thread t(
+                    [](auto file) {
+                        file->clearDelegation();
+                    },
+                    shared_from_this());
+                t.detach();
+            }
+        }
+        else {
+            delegation_ = nfs()->addDelegation(
+                shared_from_this(), of, move(res.delegation));
+        }
         of->setStateid(res.stateid);
     }
 }
@@ -1022,7 +1090,7 @@ uint32_t NfsOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
 {
     if (dead_)
         throw system_error(EBADF, system_category());
-    return file_->write(stateid_, offset, data);
+    return file_->write(stateid_, offset, data, true);
 }
 
 void NfsOpenFile::flush()

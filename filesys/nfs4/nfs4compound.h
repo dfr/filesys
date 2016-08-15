@@ -124,7 +124,7 @@ public:
     void test_stateid(const std::vector<stateid4>& stateids);
     // want_delegation
     void destroy_clientid(clientid4 clientid);
-    // reclaim_complete
+    void reclaim_complete(bool one_fs);
 
 private:
     const std::string& tag_;
@@ -196,7 +196,7 @@ public:
     TEST_STATEID4resok test_stateid();
     // want_delegation
     void destroy_clientid();
-    // reclaim_complete
+    void reclaim_complete();
 
 private:
     const std::string& tag_;

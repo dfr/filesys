@@ -140,6 +140,13 @@ void NfsProto::compound(
             }
             return;
         }
+        catch (std::system_error& e) {
+            if (e.code().value() == EBADF) {
+                connect();
+                continue;
+            }
+            throw;
+        }
         catch (nfsstat4 st) {
             using namespace std::literals;
             switch (st) {

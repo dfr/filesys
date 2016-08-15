@@ -20,7 +20,8 @@ NfsDelegation::NfsDelegation(
     : proto_(proto),
       file_(file),
       open_(of),
-      delegation_(move(delegation))
+      delegation_(move(delegation)),
+      valid_(true)
 {
     if (delegation_.delegation_type == OPEN_DELEGATE_READ)
         stateid_ = delegation_.read().stateid;
@@ -30,19 +31,27 @@ NfsDelegation::NfsDelegation(
 
 NfsDelegation::~NfsDelegation()
 {
-    // Push any locally cached writes to the server. Don't force the
-    // commit here since the file may stay open.
-    file_->clearDelegation();
-    file_->flush(stateid_, false);
+    if (valid_) {
+        // Push any locally cached writes to the server. Don't force the
+        // commit here since the file may stay open.
+        file_->clearDelegation();
+        file_->flush(stateid_, false);
 
-    proto_->compound(
-        "delegreturn",
-        [this](auto& enc) {
-            enc.putfh(open_->fh());
-            enc.delegreturn(stateid_);
-        },
-        [](auto& dec) {
-            dec.putfh();
-            dec.delegreturn();
-        });
+        try {
+            proto_->compound(
+                "delegreturn",
+                [this](auto& enc) {
+                    enc.putfh(open_->fh());
+                    enc.delegreturn(stateid_);
+                },
+                [](auto& dec) {
+                    dec.putfh();
+                    dec.delegreturn();
+                });
+        }
+        catch (system_error& e) {
+            // Ignore system errors, e.g. if the server has expired our
+            // client
+        }
+    }
 }

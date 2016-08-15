@@ -168,7 +168,7 @@ public:
         std::uint64_t offset, std::uint32_t size, bool& eof);
     std::uint32_t write(
         const stateid4& stateid, std::uint64_t offset,
-        std::shared_ptr<Buffer> data);
+        std::shared_ptr<Buffer> data, bool cache);
     void flush(const stateid4& stateid, bool commit);
     void update(fattr4&& attr);
     void update(std::unique_lock<std::mutex>& lock, fattr4&& attr);
@@ -264,6 +264,17 @@ public:
     {
         return delegation_.delegation_type == OPEN_DELEGATE_WRITE;
     }
+    auto valid() const { return valid_; }
+
+    void setStateid(const stateid4& stateid)
+    {
+        stateid_ = stateid;
+    }
+
+    void setInvalid()
+    {
+        valid_ = false;
+    }
 
 private:
     std::shared_ptr<NfsProto> proto_;
@@ -271,6 +282,7 @@ private:
     std::shared_ptr<NfsOpenFile> open_;
     stateid4 stateid_;
     open_delegation4 delegation_;
+    bool valid_;                // set to true after failing to reclaim
 };
 
 class NfsDirectoryIterator: public DirectoryIterator
@@ -308,8 +320,9 @@ private:
 
 struct NfsFsinfo
 {
-    std::uint32_t maxread;
-    std::uint32_t maxwrite;
+    std::uint32_t maxRead;
+    std::uint32_t maxWrite;
+    int leaseTime;
 };
 
 class NfsProto
@@ -326,6 +339,8 @@ public:
     auto clientid() const { return clientid_; }
     auto sessionid() const { return sessionid_; }
     auto channel() const { return chan_; }
+    NfsFsinfo& fsinfo() { return fsinfo_; }
+    const NfsFsinfo& fsinfo() const { return fsinfo_; }
 
     /// Send a compound request
     void compoundNoSequence(
@@ -360,6 +375,7 @@ private:
 
     std::mutex mutex_;
     NfsFilesystem* fs_;
+    NfsFsinfo fsinfo_;
     std::shared_ptr<oncrpc::Channel> chan_;
     std::shared_ptr<oncrpc::Client> client_;
     client_owner4 clientOwner_;
@@ -398,6 +414,12 @@ public:
     auto sessionid() const { return proto_->sessionid(); }
     auto clock() const { return clock_; }
     auto idmapper() const { return idmapper_; }
+    auto requestDelegations() const { return requestDelegations_; }
+
+    void setRequestDelegations(bool v)
+    {
+        requestDelegations_ = v;
+    }
 
     /// Unmount, returning delegations and closing open files
     void unmount();
@@ -419,8 +441,6 @@ public:
         delegations_.remove(stateid);
     }
 
-    const NfsFsinfo& fsinfo() const { return fsinfo_; }
-
     // Iterate over current state and identify any revoked state
     void freeRevokedState();
 
@@ -441,8 +461,8 @@ private:
     std::shared_ptr<NfsProto> proto_;
     std::shared_ptr<detail::Clock> clock_;
     std::shared_ptr<IIdMapper> idmapper_;
+    bool requestDelegations_ = false;
     std::shared_ptr<NfsFile> root_;
-    NfsFsinfo fsinfo_;
     detail::LRUCache<nfs_fh4, NfsFile, NfsFhHash> cache_;
     detail::LRUCache<
         stateid4, NfsDelegation,

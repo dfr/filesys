@@ -344,7 +344,10 @@ void CompoundRequestEncoder::destroy_clientid(clientid4 clientid)
     add(OP_DESTROY_CLIENTID, clientid);
 }
 
-// reclaim_complete
+void CompoundRequestEncoder::reclaim_complete(bool one_fs)
+{
+    add(OP_RECLAIM_COMPLETE, one_fs);
+}
 
 CompoundReplyDecoder::CompoundReplyDecoder(
     const std::string& tag, oncrpc::XdrSource* xdrs)
@@ -664,7 +667,10 @@ void CompoundReplyDecoder::destroy_clientid()
     check(OP_DESTROY_CLIENTID);
 }
 
-// reclaim_complete
+void CompoundReplyDecoder::reclaim_complete()
+{
+    check(OP_RECLAIM_COMPLETE);
+}
 
 CallbackRequestEncoder::CallbackRequestEncoder(
     const std::string& tag, oncrpc::XdrSink* xdrs)

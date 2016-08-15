@@ -90,6 +90,7 @@ NfsFilesystem::root()
                 setSupportedAttrs(wanted);
                 set(wanted, FATTR4_MAXREAD);
                 set(wanted, FATTR4_MAXWRITE);
+                set(wanted, FATTR4_LEASE_TIME);
                 enc.putrootfh();
                 enc.getattr(wanted);
                 enc.getfh();
@@ -103,13 +104,14 @@ NfsFilesystem::root()
 
         root_ = find(move(rootfh), move(rootattr));
 
-        fsinfo_.maxread = root_->attr().maxread_;
-        fsinfo_.maxwrite = root_->attr().maxwrite_;
+        proto_->fsinfo().maxRead = root_->attr().maxread_;
+        proto_->fsinfo().maxWrite = root_->attr().maxwrite_;
+        proto_->fsinfo().leaseTime = root_->attr().lease_time_;
 
         // Set the buffer size for the largest read or write request we will
         // make, allowing extra space for protocol overhead
         proto_->channel()->setBufferSize(
-            512 + max(fsinfo_.maxread, fsinfo_.maxwrite));
+            512 + max(proto_->fsinfo().maxRead, proto_->fsinfo().maxWrite));
     }
     return root_;
 }
@@ -132,10 +134,10 @@ NfsFilesystem::unmount()
 {
     // Clear our delegation cache to return the delegations back to
     // the server
-    VLOG(1) << "returning delegations";
+    VLOG(1) << "Returning delegations";
     delegations_.clear();
 
-    VLOG(1) << "closing open files";
+    VLOG(1) << "Closing open files";
     auto lock = cache_.lock();
     for (auto& e: cache_) {
         e.second->close();
@@ -205,7 +207,7 @@ NfsFilesystem::freeRevokedState()
 {
     auto lock = cache_.lock(try_to_lock);
     if (lock) {
-        LOG(INFO) << "freeing revoked state";
+        LOG(INFO) << "Freeing revoked state";
         for (auto& e: cache_) {
             e.second->testState();
         }
@@ -215,11 +217,21 @@ NfsFilesystem::freeRevokedState()
 void
 NfsFilesystem::recover()
 {
-    LOG(INFO) << "recovering state";
+    LOG(INFO) << "Recovering state";
     auto lock = cache_.lock();
     for (auto& e: cache_) {
         e.second->recover();
     }
+    proto_->compound(
+        "reclaim_complete",
+        [](auto& enc)
+        {
+            enc.reclaim_complete(false);
+        },
+        [](auto& dec)
+        {
+            dec.reclaim_complete();
+        });
 }
 
 void

@@ -185,11 +185,12 @@ static inline std::ostream& operator<<(
 {
     auto savefill = os.fill();
     auto saveflags = os.flags();
+    os << std::hex;
     os << "state_owner4{";
     os << so.clientid;
     os << ",{";
     for (auto b: so.owner) {
-        os << std::hex << std::setw(2) << std::setfill('0') << int(b);
+        os << std::setw(2) << std::setfill('0') << int(b);
     }
     os << "}}";
     os.fill(savefill);
