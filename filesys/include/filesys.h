@@ -393,7 +393,7 @@ struct PieceId
 
 static inline int operator==(const PieceId& x, const PieceId& y)
 {
-    return x.fileid == y.fileid && x.offset == y.offset & x.size == y.size;
+    return x.fileid == y.fileid && x.offset == y.offset && x.size == y.size;
 }
 
 static inline int operator<(const PieceId& x, const PieceId& y)
