@@ -13,6 +13,7 @@
 #include <filesys/datacache.h>
 #include <filesys/filesys.h>
 #include <filesys/lrucache.h>
+#include <util/util.h>
 
 #include "nfs4proto.h"
 #include "nfs4util.h"
@@ -24,7 +25,7 @@
 namespace filesys {
 namespace nfs4 {
 
-constexpr detail::Clock::duration ATTR_TIMEOUT = std::chrono::seconds(5);
+constexpr util::Clock::duration ATTR_TIMEOUT = std::chrono::seconds(5);
 
 class NfsDelegation;
 class NfsFilesystem;
@@ -183,7 +184,7 @@ private:
     std::weak_ptr<NfsOpenFile> open_;
     std::weak_ptr<NfsDelegation> delegation_;
     nfs_fh4 fh_;
-    detail::Clock::time_point attrTime_;
+    util::Clock::time_point attrTime_;
     NfsAttr attr_;
     changeid4 lastChange_ = 0;
     bool haveWriteverf_ = false;
@@ -396,13 +397,13 @@ public:
     NfsFilesystem(
         std::shared_ptr<oncrpc::Channel> chan,
         std::shared_ptr<oncrpc::Client> client,
-        std::shared_ptr<detail::Clock> clock,
+        std::shared_ptr<util::Clock> clock,
         const std::string& clientowner,
         std::shared_ptr<IIdMapper> idmapper);
     NfsFilesystem(
         std::shared_ptr<oncrpc::Channel> chan,
         std::shared_ptr<oncrpc::Client> client,
-        std::shared_ptr<detail::Clock> clock,
+        std::shared_ptr<util::Clock> clock,
         const std::string& clientowner);
     ~NfsFilesystem();
     std::shared_ptr<File> root() override;
@@ -459,7 +460,7 @@ private:
 
     std::mutex mutex_;
     std::shared_ptr<NfsProto> proto_;
-    std::shared_ptr<detail::Clock> clock_;
+    std::shared_ptr<util::Clock> clock_;
     std::shared_ptr<IIdMapper> idmapper_;
     bool requestDelegations_ = false;
     std::shared_ptr<NfsFile> root_;

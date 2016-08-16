@@ -7,12 +7,13 @@
 
 #include <filesys/filesys.h>
 #include <filesys/lrucache.h>
+#include <util/util.h>
 #include "filesys/proto/nfs_prot.h"
 
 namespace filesys {
 namespace nfs3 {
 
-constexpr detail::Clock::duration ATTR_TIMEOUT = std::chrono::seconds(5);
+constexpr util::Clock::duration ATTR_TIMEOUT = std::chrono::seconds(5);
 
 class NfsFilesystem;
 
@@ -153,7 +154,7 @@ public:
 private:
     std::weak_ptr<NfsFilesystem> fs_;
     nfs_fh3 fh_;
-    detail::Clock::time_point attrTime_;
+    util::Clock::time_point attrTime_;
     fattr3 attr_;
 };
 
@@ -243,7 +244,7 @@ class NfsFilesystem: public Filesystem,
 public:
     NfsFilesystem(
         std::shared_ptr<INfsProgram3> proto,
-        std::shared_ptr<detail::Clock> clock,
+        std::shared_ptr<util::Clock> clock,
         nfs_fh3&& rootfh);
     ~NfsFilesystem();
     std::shared_ptr<File> root() override;
@@ -257,7 +258,7 @@ public:
 
 private:
     std::shared_ptr<INfsProgram3> proto_;
-    std::shared_ptr<detail::Clock> clock_;
+    std::shared_ptr<util::Clock> clock_;
     nfs_fh3 rootfh_;
     std::shared_ptr<File> root_;
     NfsFsinfo fsinfo_;

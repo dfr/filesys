@@ -30,7 +30,7 @@ void DistfsCheck::check()
     auto dataNS = db_->getNamespace("data");
     auto piecesNS = db_->getNamespace("pieces");
 
-    auto clock = make_shared<detail::SystemClock>();
+    auto clock = make_shared<util::SystemClock>();
 
     // Read the devices table so that we can verify pieces
     auto iterator = devicesNS->iterator();

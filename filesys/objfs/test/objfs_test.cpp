@@ -22,7 +22,7 @@ public:
     ObjfsTest()
     {
         Credential cred(0, 0, {}, true);
-        clock_ = make_shared<detail::MockClock>();
+        clock_ = make_shared<util::MockClock>();
         fs_ = make_shared<ObjFilesystem>(make_memdb(), clock_);
         blockSize_ = fs_->blockSize();
         fs_->root()->setattr(cred, setMode777);
@@ -30,7 +30,7 @@ public:
 
     void setCred(const Credential&) {}
 
-    shared_ptr<detail::MockClock> clock_;
+    shared_ptr<util::MockClock> clock_;
     shared_ptr<ObjFilesystem> fs_;
     size_t blockSize_;
 };

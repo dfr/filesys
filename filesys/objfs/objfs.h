@@ -11,6 +11,7 @@
 #include <filesys/filesys.h>
 #include <filesys/lrucache.h>
 #include <keyval/keyval.h>
+#include <util/util.h>
 #include "filesys/objfs/objfsproto.h"
 #include "filesys/objfs/objfskey.h"
 
@@ -274,7 +275,7 @@ public:
         std::uint64_t blockSize = 4096);
     ObjFilesystem(
         std::shared_ptr<keyval::Database> db,
-        std::shared_ptr<detail::Clock> clock,
+        std::shared_ptr<util::Clock> clock,
         std::uint64_t blockSize = 4096);
     ~ObjFilesystem() override;
 
@@ -316,7 +317,7 @@ public:
 
 protected:
     std::mutex mutex_;
-    std::shared_ptr<detail::Clock> clock_;
+    std::shared_ptr<util::Clock> clock_;
     std::shared_ptr<keyval::Database> db_;
     std::shared_ptr<keyval::Namespace> defaultNS_;
     std::shared_ptr<keyval::Namespace> directoriesNS_;

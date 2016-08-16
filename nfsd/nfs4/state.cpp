@@ -24,7 +24,7 @@ NfsState::NfsState(
     int access,
     int deny,
     std::shared_ptr<filesys::OpenFile> of,
-    filesys::detail::Clock::time_point expiry)
+    util::Clock::time_point expiry)
     : stateNS_(stateNS),
       type_(type),
       id_(id),

@@ -204,7 +204,7 @@ public:
         const std::vector<int>& sec,
         std::shared_ptr<filesys::Filesystem> fs,
         std::shared_ptr<filesys::nfs4::IIdMapper> idmapper,
-        std::shared_ptr<filesys::detail::Clock> clock);
+        std::shared_ptr<util::Clock> clock);
     NfsServer(
         const std::vector<int>& sec,
         std::shared_ptr<filesys::Filesystem> fs);
@@ -390,7 +390,7 @@ public:
 
     /// Return the time at which a client which renews its leases now
     /// should expire
-    filesys::detail::Clock::time_point leaseExpiry();
+    util::Clock::time_point leaseExpiry();
 
     /// Wrap db_->beginTransaction
     std::unique_ptr<keyval::Transaction> beginTransaction();
@@ -503,8 +503,8 @@ private:
     filesys::nfs4::server_owner4 owner_;
     filesys::nfs4::verifier4 writeverf_;
     std::shared_ptr<filesys::nfs4::IIdMapper> idmapper_;
-    std::shared_ptr<filesys::detail::Clock> clock_;
-    filesys::detail::Clock::time_point graceExpiry_;
+    std::shared_ptr<util::Clock> clock_;
+    util::Clock::time_point graceExpiry_;
     std::shared_ptr<oncrpc::RestRegistry> restreg_;
 
     // Statistics

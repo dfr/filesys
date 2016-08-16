@@ -68,7 +68,7 @@ NfsServer::NfsServer(
     const vector<int>& sec,
     shared_ptr<Filesystem> fs,
     shared_ptr<IIdMapper> idmapper,
-    shared_ptr<detail::Clock> clock)
+    shared_ptr<util::Clock> clock)
     : sec_(sec),
       fs_(fs),
       idmapper_(idmapper),
@@ -192,7 +192,7 @@ NfsServer::NfsServer(
 }
 
 NfsServer::NfsServer(const vector<int>& sec, shared_ptr<Filesystem> fs)
-    : NfsServer(sec, fs, LocalIdMapper(), make_shared<detail::SystemClock>())
+    : NfsServer(sec, fs, LocalIdMapper(), make_shared<util::SystemClock>())
 {
 }
 
@@ -2779,7 +2779,7 @@ nfsstat4 NfsServer::dispatchop(
 #undef OP
 }
 
-detail::Clock::time_point NfsServer::leaseExpiry()
+util::Clock::time_point NfsServer::leaseExpiry()
 {
     // Add a few seconds to the reported lease_time value
     return clock_->now() + seconds(FLAGS_lease_time + 15);

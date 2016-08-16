@@ -60,7 +60,7 @@ public:
     Nfs4TestBase()
         : fsman_(FilesystemManager::instance())
     {
-        clock_ = make_shared<detail::MockClock>();
+        clock_ = make_shared<util::MockClock>();
 
         // Create a scratch filesystem to 'export'
         mds_ = make_shared<DistFilesystem>(keyval::make_memdb(), "", clock_);
@@ -115,7 +115,7 @@ public:
         client_->set(cred);
     }
 
-    shared_ptr<detail::MockClock> clock_;
+    shared_ptr<util::MockClock> clock_;
     shared_ptr<IIdMapper> idmapper_;
     FilesystemManager& fsman_;
     shared_ptr<DistFilesystem> mds_;        // metadata filesystem

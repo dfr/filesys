@@ -24,7 +24,7 @@ NfsClient::NfsClient(
     keyval::Database* db,
     clientid4 id, const client_owner4& owner,
     const string& principal,
-    detail::Clock::time_point expiry,
+    util::Clock::time_point expiry,
     const state_protect4_a& spa)
     : db_(db),
       id_(id),
@@ -45,7 +45,7 @@ NfsClient::NfsClient(
     keyval::Database* db,
     filesys::nfs4::clientid4 id,
     std::unique_ptr<keyval::Iterator>& iterator,
-    detail::Clock::time_point expiry)
+    util::Clock::time_point expiry)
     : db_(db),
       clientsNS_(db->getNamespace("clients")),
       stateNS_(db->getNamespace("state")),
@@ -508,7 +508,7 @@ void NfsClient::sendRecallAny()
         });
 }
 
-void NfsClient::expireState(filesys::detail::Clock::time_point now)
+void NfsClient::expireState(util::Clock::time_point now)
 {
     // Recall any old state which isn't open on this client
     std::unique_lock<std::mutex> lock(mutex_);

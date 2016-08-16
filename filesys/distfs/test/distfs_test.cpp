@@ -31,7 +31,7 @@ public:
     DistTestBase()
         : fsman_(FilesystemManager::instance())
     {
-        clock_ = make_shared<detail::MockClock>();
+        clock_ = make_shared<util::MockClock>();
 
         // Create a scratch metadata filesystem to 'export'
         mds_ = make_shared<DistFilesystem>(keyval::make_memdb(), "", clock_);
@@ -59,7 +59,7 @@ public:
     {
     }
 
-    shared_ptr<detail::MockClock> clock_;
+    shared_ptr<util::MockClock> clock_;
     FilesystemManager& fsman_;
     shared_ptr<DistFilesystem> mds_;        // metadata filesystem
     vector<shared_ptr<DataFilesystem>> ds_; // data filesystems

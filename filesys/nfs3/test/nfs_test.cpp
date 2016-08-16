@@ -44,7 +44,7 @@ public:
     NfsTest()
     {
         proto = make_shared<MockNfs>();
-        clock = make_shared<detail::MockClock>();
+        clock = make_shared<util::MockClock>();
         nfs = make_shared<NfsFilesystem>(proto, clock, nfs_fh3{{1, 0, 0, 0}});
         ignoreFsinfo();
     }
@@ -95,7 +95,7 @@ public:
     Credential cred;
     shared_ptr<NfsFilesystem> nfs;
     shared_ptr<MockNfs> proto;
-    shared_ptr<detail::MockClock> clock;
+    shared_ptr<util::MockClock> clock;
 };
 
 TEST_F(NfsTest, Root)

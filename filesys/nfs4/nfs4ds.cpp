@@ -13,7 +13,7 @@ using namespace std;
 NfsDataStore::NfsDataStore(
     std::shared_ptr<oncrpc::Channel> chan,
     std::shared_ptr<oncrpc::Client> client,
-    std::shared_ptr<detail::Clock> clock,
+    std::shared_ptr<util::Clock> clock,
     const std::string& clientowner)
     : fs_(make_shared<NfsFilesystem>(chan, client, clock, clientowner)),
       ds_(make_shared<dsclientT>(chan))

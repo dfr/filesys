@@ -7,6 +7,7 @@
 #pragma once
 
 #include <filesys/filesys.h>
+#include <util/util.h>
 #include "filesys/nfs4/nfs4proto.h"
 
 namespace keyval {
@@ -86,7 +87,7 @@ public:
         int access,
         int deny,
         std::shared_ptr<filesys::OpenFile> of,
-        filesys::detail::Clock::time_point expiry);
+        util::Clock::time_point expiry);
 
     auto type() const { return type_; }
     auto id() const { return id_; }
@@ -167,7 +168,7 @@ public:
     }
 
     auto expiry() const { return expiry_; }
-    void setExpiry(filesys::detail::Clock::time_point expiry)
+    void setExpiry(util::Clock::time_point expiry)
     {
         expiry_ = expiry;
     }
@@ -185,7 +186,7 @@ private:
     bool restored_ = false;
     bool revoked_ = false;
     bool recalled_ = false;
-    filesys::detail::Clock::time_point expiry_;
+    util::Clock::time_point expiry_;
 };
 
 }

@@ -65,13 +65,13 @@ public:
         filesys::nfs4::clientid4 id,
         const filesys::nfs4::client_owner4& owner,
         const std::string& principal,
-        filesys::detail::Clock::time_point expiry,
+        util::Clock::time_point expiry,
         const filesys::nfs4::state_protect4_a& spa);
     NfsClient(
         keyval::Database* db,
         filesys::nfs4::clientid4 id,
         std::unique_ptr<keyval::Iterator>& iterator,
-        filesys::detail::Clock::time_point expiry);
+        util::Clock::time_point expiry);
 
     ~NfsClient();
 
@@ -127,7 +127,7 @@ public:
     }
 
     auto expiry() const { return expiry_; }
-    void setExpiry(filesys::detail::Clock::time_point expiry)
+    void setExpiry(util::Clock::time_point expiry)
     {
         expired_ = false;
         expiry_ = expiry;
@@ -189,7 +189,7 @@ public:
         int access,
         int deny,
         std::shared_ptr<filesys::OpenFile> of,
-        filesys::detail::Clock::time_point expiry)
+        util::Clock::time_point expiry)
     {
         std::unique_lock<std::mutex> lock(mutex_);
         auto id = newStateId();
@@ -205,7 +205,7 @@ public:
         std::shared_ptr<NfsFileState> fs,
         int access,
         std::shared_ptr<filesys::OpenFile> of,
-        filesys::detail::Clock::time_point expiry)
+        util::Clock::time_point expiry)
     {
         std::unique_lock<std::mutex> lock(mutex_);
         auto id = newStateId();
@@ -223,7 +223,7 @@ public:
         std::shared_ptr<NfsFileState> fs,
         filesys::nfs4::layoutiomode4 iomode,
         const std::vector<std::shared_ptr<filesys::Device>>& devices,
-        filesys::detail::Clock::time_point expiry)
+        util::Clock::time_point expiry)
     {
         std::unique_lock<std::mutex> lock(mutex_);
         auto id = newStateId();
@@ -296,7 +296,7 @@ public:
 
     void sendRecallAny();
 
-    void expireState(filesys::detail::Clock::time_point now);
+    void expireState(util::Clock::time_point now);
 
 private:
     std::mutex mutex_;
@@ -307,7 +307,7 @@ private:
     ClientData data_;
     filesys::nfs4::nfs_impl_id4 impl_;
     bool expired_ = false;
-    filesys::detail::Clock::time_point expiry_;
+    util::Clock::time_point expiry_;
     bool confirmed_ = false;
     bool restored_ = false;
     std::atomic_int nextSessionIndex_;

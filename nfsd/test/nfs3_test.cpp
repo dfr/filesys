@@ -29,7 +29,7 @@ public:
     Nfs3TestBase()
         : fsman_(FilesystemManager::instance())
     {
-        clock_ = make_shared<detail::MockClock>();
+        clock_ = make_shared<util::MockClock>();
 
         // Create a scratch filesystem to 'export'
         objfs_ = make_shared<ObjFilesystem>(keyval::make_memdb(), clock_);
@@ -72,7 +72,7 @@ public:
         proto_->client()->set(cred);
     }
 
-    shared_ptr<detail::MockClock> clock_;
+    shared_ptr<util::MockClock> clock_;
     FilesystemManager& fsman_;
     shared_ptr<ObjFilesystem> objfs_;       // objfs backing store
     size_t blockSize_;

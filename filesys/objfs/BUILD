@@ -14,6 +14,7 @@ cc_library(
         "//filesys:hdrs",
         "//filesys:access",
         "//keyval",
+        "//util",
         "//external:glog",
     ],
     visibility = ["//visibility:public"]

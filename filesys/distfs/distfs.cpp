@@ -22,7 +22,7 @@ using namespace std::literals;
 DistFilesystem::DistFilesystem(
     shared_ptr<keyval::Database> db,
     const string& addr,
-    shared_ptr<detail::Clock> clock)
+    shared_ptr<util::Clock> clock)
     : ObjFilesystem(move(db), clock, pieceSize()),
       addr_(addr),
       replicas_(3),
@@ -125,7 +125,7 @@ DistFilesystem::DistFilesystem(
 }
 
 DistFilesystem::DistFilesystem(shared_ptr<Database> db, const string& addr)
-    : DistFilesystem(move(db), addr, make_shared<detail::SystemClock>())
+    : DistFilesystem(move(db), addr, make_shared<util::SystemClock>())
 {
 }
 

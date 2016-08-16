@@ -26,7 +26,7 @@ static random_device rnd;
 NfsFilesystem::NfsFilesystem(
     shared_ptr<oncrpc::Channel> chan,
     shared_ptr<oncrpc::Client> client,
-    shared_ptr<detail::Clock> clock,
+    shared_ptr<util::Clock> clock,
     const string& clientowner,
     shared_ptr<IIdMapper> idmapper)
     : clock_(clock),
@@ -58,7 +58,7 @@ NfsFilesystem::NfsFilesystem(
 NfsFilesystem::NfsFilesystem(
     shared_ptr<oncrpc::Channel> chan,
     shared_ptr<oncrpc::Client> client,
-    shared_ptr<detail::Clock> clock,
+    shared_ptr<util::Clock> clock,
     const string& clientowner)
     : NfsFilesystem(chan, client, clock, clientowner, LocalIdMapper())
 {
@@ -270,7 +270,7 @@ NfsFilesystemFactory::mount(const string& url)
 
     auto chan = Channel::open(url, "tcp");
     auto client = make_shared<oncrpc::SysClient>(NFS4_PROGRAM, NFS_V4);
-    auto clock = make_shared<detail::SystemClock>();
+    auto clock = make_shared<util::SystemClock>();
 
     string clientowner;
     if (FLAGS_clientowner.size() > 0) {

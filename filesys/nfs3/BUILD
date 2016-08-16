@@ -13,6 +13,7 @@ cc_library(
     deps = [
         "//filesys:hdrs",
         "//filesys/pfs",
+        "//util",
         "//external:rpcxx",
         "//external:glog"
     ],

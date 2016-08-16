@@ -21,10 +21,10 @@ using namespace std;
 static std::random_device rnd;
 
 ObjFilesystem::ObjFilesystem(
-    shared_ptr<Database> db, shared_ptr<detail::Clock> clock,
+    shared_ptr<Database> db, shared_ptr<util::Clock> clock,
     uint64_t blockSize)
     : clock_(clock),
-      db_(move(db)),
+      db_(db),
       blockSize_(blockSize)
 {
     defaultNS_ = db_->getNamespace("default");
@@ -60,7 +60,7 @@ ObjFilesystem::ObjFilesystem(
 }
 
 ObjFilesystem::ObjFilesystem(shared_ptr<Database> db, uint64_t blockSize)
-    : ObjFilesystem(move(db), make_shared<detail::SystemClock>(), blockSize)
+    : ObjFilesystem(db, make_shared<util::SystemClock>(), blockSize)
 {
 }
 

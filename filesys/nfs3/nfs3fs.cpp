@@ -27,7 +27,7 @@ DEFINE_int32(mount_port, 0, "port use for contacting mount service");
 
 NfsFilesystem::NfsFilesystem(
     shared_ptr<INfsProgram3> proto,
-    shared_ptr<detail::Clock> clock,
+    shared_ptr<util::Clock> clock,
     nfs_fh3&& rootfh)
     : proto_(proto),
       clock_(clock),
@@ -130,7 +130,7 @@ NfsFilesystemFactory::mount(const string& url)
 
     auto pfs = make_shared<pfs::PfsFilesystem>();
     auto chan = Channel::open(url, "tcp");
-    auto clock = make_shared<detail::SystemClock>();
+    auto clock = make_shared<util::SystemClock>();
 
     auto exports = mountprog.listexports();
     string path = p.path;

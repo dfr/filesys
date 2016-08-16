@@ -455,7 +455,7 @@ public:
     DistFilesystem(
         std::shared_ptr<keyval::Database> db,
         const std::string& addr,
-        std::shared_ptr<detail::Clock> clock);
+        std::shared_ptr<util::Clock> clock);
     DistFilesystem(
         std::shared_ptr<keyval::Database> db,
         const std::string& addr);
