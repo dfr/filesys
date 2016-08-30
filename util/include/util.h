@@ -38,16 +38,24 @@ public:
     {
     }
 
+    auto lock()
+    {
+        return std::unique_lock<std::mutex>(mutex_);
+    }
+
     time_point now() override { return now_; }
 
     template <typename Dur>
     MockClock& operator+=(Dur dur)
     {
+        auto lk = lock();
+        assert(dur.count() >= 0);
         now_ += dur;
         return *this;
     }
 
 private:
+    std::mutex mutex_;
     time_point now_;
 };
 

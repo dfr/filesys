@@ -11,6 +11,14 @@
 
 #include <rpc++/xdr.h>      // for Buffer
 
+namespace util {
+class Clock;
+}
+
+namespace oncrpc {
+class SocketManager;
+}
+
 namespace keyval {
 
 using oncrpc::Buffer;
@@ -37,6 +45,19 @@ public:
 
     /// Flush any commit transactions to stable storage
     virtual void flush() = 0;
+
+    /// Return true if this database is replicated
+    virtual bool isReplicated() = 0;
+
+    /// For replicated databases, return true if this instance is the
+    /// 'master' replica
+    virtual bool isMaster() = 0;
+
+    /// Register a callback function which is called if the database
+    /// master state changes. The callback function is called with a
+    /// bool argument which is true if the database is the new master
+    /// or false if it is a replica.
+    virtual void onMasterChange(std::function<void(bool)> cb) = 0;
 };
 
 /// Key/value pairs are grouped by namespace
@@ -120,5 +141,11 @@ std::shared_ptr<Database> make_memdb();
 
 /// Create a database backed by RocksDB
 std::shared_ptr<Database> make_rocksdb(const std::string& filename);
+
+/// Create a Paxos replicated database
+std::shared_ptr<Database> make_paxosdb(
+    const std::string& filename,
+    const std::string& replicaAddress,
+    std::shared_ptr<oncrpc::SocketManager> sockman);
 
 }

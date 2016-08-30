@@ -15,6 +15,7 @@ test_suite(
         "//filesys/nfs3:small",
         "//filesys/objfs:small",
         "//filesys/distfs:small",
+        "//keyval/paxos:small",
         "//nfsd:small",
         "//util:small",
     ]

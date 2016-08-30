@@ -10,7 +10,9 @@ cc_library(
     deps = [
         ":hdrs",
         "//keyval/mem",
+        "//keyval/paxos",
         "//keyval/rocks",
+        "//util",
     ],
     visibility = ["//visibility:public"]
 )

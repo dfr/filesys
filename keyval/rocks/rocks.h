@@ -25,6 +25,9 @@ public:
     std::unique_ptr<Transaction> beginTransaction() override;
     void commit(std::unique_ptr<Transaction>&& transaction) override;
     void flush() override;
+    bool isReplicated() override { return false; }
+    bool isMaster() override { return true; }
+    void onMasterChange(std::function<void(bool)> cb) override {}
 
 private:
     std::string filename_;
