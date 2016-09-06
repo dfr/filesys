@@ -16,6 +16,7 @@ test_suite(
         "//filesys/objfs:small",
         "//filesys/distfs:small",
         "//nfsd:small",
+        "//util:small",
     ]
 )
 

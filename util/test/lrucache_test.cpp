@@ -8,10 +8,10 @@
 #include <memory>
 #include <thread>
 
-#include <filesys/lrucache.h>
+#include <util/lrucache.h>
 #include <gmock/gmock.h>
 
-using namespace filesys::detail;
+using namespace util;
 using namespace std;
 using namespace std::placeholders;
 using namespace testing;
@@ -29,7 +29,7 @@ struct MockCallbacks
     MOCK_METHOD1(ctor, shared_ptr<File>(int));
 };
 
-struct FileCacheTest: public ::testing::Test
+struct LRUCacheTest: public ::testing::Test
 {
     static shared_ptr<File> newFile(int id)
     {
@@ -42,7 +42,7 @@ struct FileCacheTest: public ::testing::Test
     function<shared_ptr<File>(int)> ctor = bind(&MockCallbacks::ctor, &cb, _1);
 };
 
-TEST_F(FileCacheTest, Basic)
+TEST_F(LRUCacheTest, Basic)
 {
     EXPECT_CALL(cb, ctor(1))
         .Times(1)
@@ -54,7 +54,7 @@ TEST_F(FileCacheTest, Basic)
     EXPECT_EQ(f, cache.find(1, update, ctor));
 }
 
-TEST_F(FileCacheTest, LRU)
+TEST_F(LRUCacheTest, LRU)
 {
     EXPECT_CALL(cb, ctor(_))
         .Times(cache.sizeLimit() + 3)
@@ -81,7 +81,7 @@ TEST_F(FileCacheTest, LRU)
     EXPECT_EQ(false, cache.contains(3));
 }
 
-TEST_F(FileCacheTest, Busy)
+TEST_F(LRUCacheTest, Busy)
 {
     EXPECT_CALL(cb, ctor(_))
         .Times(cache.sizeLimit() + 1)
@@ -97,7 +97,7 @@ TEST_F(FileCacheTest, Busy)
     EXPECT_EQ(false, cache.contains(1));
 }
 
-TEST_F(FileCacheTest, Multithread)
+TEST_F(LRUCacheTest, Multithread)
 {
     EXPECT_CALL(cb, ctor(_))
         .Times(100*100)

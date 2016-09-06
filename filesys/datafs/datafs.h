@@ -12,7 +12,7 @@
 #include <vector>
 
 #include <filesys/filesys.h>
-#include <filesys/lrucache.h>
+#include <util/lrucache.h>
 
 namespace filesys {
 namespace data {
@@ -351,7 +351,7 @@ private:
     FilesystemId fsid_;
     std::shared_ptr<Filesystem> store_;
     std::shared_ptr<DataRoot> root_;
-    detail::LRUCache<PieceId, DataFile, PieceIdHash> cache_;
+    util::LRUCache<PieceId, DataFile, PieceIdHash> cache_;
 };
 
 class DataFilesystemFactory: public FilesystemFactory

@@ -12,8 +12,7 @@
 #include <shared_mutex>
 #include <unordered_map>
 
-namespace filesys {
-namespace detail {
+namespace util {
 
 /// A cache mapping instances of ID to shared_ptr<OBJ> entries
 template <typename ID, typename OBJ,
@@ -168,5 +167,4 @@ private:
     int misses_ = 0;
 };
 
-}
 }

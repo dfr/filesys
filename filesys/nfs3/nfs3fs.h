@@ -6,7 +6,7 @@
 #pragma once
 
 #include <filesys/filesys.h>
-#include <filesys/lrucache.h>
+#include <util/lrucache.h>
 #include <util/util.h>
 #include "filesys/proto/nfs_prot.h"
 
@@ -262,7 +262,7 @@ private:
     nfs_fh3 rootfh_;
     std::shared_ptr<File> root_;
     NfsFsinfo fsinfo_;
-    detail::LRUCache<nfs_fh3, NfsFile, NfsFhHash> cache_;
+    util::LRUCache<nfs_fh3, NfsFile, NfsFhHash> cache_;
 };
 
 class NfsFilesystemFactory: public FilesystemFactory

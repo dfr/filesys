@@ -13,7 +13,7 @@
 #include <sys/stat.h>
 
 #include <filesys/filesys.h>
-#include <filesys/lrucache.h>
+#include <util/lrucache.h>
 
 namespace filesys {
 namespace posix {
@@ -243,7 +243,7 @@ private:
     int rootfd_;
     FileId rootid_;
     FilesystemId fsid_;
-    detail::LRUCache<std::uint64_t, PosixFile> cache_;
+    util::LRUCache<std::uint64_t, PosixFile> cache_;
 };
 
 class PosixFilesystemFactory: public FilesystemFactory

@@ -593,10 +593,10 @@ private:
     std::shared_ptr<oncrpc::ServiceRegistry> svcreg_;
 
     // Cache piece lookups
-    detail::LRUCache<PieceId, DistPiece, PieceIdHash> piececache_;
+    util::LRUCache<PieceId, DistPiece, PieceIdHash> piececache_;
 
     // Cache connections to devices
-    detail::LRUCache<devid, DataStore> dscache_;
+    util::LRUCache<devid, DataStore> dscache_;
 };
 
 class DistFilesystemFactory: public FilesystemFactory

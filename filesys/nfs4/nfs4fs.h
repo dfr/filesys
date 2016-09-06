@@ -12,7 +12,7 @@
 
 #include <filesys/datacache.h>
 #include <filesys/filesys.h>
-#include <filesys/lrucache.h>
+#include <util/lrucache.h>
 #include <util/util.h>
 
 #include "nfs4proto.h"
@@ -464,8 +464,8 @@ private:
     std::shared_ptr<IIdMapper> idmapper_;
     bool requestDelegations_ = false;
     std::shared_ptr<NfsFile> root_;
-    detail::LRUCache<nfs_fh4, NfsFile, NfsFhHash> cache_;
-    detail::LRUCache<
+    util::LRUCache<nfs_fh4, NfsFile, NfsFhHash> cache_;
+    util::LRUCache<
         stateid4, NfsDelegation,
         NfsStateidHashIgnoreSeqid,
         NfsStateidEqualIgnoreSeqid> delegations_;

@@ -9,8 +9,8 @@
 #include <atomic>
 
 #include <filesys/filesys.h>
-#include <filesys/lrucache.h>
 #include <keyval/keyval.h>
+#include <util/lrucache.h>
 #include <util/util.h>
 #include "filesys/objfs/objfsproto.h"
 #include "filesys/objfs/objfskey.h"
@@ -327,7 +327,7 @@ protected:
     std::atomic<std::uint64_t> nextId_;
     FilesystemId fsid_;
     std::shared_ptr<ObjFile> root_;
-    detail::LRUCache<std::uint64_t, ObjFile> cache_;
+    util::LRUCache<std::uint64_t, ObjFile> cache_;
 };
 
 class ObjFilesystemFactory: public FilesystemFactory
