@@ -20,7 +20,7 @@ using namespace std::chrono;
 using namespace std::literals;
 
 DistFilesystem::DistFilesystem(
-    unique_ptr<keyval::Database> db,
+    shared_ptr<keyval::Database> db,
     const string& addr,
     shared_ptr<detail::Clock> clock)
     : ObjFilesystem(move(db), clock, pieceSize()),
@@ -124,7 +124,7 @@ DistFilesystem::DistFilesystem(
         });
 }
 
-DistFilesystem::DistFilesystem(unique_ptr<Database> db, const string& addr)
+DistFilesystem::DistFilesystem(shared_ptr<Database> db, const string& addr)
     : DistFilesystem(move(db), addr, make_shared<detail::SystemClock>())
 {
 }

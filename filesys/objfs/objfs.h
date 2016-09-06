@@ -270,10 +270,10 @@ class ObjFilesystem: public Filesystem,
 {
 public:
     ObjFilesystem(
-        std::unique_ptr<keyval::Database> db,
+        std::shared_ptr<keyval::Database> db,
         std::uint64_t blockSize = 4096);
     ObjFilesystem(
-        std::unique_ptr<keyval::Database> db,
+        std::shared_ptr<keyval::Database> db,
         std::shared_ptr<detail::Clock> clock,
         std::uint64_t blockSize = 4096);
     ~ObjFilesystem() override;
@@ -317,7 +317,7 @@ public:
 protected:
     std::mutex mutex_;
     std::shared_ptr<detail::Clock> clock_;
-    std::unique_ptr<keyval::Database> db_;
+    std::shared_ptr<keyval::Database> db_;
     std::shared_ptr<keyval::Namespace> defaultNS_;
     std::shared_ptr<keyval::Namespace> directoriesNS_;
     std::shared_ptr<keyval::Namespace> dataNS_;

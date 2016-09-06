@@ -95,7 +95,7 @@ public:
         std::shared_ptr<Buffer> key) = 0;
 };
 
-std::unique_ptr<Database> make_memdb();
-std::unique_ptr<Database> make_rocksdb(const std::string& filename);
+std::shared_ptr<Database> make_memdb();
+std::shared_ptr<Database> make_rocksdb(const std::string& filename);
 
 }

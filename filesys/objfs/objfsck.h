@@ -19,8 +19,8 @@ namespace objfs {
 class ObjfsCheck
 {
 public:
-    ObjfsCheck(std::unique_ptr<keyval::Database>&& db)
-        : db_(std::move(db))
+    ObjfsCheck(std::shared_ptr<keyval::Database> db)
+        : db_(db)
     {
     }
 
@@ -45,7 +45,7 @@ protected:
             return f.name;
     }
 
-    std::unique_ptr<keyval::Database> db_;
+    std::shared_ptr<keyval::Database> db_;
     std::uint32_t blockSize_;
     std::map<std::uint64_t, state> files_;
 };

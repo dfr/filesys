@@ -17,8 +17,8 @@ namespace distfs {
 class DistfsCheck: public objfs::ObjfsCheck
 {
 public:
-    DistfsCheck(std::unique_ptr<keyval::Database>&& db)
-        : ObjfsCheck(std::move(db))
+    DistfsCheck(std::shared_ptr<keyval::Database> db)
+        : ObjfsCheck(db)
     {
     }
 

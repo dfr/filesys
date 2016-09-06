@@ -21,7 +21,7 @@ using namespace std;
 static std::random_device rnd;
 
 ObjFilesystem::ObjFilesystem(
-    unique_ptr<Database> db, shared_ptr<detail::Clock> clock,
+    shared_ptr<Database> db, shared_ptr<detail::Clock> clock,
     uint64_t blockSize)
     : clock_(clock),
       db_(move(db)),
@@ -59,7 +59,7 @@ ObjFilesystem::ObjFilesystem(
     setFsid();
 }
 
-ObjFilesystem::ObjFilesystem(unique_ptr<Database> db, uint64_t blockSize)
+ObjFilesystem::ObjFilesystem(shared_ptr<Database> db, uint64_t blockSize)
     : ObjFilesystem(move(db), make_shared<detail::SystemClock>(), blockSize)
 {
 }

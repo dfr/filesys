@@ -453,11 +453,11 @@ class DistFilesystem: public objfs::ObjFilesystem,
 {
 public:
     DistFilesystem(
-        std::unique_ptr<keyval::Database> db,
+        std::shared_ptr<keyval::Database> db,
         const std::string& addr,
         std::shared_ptr<detail::Clock> clock);
     DistFilesystem(
-        std::unique_ptr<keyval::Database> db,
+        std::shared_ptr<keyval::Database> db,
         const std::string& addr);
     ~DistFilesystem() override;
 

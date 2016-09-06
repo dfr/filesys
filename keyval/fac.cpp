@@ -10,12 +10,12 @@
 
 using namespace keyval;
 
-std::unique_ptr<Database> keyval::make_memdb()
+std::shared_ptr<Database> keyval::make_memdb()
 {
-    return std::make_unique<keyval::memory::MemoryDatabase>();
+    return std::make_shared<keyval::memory::MemoryDatabase>();
 }
 
-std::unique_ptr<Database> keyval::make_rocksdb(const std::string& filename)
+std::shared_ptr<Database> keyval::make_rocksdb(const std::string& filename)
 {
-    return std::make_unique<keyval::rocks::RocksDatabase>(filename);
+    return std::make_shared<keyval::rocks::RocksDatabase>(filename);
 }
