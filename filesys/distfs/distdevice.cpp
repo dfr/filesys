@@ -156,6 +156,8 @@ void DistDevice::write(shared_ptr<DistFilesystem> fs)
 {
     LOG(INFO) << "Device " << id_ << ": writing to database";
 
+    assert(fs->db()->isMaster());
+
     DeviceStatus val;
     val.owner = owner_;
     val.uaddrs = uaddrs_;

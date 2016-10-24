@@ -203,11 +203,13 @@ public:
     NfsServer(
         const std::vector<int>& sec,
         std::shared_ptr<filesys::Filesystem> fs,
+        const std::vector<oncrpc::AddressInfo>& addrs,
         std::shared_ptr<filesys::nfs4::IIdMapper> idmapper,
         std::shared_ptr<util::Clock> clock);
     NfsServer(
         const std::vector<int>& sec,
-        std::shared_ptr<filesys::Filesystem> fs);
+        std::shared_ptr<filesys::Filesystem> fs,
+        const std::vector<oncrpc::AddressInfo>& addrs);
     ~NfsServer();
 
     // INfsServer overrides
@@ -455,7 +457,13 @@ public:
         const filesys::nfs4::fattr4& attr,
         filesys::nfs4::bitmap4& attrsset);
 
-    /// Return a wire-format atttribute set for the given attributes
+    /// Get a set of attributes, returning them in the given NfsAttr structure
+    void getAttr(
+        std::shared_ptr<filesys::File> file,
+        const filesys::nfs4::bitmap4& wanted,
+        filesys::nfs4::NfsAttr& xattr);
+
+    /// Return a wire-format attribute set for the given attributes
     filesys::nfs4::fattr4 exportAttr(
         std::shared_ptr<filesys::File> file,
         const filesys::nfs4::bitmap4& wanted);
@@ -497,7 +505,8 @@ private:
     std::mutex mutex_;
     std::vector<int> sec_;
     std::shared_ptr<filesys::Filesystem> fs_;
-    keyval::Database* db_;
+    std::vector<oncrpc::AddressInfo> addrs_;
+    std::shared_ptr<keyval::Database> db_;
     std::shared_ptr<keyval::Namespace> clientsNS_;
     std::shared_ptr<keyval::Namespace> stateNS_;
     filesys::nfs4::server_owner4 owner_;

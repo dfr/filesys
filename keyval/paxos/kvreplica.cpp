@@ -107,12 +107,17 @@ KVReplica::KVReplica(
 }
 
 KVReplica::KVReplica(
-    const std::string& replicaAddress,
+    const std::string& addr,
+    const std::vector<std::string>& replicas,
     std::shared_ptr<util::Clock> clock,
     std::shared_ptr<oncrpc::SocketManager> sockman,
     std::shared_ptr<Database> db)
-    : Replica(replicaAddress, clock, sockman, db)
+    : Replica(addr, replicas, clock, sockman, db)
 {
+    // Sync with enough replicas to form a quorum - at least one of
+    // them will perform a leadership election
+    std::unique_lock<std::mutex> lk(mutex_);
+    progress_.wait(lk);
 }
 
 void KVReplica::apply(
@@ -126,7 +131,7 @@ void KVReplica::apply(
     for (auto& op: kvtrans.ops) {
         switch (op.op) {
         case OP_PUT:
-            VLOG(1) << this << ": put "
+            VLOG(2) << this << ": put "
                     << op.put().ns
                     << ", " << op.put().key
                     << ", " << op.put().value;
@@ -136,12 +141,12 @@ void KVReplica::apply(
                 toBuffer(op.put().value));
             break;
         case OP_REMOVE:
-            VLOG(1) << this << ": remove "
+            VLOG(2) << this << ": remove "
                     << op.remove().ns
                     << ", " << op.remove().key;
             trans->remove(
-                db()->getNamespace(op.put().ns),
-                toBuffer(op.put().key));
+                db()->getNamespace(op.remove().ns),
+                toBuffer(op.remove().key));
             break;
         }
     }
@@ -171,11 +176,11 @@ std::unique_ptr<keyval::Transaction> KVReplica::beginTransaction()
 
 void KVReplica::commit(std::unique_ptr<keyval::Transaction>&& transaction)
 {
-    VLOG(1) << this << ": committing transaction";
+    VLOG(2) << this << ": committing transaction";
     auto p = reinterpret_cast<KVTransaction*>(transaction.get());
     auto pt = execute(p->encode());
     transaction.reset();
-    VLOG(1) << this << ": waiting for completion";
+    VLOG(2) << this << ": waiting for completion";
     pt->wait();
 }
 
@@ -186,4 +191,25 @@ void KVReplica::flush()
 void KVReplica::onMasterChange(std::function<void(bool)> cb)
 {
     masterChangeCallbacks_.push_back(cb);
+}
+
+void KVReplica::setAppData(const std::vector<uint8_t>& data)
+{
+    appdata_ = data;
+}
+
+std::vector<std::vector<uint8_t>> KVReplica::getAppData()
+{
+    std::vector<std::vector<uint8_t>> res;
+
+    for (auto& entry: peers_) {
+        if (entry.first == leader_)
+            res.push_back(entry.second.appdata);
+    }
+    for (auto& entry: peers_) {
+        if (entry.first != leader_)
+            res.push_back(entry.second.appdata);
+    }
+
+    return res;
 }

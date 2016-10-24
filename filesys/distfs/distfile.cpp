@@ -46,6 +46,9 @@ shared_ptr<Piece> DistFile::data(
     auto bn = blockSize ? offset / blockSize : 0;
     auto off = bn * blockSize;
 
+    if (!fs->db()->isMaster() && forWriting)
+        throw system_error(EROFS, system_category());
+
     unique_ptr<keyval::Transaction> trans;
     if (forWriting) {
         trans = fs->db()->beginTransaction();
@@ -71,6 +74,9 @@ void DistFile::truncate(
     auto fs = dynamic_pointer_cast<DistFilesystem>(fs_.lock());
     auto blockSize = meta_.blockSize;
     auto blockMask = blockSize - 1;
+
+    if (!fs->db()->isMaster())
+        throw system_error(EROFS, system_category());
 
     PieceData start(
         fileid(), (newSize + blockMask) & ~blockMask, blockSize);
@@ -114,6 +120,7 @@ shared_ptr<Buffer> DistOpenFile::read(
     std::uint64_t offset, std::uint32_t len, bool& eof)
 {
     auto lk = file_->lock();
+    auto fs = dynamic_pointer_cast<DistFilesystem>(file_->ofs());
 
     if ((flags_ & OpenFlags::READ) == 0) {
         throw system_error(EBADF, system_category());
@@ -122,7 +129,6 @@ shared_ptr<Buffer> DistOpenFile::read(
     file_->writeMeta();
     auto& meta = file_->meta();
 
-    auto fs = dynamic_pointer_cast<DistFilesystem>(file_->ofs());
     auto blockSize = meta.blockSize;
     auto bn = blockSize ? offset / blockSize : 0;
     auto boff = blockSize ? offset % blockSize : offset;
@@ -197,6 +203,10 @@ uint32_t DistOpenFile::write(
     auto bn = blockSize ? offset / blockSize : 0;
     auto boff = blockSize ? offset % blockSize : offset;
     auto len = data->size();
+
+    if (!fs->db()->isMaster())
+        throw system_error(EROFS, system_category());
+
     auto trans = fs->db()->beginTransaction();
     file_->updateModifyTime();
     file_->writeMeta(trans.get());
@@ -241,6 +251,9 @@ void DistOpenFile::flush()
     if (needFlush_) {
         needFlush_ = false;
         lk.unlock();
-        file_->ofs()->db()->flush();
+        auto fs = dynamic_pointer_cast<DistFilesystem>(file_->ofs());
+        if (!fs->db()->isMaster())
+            throw system_error(EROFS, system_category());
+        fs->db()->flush();
     }
 }

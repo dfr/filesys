@@ -105,7 +105,8 @@ NfsFilesystem::find(const nfs_fh3& fh, const fattr3& attr)
 }
 
 shared_ptr<Filesystem>
-NfsFilesystemFactory::mount(const string& url)
+NfsFilesystemFactory::mount(
+    const string& url, shared_ptr<oncrpc::SocketManager> sockman)
 {
     using namespace oncrpc;
 

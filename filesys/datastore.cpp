@@ -4,6 +4,7 @@
  */
 
 #include <random>
+#include <sstream>
 
 #include <filesys/filesys.h>
 #include <gflags/gflags.h>
@@ -20,7 +21,7 @@ static void reportStatusHelper(
     distfs::DeviceStatus device,
     DataStore* ds,
     std::weak_ptr<oncrpc::SocketManager> sockman,
-    std::string addr)
+    std::string addrs)
 {
     // Report status now, then schedule a repeat call
     Credential cred{0, 0, {}, true};
@@ -30,21 +31,27 @@ static void reportStatusHelper(
     args.storage.totalSpace = fsattr->totalSpace();
     args.storage.freeSpace = fsattr->freeSpace();
     args.storage.availSpace = fsattr->availSpace();
-    auto chan = oncrpc::Channel::open(addr);
-    distfs::DistfsMds1<oncrpc::SysClient> mds(chan);
-    mds.status(args);
+
+    std::istringstream is(addrs);
+    for (std::string addr; std::getline(is, addr, ','); ) {
+        for (auto& ai: oncrpc::getAddressInfo(addr, "udp")) {
+            auto chan = oncrpc::Channel::open(ai);
+            distfs::DistfsMds1<oncrpc::SysClient> mds(chan);
+            mds.status(args);
+        }
+    }
 
     auto t = sockman.lock();
     if (t) {
         auto now = std::chrono::system_clock::now();
         t->add(now + std::chrono::seconds(FLAGS_heartbeat), [=]() {
-                reportStatusHelper(device, ds, sockman, addr);
+                reportStatusHelper(device, ds, sockman, addrs);
             });
     }
 }
 
 void DataStore::reportStatus(
-    std::weak_ptr<oncrpc::SocketManager> sockman, const std::string& addr,
+    std::weak_ptr<oncrpc::SocketManager> sockman, const std::string& addrs,
     const std::vector<oncrpc::AddressInfo>& boundAddrs)
 {
     std::random_device rnd;
@@ -56,6 +63,5 @@ void DataStore::reportStatus(
     for (auto& ai: boundAddrs)
         device.uaddrs.push_back(ai.uaddr());
 
-    reportStatusHelper(device, this, sockman, addr);
+    reportStatusHelper(device, this, sockman, addrs);
 }
-

@@ -47,6 +47,8 @@ public:
     bool isReplicated() override { return false; }
     bool isMaster() override { return true; }
     void onMasterChange(std::function<void(bool)> cb) override {}
+    void setAppData(const std::vector<uint8_t>& data) override {}
+    std::vector<std::vector<uint8_t>> getAppData() override { return {}; }
 
 private:
     std::mutex mutex_;

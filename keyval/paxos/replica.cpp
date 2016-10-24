@@ -143,30 +143,62 @@ Replica::Replica(
     sendIdentity(lk);
 }
 
+static std::shared_ptr<oncrpc::Channel> connectChannel(
+    const std::vector<std::string>& replicas)
+{
+    using namespace oncrpc;
+    std::vector<AddressInfo> addrs;
+    for (auto& replica: replicas) {
+        auto t = getAddressInfo(replica);
+        addrs.insert(addrs.end(), t.begin(), t.end());
+    }
+    for (auto& ai: addrs)
+        LOG(INFO) << "connect: " << ai.host() << ":" << ai.port();
+    return Channel::open(addrs, true);
+}
+
 Replica::Replica(
-    const std::string& replicaAddress,
+    const std::string& addr,
+    const std::vector<std::string>& replicas,
     std::shared_ptr<util::Clock> clock,
     std::shared_ptr<oncrpc::SocketManager> sockman,
     std::shared_ptr<Database> db)
     : Replica(
-        std::make_shared<Paxos1<oncrpc::SysClient>>(
-            oncrpc::Channel::open(replicaAddress)), clock, sockman, db)
+        std::make_shared<Paxos1<oncrpc::SysClient>>(connectChannel(replicas)),
+        clock, sockman, db)
 {
     bind(svcreg_);
 
-    // Bind to the replica address so that we can receive messages
-    // from the other replicas
-    for (auto& ai: oncrpc::getAddressInfo(replicaAddress)) {
-        int fd = socket(ai.family, ai.socktype, ai.protocol);
-        if (fd < 0)
-            throw std::system_error(errno, std::system_category());
-        int one = 1;
-        ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-        ::setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
-        auto sock = std::make_shared<oncrpc::DatagramChannel>(fd, svcreg_);
-        sock->bind(ai.addr);
-        sock->connect(ai.addr);
-        sockman->add(sock);
+    // Bind to the given address so that we can receive messages from
+    // the other replicas
+    //
+    // For replicated metadata servers, the given addr may have
+    // several addresses, some of which are not for this server. Just
+    // ignore any bind errors but make sure we bind to at least one
+    // address.
+    int bound = false;
+    std::exception_ptr lastError;
+    for (auto& ai: oncrpc::getAddressInfo(addr)) {
+        try {
+            int fd = socket(ai.family, ai.socktype, ai.protocol);
+            if (fd < 0)
+                throw std::system_error(errno, std::system_category());
+            int one = 1;
+            ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+            ::setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
+            auto sock = std::make_shared<oncrpc::DatagramChannel>(fd, svcreg_);
+            sock->bind(ai.addr);
+            sock->connect(ai.addr);
+            sockman->add(sock);
+            LOG(INFO) << "bind: " << ai.host() << ":" << ai.port();
+            bound = true;
+        }
+        catch (std::system_error& e) {
+            lastError = std::current_exception();
+        }
+    }
+    if (!bound) {
+        std::rethrow_exception(lastError);
     }
 }
 
@@ -191,8 +223,8 @@ void Replica::identity(const IDENTITYargs& args)
     std::unique_lock<std::mutex> lk(mutex_);
     auto instance = args.instance;
 
-    if (VLOG_IS_ON(2)) {
-        VLOG(2) << this << ": " << instance << ": received identity from "
+    if (VLOG_IS_ON(3)) {
+        VLOG(3) << this << ": " << instance << ": received identity from "
                 << args.uuid;
     }
 
@@ -200,6 +232,7 @@ void Replica::identity(const IDENTITYargs& args)
     auto& p = peers_[args.uuid];
     p.when = clock_->now();
     p.status = args.status;
+    p.appdata = args.appdata;
     updatePeers(lk);
     if (newPeer)
         LOG(INFO) << this << ": " << peers_.size()
@@ -212,19 +245,19 @@ void Replica::prepare(const PREPAREargs& args)
     auto instance = args.instance;
     auto& i = args.i;
 
-    if (VLOG_IS_ON(1))
-        VLOG(1) << this << ": " << instance << ": received prepare " << i;
+    if (VLOG_IS_ON(2))
+        VLOG(2) << this << ": " << instance << ": received prepare " << i;
     auto ap = findAcceptorState(lk, instance, true);
     if (i > ap->rnd) {
         if (instance > maxInstance_)
             setLeader(lk, args.uuid);
-        if (VLOG_IS_ON(1))
-            VLOG(1) << this << ": " << instance << ": sending promise " << i;
+        if (VLOG_IS_ON(2))
+            VLOG(2) << this << ": " << instance << ": sending promise " << i;
         ap->rnd = i;
         saveAcceptorState(lk, ap);
         proto_->promise({uuid_, instance, i, ap->vrnd, ap->vval});
     } else if (i != ap->rnd) {
-        VLOG(1) << this << ": " << instance << ": sending nack " << ap->rnd;
+        VLOG(2) << this << ": " << instance << ": sending nack " << ap->rnd;
         proto_->nack({uuid_, instance, ap->rnd});
     }
 }
@@ -245,12 +278,12 @@ void Replica::promise(const PROMISEargs& args)
     if (pp->state == ProposerState::PHASE1 && i == pp->crnd) {
         pp->promisers.insert(args.uuid);
 
-        if (VLOG_IS_ON(1))
-            VLOG(1) << this << ": " << instance << ": received promise " << i
+        if (VLOG_IS_ON(2))
+            VLOG(2) << this << ": " << instance << ": received promise " << i
                     << " reply count: " << pp->promisers.size();
 
         if (vrnd > pp->largestVrnd) {
-            VLOG(1) << this << ": " << instance
+            VLOG(2) << this << ": " << instance
                     << ": received promise vrnd " << vrnd
                     << ": vval {" << vval.size() << " bytes}";
             assert(vrnd > PaxosRound{0});
@@ -301,8 +334,8 @@ void Replica::accept(const ACCEPTargs& args)
 
     auto ap = findAcceptorState(lk, instance, true);
     if (i >= ap->rnd && i != ap->vrnd) {
-        if (VLOG_IS_ON(1))
-            VLOG(1) << this << ": " << instance << ": received accept " << i;
+        if (VLOG_IS_ON(2))
+            VLOG(2) << this << ": " << instance << ": received accept " << i;
 
         updateLeaderTimer(lk);
         if (instance > maxInstance_) {
@@ -313,8 +346,8 @@ void Replica::accept(const ACCEPTargs& args)
         ap->rnd = i;
         ap->vrnd = i;
         ap->vval = v;
-        if (VLOG_IS_ON(1))
-            VLOG(1) << this << ": " << instance << ": sending accepted " << i
+        if (VLOG_IS_ON(2))
+            VLOG(2) << this << ": " << instance << ": sending accepted " << i
                     << " {" << v.size() << " bytes}";
         saveAcceptorState(lk, ap);
         proto_->accepted({uuid_, instance, i, ap->vval});
@@ -344,8 +377,8 @@ void Replica::accepted(const ACCEPTargs& args)
         lp->values[v]++;
         lp->acceptors.insert(args.uuid);
     }
-    if (VLOG_IS_ON(1))
-        VLOG(1) << this << ": " << instance << ": received accepted " << i
+    if (VLOG_IS_ON(2))
+        VLOG(2) << this << ": " << instance << ": received accepted " << i
                 << " reply count: " << lp->acceptors.size()
                 << " {" << v.size() << " bytes}";
 
@@ -365,7 +398,7 @@ void Replica::accepted(const ACCEPTargs& args)
 
         // We have received accepted replies from a majority of
         // acceptors so the value can be learned
-        VLOG(1) << this << ": " << instance << ": completed " << lp;
+        VLOG(2) << this << ": " << instance << ": completed " << lp;
         lp->value = value;
 
         // If this is the most recent transaction, update the leader
@@ -420,6 +453,7 @@ void Replica::accepted(const ACCEPTargs& args)
                 sendIdentity(lk);
             }
         }
+        progress_.notify_all();
     }
 }
 
@@ -431,8 +465,8 @@ void Replica::nack(const NACKargs& args)
 
     auto pp = findProposerState(lk, instance, false);
     if (pp) {
-        VLOG(1) << this << ": " << instance << ": received nack " << i;
-        VLOG(1) << this << ": " << instance << ": current crnd " << pp->crnd;
+        VLOG(2) << this << ": " << instance << ": received nack " << i;
+        VLOG(2) << this << ": " << instance << ": current crnd " << pp->crnd;
         if (pp->crnd.gen > 0 && i > pp->crnd) {
             pp->nackCount++;
             pp->crnd = PaxosRound{i.gen + 1, uuid_};
@@ -448,7 +482,7 @@ std::shared_ptr<PendingTransaction> Replica::execute(
     auto trans = std::make_shared<PendingTransaction>(command);
     pendingCommands_.push_back(trans);
     auto pp = startNewInstance(lk, maxInstance_ + 1);
-    VLOG(1) << this << ": " << pp->instance
+    VLOG(2) << this << ": " << pp->instance
             << ": executing command in new instance";
     return trans;
 }
@@ -472,7 +506,7 @@ ProposerState* Replica::findProposerState(
         std::tie(i, std::ignore) = proposerState_.insert(
             std::make_pair(
                 instance, std::make_unique<ProposerState>(instance)));
-        VLOG(1) << this << ": " << instance
+        VLOG(2) << this << ": " << instance
                 << ": created new proposer " << i->second.get();
     }
     return i->second.get();
@@ -489,7 +523,7 @@ LearnerState* Replica::findLearnerState(
         lp->time = clock_->now();
         std::tie(i, std::ignore) = learnerState_.insert(
             std::make_pair(instance, std::move(lp)));
-        VLOG(1) << this << ": " << instance
+        VLOG(2) << this << ": " << instance
                 << ": created new learner " << i->second.get();
     }
     return i->second.get();
@@ -513,7 +547,7 @@ std::shared_ptr<AcceptorState> Replica::findAcceptorState(
                 oncrpc::XdrMemory xmv(val->data(), val->size());
 
                 auto ap = std::make_shared<AcceptorState>(instance);
-                VLOG(1) << this << ": " << instance
+                VLOG(2) << this << ": " << instance
                         << ": restored acceptor from db" << ap.get();
                 xdr(*ap, static_cast<oncrpc::XdrSource*>(&xmv));
 
@@ -525,7 +559,7 @@ std::shared_ptr<AcceptorState> Replica::findAcceptorState(
                 if (!create)
                     return nullptr;
                 auto ap = std::make_shared<AcceptorState>(instance);
-                VLOG(1) << this << ": " << instance
+                VLOG(2) << this << ": " << instance
                         << ": created new acceptor " << ap.get();
                 return ap;
             }
@@ -568,8 +602,8 @@ ProposerState* Replica::startNewInstance(
 
 void Replica::sendIdentity(std::unique_lock<std::mutex>& lk)
 {
-    if (VLOG_IS_ON(2)) {
-        VLOG(2) << this << ": " << maxInstance_
+    if (VLOG_IS_ON(3)) {
+        VLOG(3) << this << ": " << maxInstance_
                 << ": " << uuid_ << ": sending identity";
     }
     if (identityTimer_)
@@ -588,12 +622,12 @@ void Replica::sendIdentity(std::unique_lock<std::mutex>& lk)
         });
 
     lk.unlock();
-    proto_->identity(IDENTITYargs{uuid_, status_, maxInstance_});
+    proto_->identity(IDENTITYargs{uuid_, status_, maxInstance_, appdata_});
 }
 
 void Replica::sendPrepare(std::unique_lock<std::mutex>& lk, ProposerState* pp)
 {
-    VLOG(1) << this << ": " << pp->instance
+    VLOG(2) << this << ": " << pp->instance
             << ": sending prepare " << pp->crnd;
     if (pp->prepareTimer)
         tman_->cancel(pp->prepareTimer);
@@ -619,7 +653,7 @@ void Replica::sendPrepare(std::unique_lock<std::mutex>& lk, ProposerState* pp)
 
 void Replica::sendAccept(std::unique_lock<std::mutex>& lk, ProposerState* pp)
 {
-    VLOG(1) << this << ": " << pp->instance
+    VLOG(2) << this << ": " << pp->instance
             << ": sending accept " << pp->crnd
             << " {" << pp->cval.size() << " bytes}";
     if (pp->acceptTimer)
@@ -711,7 +745,7 @@ void Replica::updateLeaseTimer(std::unique_lock<std::mutex>& lk)
         tman_->add(
             clock_->now() + 3*LEADER_WAIT_TIME/4,
             [this]() {
-                VLOG(1) << this << ": extending lease";
+                VLOG(2) << this << ": extending lease";
                 std::unique_lock<std::mutex> lk2(mutex_);
                 startNewInstance(lk2, maxInstance_ + 1);
             });
@@ -733,7 +767,7 @@ bool Replica::applyCommands(std::unique_lock<std::mutex>& lk)
             // If the gap is larger than one instance, we will end up
             // here again after we recover a value for this instance.
 
-            VLOG(1) << this <<": recovering instance " << instance;
+            VLOG(2) << this <<": recovering instance " << instance;
             if (status_ != STATUS_RECOVERING)
                 LOG(INFO) << this << ": recovering from " << instance;
             status_ = STATUS_RECOVERING;
@@ -753,7 +787,7 @@ bool Replica::applyCommands(std::unique_lock<std::mutex>& lk)
                 apply(instance, *lp->value);
             }
             else {
-                VLOG(1) << this << ": " << instance
+                VLOG(2) << this << ": " << instance
                         << ": empty command - not applying";
 
                 // We do need to write the instance number

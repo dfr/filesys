@@ -482,7 +482,9 @@ class NfsFilesystemFactory: public FilesystemFactory
 {
 public:
     std::string name() const override { return "nfs"; }
-    std::shared_ptr<Filesystem> mount(const std::string& url) override;
+    std::shared_ptr<Filesystem> mount(
+        const std::string& url,
+        std::shared_ptr<oncrpc::SocketManager> sockman) override;
 };
 
 }

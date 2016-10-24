@@ -35,6 +35,7 @@ struct IDENTITYargs {
     UUID uuid;                  /* identity of sender */
     ReplicaStatus status;       /* sender's current status */
     hyper instance;             /* last instance sender participated in */
+    opaque appdata<>;           /* application-layer data for the replica */
 };
 
 struct PREPAREargs {

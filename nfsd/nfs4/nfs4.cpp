@@ -23,7 +23,14 @@ static shared_ptr<DataServer> dataService;
 
 static void heartbeat(shared_ptr<oncrpc::SocketManager> sockman)
 {
-    nfsService->expireClients();
+    // Spawn a thread for expireClients to avoid blocking the socket
+    // manager thread
+    std::thread t(
+        [](auto nfs) {
+            nfsService->expireClients();
+        },
+        nfsService);
+    t.detach();
     sockman->add(chrono::system_clock::now() + 1s,
                  [=]() {
                      heartbeat(sockman);
@@ -41,7 +48,7 @@ void nfsd::nfs4::init(
 {
     using placeholders::_1;
 
-    nfsService = make_shared<NfsServer>(sec, fs);
+    nfsService = make_shared<NfsServer>(sec, fs, addrs);
     threadpool->addService(
         NFS4_PROGRAM, NFS_V4, svcreg,
         std::bind(&NfsServer::dispatch, nfsService.get(), _1));

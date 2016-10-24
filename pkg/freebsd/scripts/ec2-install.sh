@@ -26,9 +26,11 @@ ec2_ephemeralswap_enable="NO"
 unfsd_enable="YES"
 unfsd_storage="/storage"
 unfsd_ec2_storage="YES"
-unfsd_flags="--daemon --grace_time=0 --threads=8 --fsid=${fsid}"
+unfsd_flags="--daemon --listen=$(hostname) --threads=8 --fsid=${fsid}"
 unfsd_mds_addr="udp://mds.vpc.rabson.org:2049"
-unfsd_role="DATA"
+unfsd_role="%ROLE%"
+unfsd_paxos="YES"
+unfsd_paxos_replicas="udp://mds.vpc.rabson.org:20490"
 EOF
 
 # Configure storage

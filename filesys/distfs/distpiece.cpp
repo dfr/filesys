@@ -28,6 +28,8 @@ std::pair<std::shared_ptr<Device>, std::shared_ptr<File>>
 DistPiece::mirror(const Credential& cred, int i)
 {
     auto fs = fs_.lock();
+    assert(fs->db()->isMaster());
+
     auto devid = loc_[i].device;
     auto dev = fs->lookupDevice(devid);
     if (dev->state() == DistDevice::HEALTHY) {

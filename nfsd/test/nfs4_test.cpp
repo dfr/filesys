@@ -83,7 +83,8 @@ public:
         // Register nfs services with oncrpc
         svcreg_ = make_shared<ServiceRegistry>();
         vector<int> sec = {AUTH_SYS};
-        svc_ = make_shared<NfsServer>(sec, mds_, idmapper_, clock_);
+        vector<oncrpc::AddressInfo> addrs = {};
+        svc_ = make_shared<NfsServer>(sec, mds_, addrs, idmapper_, clock_);
         svcreg_->add(
             NFS4_PROGRAM, NFS_V4,
             std::bind(&NfsServer::dispatch, svc_.get(), _1));
@@ -1176,7 +1177,8 @@ TEST_F(Nfs4Test, GracePeriod)
     *clock_ += 1s;
     svcreg_->remove(NFS4_PROGRAM, NFS_V4);
     vector<int> sec = {AUTH_SYS};
-    svc_ = make_shared<NfsServer>(sec, mds_, idmapper_, clock_);
+    vector<oncrpc::AddressInfo> addrs = {};
+    svc_ = make_shared<NfsServer>(sec, mds_, addrs, idmapper_, clock_);
     svcreg_->add(
         NFS4_PROGRAM, NFS_V4,
         std::bind(&NfsServer::dispatch, svc_.get(), _1));

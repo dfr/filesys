@@ -18,10 +18,12 @@ using namespace filesys::nfs4;
 using namespace nfsd::nfs4;
 using namespace std;
 
-DEFINE_int32(max_state, 0, "Target maximum number of recallable state objects per client (0 for unlimited)");
+DEFINE_int32(max_state, 0,
+             "Target maximum number of recallable state objects per client"
+             " (0 for unlimited)");
 
 NfsClient::NfsClient(
-    keyval::Database* db,
+    shared_ptr<keyval::Database> db,
     clientid4 id, const client_owner4& owner,
     const string& principal,
     util::Clock::time_point expiry,
@@ -42,7 +44,7 @@ NfsClient::NfsClient(
 }
 
 NfsClient::NfsClient(
-    keyval::Database* db,
+    shared_ptr<keyval::Database> db,
     filesys::nfs4::clientid4 id,
     std::unique_ptr<keyval::Iterator>& iterator,
     util::Clock::time_point expiry)

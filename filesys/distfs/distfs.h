@@ -471,7 +471,9 @@ public:
     std::shared_ptr<objfs::ObjFile> makeNewFile(
         objfs::ObjFileMetaImpl&& meta) override;
     std::shared_ptr<OpenFile> makeNewOpenFile(
-        const Credential& cred, std::shared_ptr<objfs::ObjFile> file, int flags) override;
+        const Credential& cred, std::shared_ptr<objfs::ObjFile> file,
+        int flags) override;
+    void databaseMasterChanged(bool isMaster) override;
 
     // Distfs MDS protocol
     void null() override {}
@@ -603,7 +605,9 @@ class DistFilesystemFactory: public FilesystemFactory
 {
 public:
     std::string name() const override { return "distfs"; }
-    std::shared_ptr<Filesystem> mount(const std::string& url) override;
+    std::shared_ptr<Filesystem> mount(
+        const std::string& url,
+        std::shared_ptr<oncrpc::SocketManager> sockman) override;
 };
 
 void init(FilesystemManager* fsman);

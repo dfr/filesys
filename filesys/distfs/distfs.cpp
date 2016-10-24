@@ -105,16 +105,33 @@ DistFilesystem::DistFilesystem(
     bind(svcreg_);
     if (addr.size() > 0) {
         // Bind to the device discovery port so that we can receive status
-        // updates from the device fleet
+        // updates from the device fleet.
+        //
+        // For replicated metadata servers, the given addr may have
+        // several addresses, some of which are not for this
+        // server. Just ignore any bind errors but make sure we bind
+        // to at least one address.
+        int bound = false;
+        exception_ptr lastError;
         for (auto& ai: oncrpc::getAddressInfo(addr)) {
-            int fd = socket(ai.family, ai.socktype, ai.protocol);
-            if (fd < 0)
-                throw system_error(errno, system_category());
-            int one = 1;
-            ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-            auto sock = make_shared<oncrpc::DatagramChannel>(fd, svcreg_);
-            sock->bind(ai.addr);
-            sockman_->add(sock);
+            try {
+                int fd = socket(ai.family, ai.socktype, ai.protocol);
+                if (fd < 0)
+                    throw system_error(errno, system_category());
+                int one = 1;
+                ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+                ::setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
+                auto sock = make_shared<oncrpc::DatagramChannel>(fd, svcreg_);
+                sock->bind(ai.addr);
+                sockman_->add(sock);
+                bound = true;
+            }
+            catch (system_error& e) {
+                lastError = std::current_exception();
+            }
+        }
+        if (!bound) {
+            std::rethrow_exception(lastError);
         }
     }
 
@@ -171,6 +188,12 @@ shared_ptr<OpenFile> DistFilesystem::makeNewOpenFile(
         cred, dynamic_pointer_cast<DistFile>(file), flags);
 }
 
+void
+DistFilesystem::databaseMasterChanged(bool isMaster)
+{
+    ObjFilesystem::databaseMasterChanged(isMaster);
+}
+
 void DistFilesystem::status(const STATUSargs& args)
 {
     VLOG(2) << "Received status for device: " << args.device.owner;
@@ -185,7 +208,11 @@ void DistFilesystem::status(const STATUSargs& args)
                   << ", id: " << id;
         dev = make_shared<DistDevice>(id, args.device, args.storage);
         dev->calculatePriority();
-        dev->setState(DistDevice::RESTORING);
+        if (db_->isMaster()) {
+            // If we are the master replica, schedule a task to verify
+            // the device's piece collection
+            dev->setState(DistDevice::RESTORING);
+        }
         devicesByOwnerId_[args.device.owner.do_ownerid] = dev;
         devicesById_[id] = dev;
         devices_.insert(dev);
@@ -227,7 +254,7 @@ void DistFilesystem::status(const STATUSargs& args)
         needWrite = false;
     }
     lk.unlock();
-    if (needWrite) {
+    if (needWrite && db_->isMaster()) {
         dev->write(shared_from_this());
     }
 }
@@ -283,6 +310,7 @@ DistFilesystem::resilverPiece(PieceId id, system_clock::duration delay)
     sockman_->add(
         system_clock::now() + delay,
         [this, id]() {
+            assert(db_->isMaster());
             repairQueueSize_--;
             auto piece = findPiece(id, false, nullptr);
             int n = replicas_ - int(piece->loc().size());
@@ -456,6 +484,8 @@ void DistFilesystem::restoreDevice(std::shared_ptr<DistDevice> dev)
 {
     LOG(INFO) << "Restoring device " << dev->id();
 
+    assert(db_->isMaster());
+
     shared_ptr<DataStore> ds;
     try {
         ds = findDataStore(dev->id());
@@ -592,6 +622,8 @@ void DistFilesystem::restoreDevice(std::shared_ptr<DistDevice> dev)
 void
 DistFilesystem::decommissionDevice(std::shared_ptr<DistDevice> dev)
 {
+    assert(db_->isMaster());
+
     // Stop accounting for this device in our storage summary
     storage_.totalSpace -= dev->storage().totalSpace;
     storage_.freeSpace -= dev->storage().freeSpace;
@@ -660,19 +692,40 @@ DistFilesystem::decommissionDevice(std::shared_ptr<DistDevice> dev)
 }
 
 shared_ptr<Filesystem>
-DistFilesystemFactory::mount(const string& url)
+DistFilesystemFactory::mount(
+    const string& url, shared_ptr<oncrpc::SocketManager> sockman)
 {
+    LOG(INFO) << "mount: " << url;
     oncrpc::UrlParser p(url);
     string addr;
+    vector<string> replicas;
 
-    auto it = p.query.find("addr");
+    auto it = p.query.find("mds-addr");
     if (it == p.query.end()) {
         addr = "udp://127.0.0.1:20249";
     }
     else {
         addr = it->second;
     }
-    return make_shared<DistFilesystem>(make_rocksdb(p.path), addr);
+
+    auto range = p.query.equal_range("replica");
+    for (it = range.first; it != range.second; ++it)
+        replicas.push_back(it->second);
+
+    shared_ptr<Database> db;
+    if (replicas.size() > 0) {
+        string addr;
+        auto it = p.query.find("addr");
+        if (it != p.query.end())
+            addr = it->second;
+        else
+            addr = replicas[0];
+        db = make_paxosdb(p.path, addr, replicas, sockman);
+    }
+    else {
+        db = make_rocksdb(p.path);
+    }
+    return make_shared<DistFilesystem>(db, addr);
 };
 
 void filesys::distfs::init(FilesystemManager* fsman)

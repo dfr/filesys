@@ -285,7 +285,8 @@ public:
         std::shared_ptr<Database> db);
 
     Replica(
-        const std::string& replicaAddress,
+        const std::string& addr,
+        const std::vector<std::string>& replicas,
         std::shared_ptr<util::Clock> clock,
         std::shared_ptr<oncrpc::SocketManager> sockman,
         std::shared_ptr<Database> db);
@@ -339,6 +340,7 @@ protected:
     struct PeerState {
         util::Clock::time_point when;
         ReplicaStatus status;
+        std::vector<uint8_t> appdata;
     };
 
     /// Find or create a state structure for the given instance
@@ -396,6 +398,7 @@ protected:
     std::shared_ptr<Namespace> meta_;
     std::shared_ptr<Namespace> log_;
     ReplicaStatus status_;
+    std::vector<uint8_t> appdata_;
     std::unordered_map<UUID, PeerState> peers_;
     int minimumQuorum_ = 2;
     int healthyCount_ = 0;
@@ -404,6 +407,10 @@ protected:
     /// Approximate round-trip-time of the network. Used to determine
     /// re-send timers. Defaults to LEADER_WAIT_TIME.
     util::Clock::duration rtt_ = LEADER_WAIT_TIME;
+
+    /// This cv is signalled each time we learn a new value - use it
+    /// to wait for forward progress
+    std::condition_variable progress_;
 
     /// A timer which fires when its time to send an identify message
     oncrpc::TimeoutManager::task_type identityTimer_ = 0;
@@ -473,7 +480,8 @@ public:
         std::shared_ptr<Database> db);
 
     KVReplica(
-        const std::string& replicaAddress,
+        const std::string& addr,
+        const std::vector<std::string>& replicas,
         std::shared_ptr<util::Clock> clock,
         std::shared_ptr<oncrpc::SocketManager> sockman,
         std::shared_ptr<Database> db);
@@ -491,6 +499,8 @@ public:
     bool isReplicated() override { return true; }
     bool isMaster() override { return isLeader_; }
     void onMasterChange(std::function<void(bool)> cb) override;
+    void setAppData(const std::vector<uint8_t>& data) override;
+    std::vector<std::vector<uint8_t>> getAppData() override;
 
     std::shared_ptr<Buffer> toBuffer(const std::vector<uint8_t>& vec)
     {

@@ -75,6 +75,8 @@ struct NfsAttr
     fattr4_fs_layout_types fs_layout_types_;
     fattr4_layout_blksize layout_blksize_ = 4096;
     fattr4_layout_alignment layout_alignment_ = 4096;
+    fattr4_fs_locations fs_locations_;
+    fattr4_fs_status fs_status_;
 
     // Used for reporting constant-valued attributes
     bool true_ = true;
@@ -196,6 +198,12 @@ static void xdr(oncrpc::RefType<NfsAttr, XDR> v, XDR* xdrs)
                 break;
             case FATTR4_LAYOUT_ALIGNMENT:
                 xdr(v.layout_alignment_, xdrs);
+                break;
+            case FATTR4_FS_LOCATIONS:
+                xdr(v.fs_locations_, xdrs);
+                break;
+            case FATTR4_FS_STATUS:
+                xdr(v.fs_status_, xdrs);
                 break;
             default:
                 abort();

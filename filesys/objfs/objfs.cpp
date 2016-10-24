@@ -31,6 +31,7 @@ ObjFilesystem::ObjFilesystem(
     directoriesNS_ = db_->getNamespace("directories");
     dataNS_ = db_->getNamespace("data");
 
+again:
     try {
         auto buf = defaultNS_->get(KeyType(FileId(0)));
         oncrpc::XdrMemory xm(buf->data(), buf->size());
@@ -47,6 +48,11 @@ ObjFilesystem::ObjFilesystem(
         throw system_error(EACCES, system_category());
     }
     catch (system_error&) {
+        if (!db_->isMaster()) {
+            // If we are not the master replica, just try again - the
+            // master will write the metadata entry
+            goto again;
+        }
         meta_.vers = 1;
         for (auto& v: meta_.fsid.data)
             v = rnd();
@@ -57,6 +63,13 @@ ObjFilesystem::ObjFilesystem(
         db_->commit(move(trans));
     }
     setFsid();
+
+    // Register a callback for database master changes
+    if (db) {
+        using namespace std::placeholders;
+        db->onMasterChange(
+            std::bind(&ObjFilesystem::databaseMasterChanged, this, _1));
+    }
 }
 
 ObjFilesystem::ObjFilesystem(shared_ptr<Database> db, uint64_t blockSize)
@@ -101,13 +114,15 @@ ObjFilesystem::root()
             root_ = makeNewFile(move(meta));
             add(root_);
 
-            // Write the root directory metadata and directory entries for
-            // "." and ".."
-            auto trans = db_->beginTransaction();
-            root_->link(trans.get(), ".", root_.get(), false);
-            root_->link(trans.get(), "..", root_.get(), false);
-            root_->writeMeta(trans.get());
-            db_->commit(move(trans));
+            if (db_->isMaster()) {
+                // Write the root directory metadata and directory entries for
+                // "." and ".."
+                auto trans = db_->beginTransaction();
+                root_->link(trans.get(), ".", root_.get(), false);
+                root_->link(trans.get(), "..", root_.get(), false);
+                root_->writeMeta(trans.get());
+                db_->commit(move(trans));
+            }
         }
     }
     return root_;
@@ -134,10 +149,10 @@ ObjFilesystem::find(const FileHandle& fh)
     }
 }
 
-Database*
+shared_ptr<Database>
 ObjFilesystem::database() const
 {
-    return db_.get();
+    return db_;
 }
 
 shared_ptr<ObjFile>
@@ -203,12 +218,47 @@ ObjFilesystem::setFsid()
     *reinterpret_cast<UUID*>(fsid_.data()) = meta_.fsid;
 }
 
-shared_ptr<Filesystem>
-ObjFilesystemFactory::mount(const string& url)
+void
+ObjFilesystem::databaseMasterChanged(bool isMaster)
+{
+    LOG(INFO) << "database is " << (isMaster ? "master" : "replica")
+              << ": flushing cache";
+
+    // Drop any unreferenced entries from the cache and refresh
+    // metadata for the rest
+    cache_.clear();
+    for (auto& entry: cache_) {
+        entry.second->readMeta();
+    }
+}
+
+shared_ptr<Filesystem> ObjFilesystemFactory::mount(
+    const std::string& url,
+    std::shared_ptr<oncrpc::SocketManager> sockman)
 {
     oncrpc::UrlParser p(url);
-    return make_shared<ObjFilesystem>(make_rocksdb(p.path));
-};
+    vector<string> replicas;
+
+    auto range = p.query.equal_range("replica");
+    for (auto it = range.first; it != range.second; ++it)
+        replicas.push_back(it->second);
+
+    shared_ptr<Database> db;
+    if (replicas.size() > 0) {
+        string addr;
+        auto it = p.query.find("addr");
+        if (it != p.query.end())
+            addr = it->second;
+        else
+            addr = replicas[0];
+        db = make_paxosdb(p.path, addr, replicas, sockman);
+    }
+    else {
+        db = make_rocksdb(p.path);
+    }
+
+    return make_shared<ObjFilesystem>(db);
+}
 
 void filesys::objfs::init(FilesystemManager* fsman)
 {

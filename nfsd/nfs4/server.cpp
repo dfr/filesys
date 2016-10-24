@@ -67,10 +67,12 @@ static nfsstat4 exportStatus(const system_error& e)
 NfsServer::NfsServer(
     const vector<int>& sec,
     shared_ptr<Filesystem> fs,
+    const vector<AddressInfo>& addrs,
     shared_ptr<IIdMapper> idmapper,
     shared_ptr<util::Clock> clock)
     : sec_(sec),
       fs_(fs),
+      addrs_(addrs),
       idmapper_(idmapper),
       clock_(clock),
       stats_(59)                // OP_RECLAIM_COMPLETE + 1
@@ -188,11 +190,58 @@ NfsServer::NfsServer(
                 continue;
             }
         }
+
+        // Encode our network addresses so that other servers in a
+        // replicated set can list them in their fs_locations
+        // attributes
+        vector<utf8string> uaddrs;
+        for (auto ai: addrs) {
+            // If this is a wildcard address (e.g. 0.0.0.0:2049),
+            // substitute the address corresponding with our hostname
+            if (ai.isWildcard()) {
+                bool found = false;
+                try {
+                    for (auto& tai: oncrpc::getAddressInfo(
+                             hostname, to_string(ai.port()), "tcp")) {
+                        if (tai.family == ai.family) {
+                            ai.addr = tai.addr;
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                catch (runtime_error& e) {
+                    LOG(INFO) << "exception: " << e.what();
+                }
+                if (!found)
+                    continue;
+            }
+
+            // If the port is 2049, trim the port octets from the
+            // address for compatiblity with Linux
+            auto u = ai.uaddr();
+            if (ai.port() == 2049) {
+                auto i = u.rfind('.');
+                assert(i != string::npos);
+                i = u.rfind('.', i - 1);
+                assert(i != string::npos);
+                u = u.substr(0, i);
+            }
+            uaddrs.push_back(toUtf8string(u));
+        }
+        vector<uint8_t> data(oncrpc::XdrSizeof(uaddrs));
+        oncrpc::XdrMemory xm(data.data(), data.size());
+        xdr(uaddrs, static_cast<oncrpc::XdrSink*>(&xm));
+        db_->setAppData(data);
     }
 }
 
-NfsServer::NfsServer(const vector<int>& sec, shared_ptr<Filesystem> fs)
-    : NfsServer(sec, fs, LocalIdMapper(), make_shared<util::SystemClock>())
+NfsServer::NfsServer(
+    const vector<int>& sec,
+    shared_ptr<Filesystem> fs,
+    const vector<AddressInfo>& addrs)
+    : NfsServer(
+        sec, fs, addrs, LocalIdMapper(), make_shared<util::SystemClock>())
 {
 }
 
@@ -2398,61 +2447,61 @@ bool NfsServer::get(
             "op0",
             "op1",
             "op2",
-            "access",		// 3
-            "close",		// 4
-            "commit",		// 5
-            "create",		// 6
-            "delegpurge",	// 7
-            "delegreturn",	// 8
-            "getattr",		// 9
-            "getfh",		// 10
-            "link",		// 11
-            "lock",		// 12
-            "lockt",		// 13
-            "locku",		// 14
-            "lookup",		// 15
-            "lookupp",		// 16
-            "nverify",		// 17
-            "open",		// 18
-            "openattr",		// 19
-            "open_confirm",	// 20
-            "open_downgrade",	// 21
-            "putfh",		// 22
-            "putpubfh",		// 23
-            "putrootfh",	// 24
-            "read",		// 25
-            "readdir",		// 26
-            "readlink",		// 27
-            "remove",		// 28
-            "rename",		// 29
-            "renew",		// 30
-            "restorefh",	// 31
-            "savefh",		// 32
-            "secinfo",		// 33
-            "setattr",		// 34
-            "setclientid",	// 35
+            "access",           // 3
+            "close",            // 4
+            "commit",           // 5
+            "create",           // 6
+            "delegpurge",       // 7
+            "delegreturn",      // 8
+            "getattr",          // 9
+            "getfh",            // 10
+            "link",             // 11
+            "lock",             // 12
+            "lockt",            // 13
+            "locku",            // 14
+            "lookup",           // 15
+            "lookupp",          // 16
+            "nverify",          // 17
+            "open",             // 18
+            "openattr",         // 19
+            "open_confirm",     // 20
+            "open_downgrade",   // 21
+            "putfh",            // 22
+            "putpubfh",         // 23
+            "putrootfh",        // 24
+            "read",             // 25
+            "readdir",          // 26
+            "readlink",         // 27
+            "remove",           // 28
+            "rename",           // 29
+            "renew",            // 30
+            "restorefh",        // 31
+            "savefh",           // 32
+            "secinfo",          // 33
+            "setattr",          // 34
+            "setclientid",      // 35
             "setclientid_confirm",// 36
-            "verify",		// 37
-            "write",		// 38
+            "verify",           // 37
+            "write",            // 38
             "release_lockowner",// 39
-            "backchannel_ctl",	// 40
+            "backchannel_ctl",  // 40
             "bind_conn_to_session",// 41
-            "exchange_id",	// 42
-            "create_session",	// 43
-            "destroy_session",	// 44
-            "free_stateid",	// 45
+            "exchange_id",      // 42
+            "create_session",   // 43
+            "destroy_session",  // 44
+            "free_stateid",     // 45
             "get_dir_delegation",// 46
-            "getdeviceinfo",	// 47
-            "getdevicelist",	// 48
-            "layoutcommit",	// 49
-            "layoutget",	// 50
-            "layoutreturn",	// 51
-            "secinfo_no_name",	// 52
-            "sequence",		// 53
-            "set_ssv",		// 54
-            "test_stateid",	// 55
-            "want_delegation",	// 56
-            "destroy_clientid",	// 57
+            "getdeviceinfo",    // 47
+            "getdevicelist",    // 48
+            "layoutcommit",     // 49
+            "layoutget",        // 50
+            "layoutreturn",     // 51
+            "secinfo_no_name",  // 52
+            "sequence",         // 53
+            "set_ssv",          // 54
+            "test_stateid",     // 55
+            "want_delegation",  // 56
+            "destroy_clientid", // 57
             "reclaim_complete", // 58
         };
         auto ops = enc->field("operations")->object();
@@ -2707,12 +2756,40 @@ nfsstat4 NfsServer::dispatchop(
         return res.status;                      \
     }
 
-    
     unique_lock<mutex> lk(mutex_);
     if (op >= stats_.size())
         stats_.resize(op + 1);
     stats_[op]++;
     lk.unlock();
+
+    // If we are replicated and not currently the master filesystem,
+    // only allow a strict subset of operations
+    if (db_ && !db_->isMaster()) {
+        switch (op) {
+        case OP_ACCESS:
+        case OP_GETATTR:
+        case OP_GETFH:
+        case OP_LOOKUP:
+        case OP_LOOKUPP:
+        case OP_PUTFH:
+        case OP_PUTPUBFH:
+        case OP_PUTROOTFH:
+        case OP_SECINFO:
+        case OP_BACKCHANNEL_CTL:
+        case OP_BIND_CONN_TO_SESSION:
+        case OP_EXCHANGE_ID:
+        case OP_CREATE_SESSION:
+        case OP_DESTROY_SESSION:
+        case OP_SECINFO_NO_NAME:
+        case OP_SEQUENCE:
+        case OP_DESTROY_CLIENTID:
+        case OP_RECLAIM_COMPLETE:
+            break;
+        default:
+            xdr(NFS4ERR_MOVED, xresults);
+            return NFS4ERR_MOVED;
+        }
+    }
 
     switch (op) {
         OP(ACCESS, access);
@@ -2796,8 +2873,13 @@ std::unique_ptr<keyval::Transaction> NfsServer::beginTransaction()
 /// Wrap db_->commit
 void NfsServer::commit(std::unique_ptr<keyval::Transaction>&& trans)
 {
-    if (db_)
-        db_->commit(std::move(trans));
+    if (db_) {
+        // Don't write to the DB if we are not master
+        if (db_->isMaster())
+            db_->commit(std::move(trans));
+        else
+            trans.reset();
+    }
 }
 
 int NfsServer::expireClients()
@@ -2960,11 +3042,13 @@ static auto exportType(FileType type)
     abort();
 }
 
-fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)
+void NfsServer::getAttr(
+    std::shared_ptr<filesys::File> file,
+    const filesys::nfs4::bitmap4& wanted,
+    NfsAttr& xattr)
 {
     using filesys::nfs4::set;
     auto& cred = CallContext::current().cred();
-    NfsAttr xattr;
     auto attr = file->getattr();
     shared_ptr<Fsattr> fsattr;
     int i = 0;
@@ -3007,6 +3091,8 @@ fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)
                 set(xattr.supported_attrs_, FATTR4_FS_LAYOUT_TYPES);
                 set(xattr.supported_attrs_, FATTR4_LAYOUT_BLKSIZE);
                 set(xattr.supported_attrs_, FATTR4_LAYOUT_ALIGNMENT);
+                set(xattr.supported_attrs_, FATTR4_FS_LOCATIONS);
+                set(xattr.supported_attrs_, FATTR4_FS_STATUS);
                 break;
             case FATTR4_CHANGE:
                 xattr.change_ = attr->change();
@@ -3119,6 +3205,32 @@ fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)
                 xattr.layout_alignment_ = attr->blockSize();
                 //xattr.layout_alignment_ = FLAGS_iosize;
                 break;
+            case FATTR4_FS_LOCATIONS: {
+                auto appdata = db_->getAppData();
+                auto slash = toUtf8string("/");
+                xattr.fs_locations_.fs_root.push_back(slash);
+                for (auto& data: appdata) {
+                    fs_location4 loc;
+                    loc.rootpath.push_back(slash);
+                    oncrpc::XdrMemory xm(data.data(), data.size());
+                    xdr(loc.server, static_cast<oncrpc::XdrSource*>(&xm));
+                    xattr.fs_locations_.locations.push_back(loc);
+                }
+                break;
+            }
+            case FATTR4_FS_STATUS:
+                xattr.fs_status_.fss_absent = false;
+                if (db_ && !db_->isMaster()) {
+                    xattr.fs_status_.fss_type = STATUS4_UPDATED;
+                    xattr.fs_status_.fss_age = 1;
+                }
+                else {
+                    xattr.fs_status_.fss_type = STATUS4_WRITABLE;
+                    xattr.fs_status_.fss_age = 0;
+                }
+                xattr.fs_status_.fss_version.seconds = 0;
+                xattr.fs_status_.fss_version.nseconds = 0;
+                break;
             default:
                 // Don't set the bit in attrmask_
                 continue;
@@ -3127,6 +3239,12 @@ fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)
         }
         i += 32;
     }
+}
+
+fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)
+{
+    NfsAttr xattr;
+    getAttr(file, wanted, xattr);
     fattr4 res;
     xattr.encode(res);
     return res;
@@ -3135,47 +3253,29 @@ fattr4 NfsServer::exportAttr(shared_ptr<File> file, const bitmap4& wanted)
 nfsstat4 NfsServer::verifyAttr(shared_ptr<File> file, const fattr4& check)
 {
     using filesys::nfs4::set;
-    NfsAttr xattr;
+    NfsAttr xattr, tattr;
     xattr.decode(check);
-    auto attr = file->getattr();
+    getAttr(file, check.attrmask, tattr);
     int i = 0;
     for (auto word: check.attrmask) {
         while (word) {
             int j = firstSetBit(word);
             word ^= (1 << j);
             switch (i + j) {
-            case FATTR4_SUPPORTED_ATTRS: {
-                bitmap4 v;
-                set(v, FATTR4_SUPPORTED_ATTRS);
-                set(v, FATTR4_CHANGE);
-                set(v, FATTR4_FILEHANDLE);
-                set(v, FATTR4_TYPE);
-                set(v, FATTR4_MODE);
-                set(v, FATTR4_NUMLINKS);
-                set(v, FATTR4_OWNER);
-                set(v, FATTR4_OWNER_GROUP);
-                set(v, FATTR4_SIZE);
-                set(v, FATTR4_SPACE_USED);
-                set(v, FATTR4_FSID);
-                set(v, FATTR4_FILEID);
-                set(v, FATTR4_TIME_ACCESS);
-                set(v, FATTR4_TIME_CREATE);
-                set(v, FATTR4_TIME_MODIFY);
-                set(v, FATTR4_TIME_METADATA);
-                if (v != xattr.supported_attrs_)
+            case FATTR4_SUPPORTED_ATTRS:
+                if (xattr.supported_attrs_ != tattr.supported_attrs_)
                     return NFS4ERR_NOT_SAME;
                 break;
-            }
             case FATTR4_CHANGE:
-                if (xattr.change_ != attr->change())
+                if (xattr.change_ != tattr.change_)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_FILEHANDLE:
-                if (xattr.filehandle_ != exportFileHandle(file))
+                if (xattr.filehandle_ != tattr.filehandle_)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_TYPE:
-                if (xattr.type_ != exportType(attr->type()))
+                if (xattr.type_ != tattr.type_)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_FH_EXPIRE_TYPE:
@@ -3183,29 +3283,27 @@ nfsstat4 NfsServer::verifyAttr(shared_ptr<File> file, const fattr4& check)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_MODE:
-                if (xattr.mode_ != attr->mode())
+                if (xattr.mode_ != tattr.mode_)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_NUMLINKS:
-                if (xattr.numlinks_ != attr->nlink())
+                if (xattr.numlinks_ != tattr.numlinks_)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_OWNER:
-                if (xattr.owner_ !=
-                    toUtf8string(idmapper_->fromUid(attr->uid())))
+                if (xattr.owner_ != tattr.owner_)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_OWNER_GROUP:
-                if (xattr.owner_group_ !=
-                    toUtf8string(idmapper_->fromGid(attr->gid())))
+                if (xattr.owner_group_ != tattr.owner_group_)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_SIZE:
-                if (xattr.size_ != attr->size())
+                if (xattr.size_ != tattr.size_)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_SPACE_USED:
-                if (xattr.space_used_ != attr->used())
+                if (xattr.space_used_ != tattr.space_used_)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_FSID:
@@ -3214,27 +3312,27 @@ nfsstat4 NfsServer::verifyAttr(shared_ptr<File> file, const fattr4& check)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_FILEID:
-                if (xattr.fileid_ != attr->fileid())
+                if (xattr.fileid_ != tattr.fileid_)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_TIME_ACCESS:
-                if (xattr.time_access_ != exportTime(attr->atime()))
+                if (xattr.time_access_ != tattr.time_access_)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_TIME_CREATE:
-                if (xattr.time_create_ != exportTime(attr->birthtime()))
+                if (xattr.time_create_ != tattr.time_create_)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_TIME_MODIFY:
-                if (xattr.time_modify_ != exportTime(attr->mtime()))
+                if (xattr.time_modify_ != tattr.time_modify_)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_TIME_METADATA:
-                if (xattr.time_metadata_ != exportTime(attr->ctime()))
+                if (xattr.time_metadata_ != tattr.time_metadata_)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_LEASE_TIME:
-                if (xattr.lease_time_ != FLAGS_lease_time)
+                if (xattr.lease_time_ != tattr.lease_time_)
                     return NFS4ERR_NOT_SAME;
                 break;
             case FATTR4_FS_LAYOUT_TYPES: {
@@ -3250,11 +3348,18 @@ nfsstat4 NfsServer::verifyAttr(shared_ptr<File> file, const fattr4& check)
                 break;
             }
             case FATTR4_LAYOUT_BLKSIZE:
-                if (xattr.layout_blksize_ != attr->blockSize())
+                if (xattr.layout_blksize_ != tattr.layout_blksize_)
                     return NFS4ERR_NOT_SAME;
             case FATTR4_LAYOUT_ALIGNMENT:
-                if (xattr.layout_alignment_ != attr->blockSize())
+                if (xattr.layout_alignment_ != tattr.layout_alignment_)
                     return NFS4ERR_NOT_SAME;
+            case FATTR4_FS_LOCATIONS:
+                if (xattr.fs_locations_.fs_root.size() != 1 ||
+                    xattr.fs_locations_.fs_root[0] != toUtf8string("/"))
+                    return NFS4ERR_NOT_SAME;
+                // XXX xattr.fs_locations.locations
+            case FATTR4_FS_STATUS:
+                return NFS4ERR_NOT_SAME; // XXX implement this
             default:
                 return NFS4ERR_INVAL;
             }

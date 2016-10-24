@@ -58,6 +58,15 @@ public:
     /// bool argument which is true if the database is the new master
     /// or false if it is a replica.
     virtual void onMasterChange(std::function<void(bool)> cb) = 0;
+
+    // Extra application-layer data associated with this database,
+    // typically used to coordinate information between instances in a
+    // replicated database
+    virtual void setAppData(const std::vector<uint8_t>& data) = 0;
+
+    // Return the application-layer data from each replica with the
+    // data for the current master listed first
+    virtual std::vector<std::vector<uint8_t>> getAppData() = 0;
 };
 
 /// Key/value pairs are grouped by namespace
@@ -143,9 +152,25 @@ std::shared_ptr<Database> make_memdb();
 std::shared_ptr<Database> make_rocksdb(const std::string& filename);
 
 /// Create a Paxos replicated database
+///
+/// - filename is the path to the underlying RocksDB
+/// - addr is a URL to bind to for replica updates
+/// - replicas is a set of target URLs for replica updates
+/// - sockman is used to register sockets and timeouts
+///
 std::shared_ptr<Database> make_paxosdb(
     const std::string& filename,
-    const std::string& replicaAddress,
+    const std::string& addr,
+    const std::vector<std::string>& replicas,
     std::shared_ptr<oncrpc::SocketManager> sockman);
+static inline std::shared_ptr<Database> make_paxosdb(
+    const std::string& filename,
+    const std::string& replica,
+    std::shared_ptr<oncrpc::SocketManager> sockman)
+{
+    std::vector<std::string> replicas;
+    replicas.push_back(replica);
+    return make_paxosdb(filename, replica, replicas, sockman);
+}
 
 }

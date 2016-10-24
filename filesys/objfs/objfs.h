@@ -144,8 +144,10 @@ public:
     FileHandle handle() override;
     bool access(const Credential& cred, int accmode) override;
     std::shared_ptr<Getattr> getattr() override;
-    void setattr(const Credential& cred, std::function<void(Setattr*)> cb) override;
-    std::shared_ptr<File> lookup(const Credential& cred, const std::string& name) override;
+    void setattr(
+        const Credential& cred, std::function<void(Setattr*)> cb) override;
+    std::shared_ptr<File> lookup(
+        const Credential& cred, const std::string& name) override;
     std::shared_ptr<OpenFile> open(
         const Credential& cred, const std::string& name, int flags,
         std::function<void(Setattr*)> cb) override;
@@ -180,6 +182,7 @@ public:
     std::shared_ptr<ObjFile> lookupInternal(
         std::unique_lock<std::mutex>& lock,
         const Credential& cred, const std::string& name);
+    void readMeta();
     void writeMeta();
     void writeMeta(keyval::Transaction* trans);
     void writeDirectoryEntry(
@@ -216,7 +219,8 @@ protected:
 class ObjOpenFile: public OpenFile
 {
 public:
-    ObjOpenFile(const Credential& cred, std::shared_ptr<ObjFile> file, int flags)
+    ObjOpenFile(
+        const Credential& cred, std::shared_ptr<ObjFile> file, int flags)
         : cred_(cred),
           file_(file),
           flags_(flags)
@@ -282,7 +286,7 @@ public:
     std::shared_ptr<File> root() override;
     const FilesystemId& fsid() const override;
     std::shared_ptr<File> find(const FileHandle& fh) override;
-    keyval::Database* database() const override;
+    std::shared_ptr<keyval::Database> database() const override;
 
     auto defaultNS() const { return defaultNS_; }
     auto directoriesNS() const { return directoriesNS_; }
@@ -315,6 +319,9 @@ public:
     void writeMeta(keyval::Transaction* trans);
     void setFsid();
 
+    /// Called when database master state changes
+    virtual void databaseMasterChanged(bool isMaster);
+
 protected:
     std::mutex mutex_;
     std::shared_ptr<util::Clock> clock_;
@@ -334,7 +341,9 @@ class ObjFilesystemFactory: public FilesystemFactory
 {
 public:
     std::string name() const override { return "objfs"; }
-    std::shared_ptr<Filesystem> mount(const std::string& url) override;
+    std::shared_ptr<Filesystem> mount(
+        const std::string& url,
+        std::shared_ptr<oncrpc::SocketManager> sockman) override;
 };
 
 void init(FilesystemManager* fsman);

@@ -20,21 +20,8 @@ using namespace chrono;
 ObjFile::ObjFile(shared_ptr<ObjFilesystem> fs, FileId fileid)
     : fs_(fs)
 {
-    KeyType key(fileid);
-    auto buf = fs->defaultNS()->get(key);
-    try {
-        oncrpc::XdrMemory xm(buf->data(), buf->size());
-        xdr(meta_, static_cast<oncrpc::XdrSource*>(&xm));
-        if (meta_.vers != 1) {
-            LOG(ERROR) << "unexpected file metadata version: "
-                << meta_.vers << ", expected: " << 1;
-            throw system_error(EACCES, system_category());
-        }
-    }
-    catch (oncrpc::XdrError&) {
-        LOG(ERROR) << "error decoding file metadata";
-        throw system_error(EACCES, system_category());
-    }
+    meta_.fileid = fileid;
+    readMeta();
 }
 
 ObjFile::ObjFile(shared_ptr<ObjFilesystem> fs, ObjFileMetaImpl&& meta)
@@ -98,6 +85,8 @@ void ObjFile::setattr(const Credential& cred, function<void(Setattr*)> cb)
     cb(&sattr);
     meta_.attr.ctime = getTime();
     auto fs = fs_.lock();
+    if (!fs->db()->isMaster())
+        throw system_error(EROFS, system_category());
     auto trans = fs->db()->beginTransaction();
     if (meta_.attr.size != oldSize) {
         // Purge any data after the new size.
@@ -115,11 +104,14 @@ shared_ptr<File> ObjFile::lookup(const Credential& cred, const string& name)
 }
 
 shared_ptr<OpenFile> ObjFile::open(
-    const Credential& cred, const string& name, int flags, function<void(Setattr*)> cb)
+    const Credential& cred, const string& name, int flags,
+    function<void(Setattr*)> cb)
 {
     unique_lock<mutex> lock(mutex_);
+    auto fs = fs_.lock();
     shared_ptr<ObjFile> file;
     bool created = false;
+
     checkAccess(cred, AccessFlags::EXECUTE);
     if (flags & OpenFlags::CREATE) {
         try {
@@ -149,11 +141,12 @@ shared_ptr<OpenFile> ObjFile::open(
     }
 
     if (!created && (flags & OpenFlags::TRUNCATE)) {
+        if (!fs->db()->isMaster())
+            throw system_error(EROFS, system_category());
         if (file->meta_.attr.size > 0) {
             unique_lock<mutex> lock(file->mutex_);
             file->meta_.attr.size = 0;
             file->meta_.attr.ctime = getTime();
-            auto fs = fs_.lock();
             auto trans = fs->db()->beginTransaction();
             // Purge file contents
             file->truncate(cred, trans.get(), 0);
@@ -161,12 +154,17 @@ shared_ptr<OpenFile> ObjFile::open(
             fs->db()->commit(move(trans));
         }
     }
-    return fs_.lock()->makeNewOpenFile(cred, file, flags);
+    return fs->makeNewOpenFile(cred, file, flags);
 }
 
 shared_ptr<OpenFile> ObjFile::open(const Credential& cred, int flags)
 {
     int accmode = 0;
+    auto fs = fs_.lock();
+
+    if (!fs->db()->isMaster())
+        throw system_error(EROFS, system_category());
+
     if (flags & OpenFlags::READ)
         accmode |= AccessFlags::READ;
     if (flags & OpenFlags::WRITE)
@@ -406,9 +404,33 @@ shared_ptr<ObjFile> ObjFile::lookupInternal(
     return fs->find(FileId(entry.fileid));
 }
 
+void ObjFile::readMeta()
+{
+    KeyType key(meta_.fileid);
+    auto fs = fs_.lock();
+    auto buf = fs->defaultNS()->get(key);
+    try {
+        oncrpc::XdrMemory xm(buf->data(), buf->size());
+        xdr(meta_, static_cast<oncrpc::XdrSource*>(&xm));
+        if (meta_.vers != 1) {
+            LOG(ERROR) << "unexpected file metadata version: "
+                << meta_.vers << ", expected: " << 1;
+            throw system_error(EACCES, system_category());
+        }
+    }
+    catch (oncrpc::XdrError&) {
+        LOG(ERROR) << "error decoding file metadata";
+        throw system_error(EACCES, system_category());
+    }
+}
+
 void ObjFile::writeMeta()
 {
     auto fs = fs_.lock();
+    if (!fs->db()->isMaster()) {
+        // Ignore attempts to write metadata for non-master replicas
+        return;
+    }
     auto trans = fs->db()->beginTransaction();
     writeMeta(trans.get());
     fs->db()->commit(move(trans));
@@ -416,10 +438,11 @@ void ObjFile::writeMeta()
 
 void ObjFile::writeMeta(Transaction* trans)
 {
+    auto fs = fs_.lock();
+    assert(fs->db()->isMaster());
     auto buf = make_shared<Buffer>(oncrpc::XdrSizeof(meta_));
     oncrpc::XdrMemory xm(buf->data(), buf->size());
     xdr(meta_, static_cast<oncrpc::XdrSink*>(&xm));
-    auto fs = fs_.lock();
     trans->put(fs->defaultNS(), KeyType(fileid()), buf);
 }
 
@@ -440,6 +463,9 @@ void ObjFile::writeDirectoryEntry(
 void ObjFile::link(
     Transaction* trans, const string& name, ObjFile* file, bool saveMeta)
 {
+    if (!fs_.lock()->db()->isMaster())
+        throw system_error(EROFS, system_category());
+
     // We use attr.size for the number of entries in the directory
     meta_.attr.size++;
     file->meta_.attr.nlink++;
@@ -458,6 +484,10 @@ void ObjFile::unlink(
     auto id = file->fileid();
     auto fs = fs_.lock();
     auto h = fs->directoriesNS();
+
+    if (!fs->db()->isMaster())
+        throw system_error(EROFS, system_category());
+
     if (file->meta_.attr.type == PT_DIR) {
         if (file->meta_.attr.size != 2)
             throw system_error(ENOTEMPTY, system_category());
@@ -557,6 +587,12 @@ shared_ptr<ObjFile> ObjFile::createNewFile(
 
 void ObjFile::checkAccess(const Credential& cred, int accmode)
 {
+    // We allow very limited read-only access to non-master replicas
+    if (!fs_.lock()->db()->isMaster()) {
+        if (accmode & AccessFlags::WRITE)
+            throw system_error(EROFS, system_category());
+    }
+
     VLOG(1) << "checkAccess " << cred.uid() << "/" << cred.gid()
             << ", fileid=" << meta_.fileid
             << ", accmode=" << accmode
@@ -586,12 +622,16 @@ uint64_t ObjFile::getTime()
 
 void ObjFile::updateAccessTime()
 {
-    meta_.attr.ctime = meta_.attr.atime = getTime();
+    if (fs_.lock()->db()->isMaster()) {
+        meta_.attr.ctime = meta_.attr.atime = getTime();
+    }
 }
 
 void ObjFile::updateModifyTime()
 {
-    meta_.attr.ctime = meta_.attr.mtime = getTime();
+    if (fs_.lock()->db()->isMaster()) {
+        meta_.attr.ctime = meta_.attr.mtime = getTime();
+    }
 }
 
 void ObjFile::truncate(
@@ -601,6 +641,9 @@ void ObjFile::truncate(
     auto fs = fs_.lock();
     auto blockSize = meta_.blockSize;
     auto blockMask = blockSize - 1;
+
+    if (!fs->db()->isMaster())
+        throw system_error(EROFS, system_category());
 
     DataKeyType start(
         fileid(), (newSize + blockMask) & ~blockMask);
@@ -652,6 +695,7 @@ shared_ptr<Buffer> ObjOpenFile::read(
     auto blockSize = meta.blockSize;
     auto bn = offset / blockSize;
     auto boff = offset % blockSize;
+
     eof = false;
     if (offset >= meta.attr.size) {
         eof = true;
@@ -699,6 +743,9 @@ uint32_t ObjOpenFile::write(uint64_t offset, shared_ptr<Buffer> data)
     auto fs = file_->fs_.lock();
     auto& meta = file_->meta_;
     auto blockSize = meta.blockSize;
+
+    if (!fs->db()->isMaster())
+        throw system_error(EROFS, system_category());
 
     if ((flags_ & OpenFlags::WRITE) == 0) {
         throw system_error(EBADF, system_category());
@@ -777,6 +824,9 @@ void ObjOpenFile::flush()
     if (needFlush_) {
         needFlush_ = false;
         lock.unlock();
-        file_->fs_.lock()->db()->flush();
+        auto fs = file_->fs_.lock();
+        if (!fs->db()->isMaster())
+            throw system_error(EROFS, system_category());
+        fs->db()->flush();
     }
 }

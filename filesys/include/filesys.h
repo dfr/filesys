@@ -514,7 +514,7 @@ public:
 
     /// For filesystems which are backed by a key/value database,
     /// return the database object, otherwise return nullptr
-    virtual keyval::Database* database() const
+    virtual std::shared_ptr<keyval::Database> database() const
     {
         return nullptr;
     }
@@ -548,7 +548,9 @@ class FilesystemFactory
 {
 public:
     virtual std::string name() const = 0;
-    virtual std::shared_ptr<Filesystem> mount(const std::string& url) = 0;
+    virtual std::shared_ptr<Filesystem> mount(
+        const std::string& url,
+        std::shared_ptr<oncrpc::SocketManager> sockman = nullptr) = 0;
 };
 
 class FilesystemManager

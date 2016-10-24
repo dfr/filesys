@@ -22,11 +22,21 @@ start_precmd="${name}_prestart"
 : ${unfsd_role:="SIMPLE"}
 : ${unfsd_ec2_storage:="NO"}
 : ${unfsd_storage:="/storage"}
-: ${unfsd_flags:= "--daemon"}
+: ${unfsd_flags:= "--daemon --listen=$(hostname)"}
 : ${unfsd_mds_addr:="udp://$(hostname):2049"}
+
+# For paxos replication, the local address for receiving replication
+# messages and a list of all the addresses for sending replication
+# messages
+: ${unfsd_paxos:="NO"}
+: ${unfsd_paxos_addr:=""}
+: ${unfsd_paxos_replicas:=""}
 
 unfsd_prestart()
 {
+    local replicas
+    local url
+
     if [ ${unfsd_ec2_storage} = "YES" ]; then
 	if zpool status storage > /dev/null 2>&1; then
 	    # Storage is already healthy so leave it alone
@@ -59,21 +69,42 @@ unfsd_prestart()
 	    fi
 	fi
     fi
+    if [ ${unfsd_paxos} = "YES" ]; then
+	if [ -n "${unfsd_paxos_addr}" ]; then
+	    replicas="addr=${unfsd_paxos_addr}"
+	fi
+	for replica in $(echo ${unfsd_paxos_replicas}); do
+	    if [ -n "${replicas}" ]; then
+		replicas="${replicas}&"
+	    fi
+	    replicas="${replicas}replica=${replica}"
+	done
+    else
+	replicas=""
+    fi
     case ${unfsd_role} in
 	SIMPLE)
-	    rc_flags="${rc_flags} 'objfs://${unfsd_storage}'"
+	    url="objfs://${unfsd_storage}"
+	    if [ -n "${replicas}" ]; then
+		url="${url}?${replicas}"
+	    fi
 	    ;;
 	METADATA)
-	    rc_flags="${rc_flags} 'distfs://${unfsd_storage}?addr=${unfsd_mds_addr}'"
+	    url="distfs://${unfsd_storage}?mds-addr=${unfsd_mds_addr}"
+	    if [ -n "${replicas}" ]; then
+		url="${url}&${replicas}"
+	    fi
 	    ;;
 	DATA)
-	    rc_flags="${rc_flags} --mds=${unfsd_mds_addr} 'datafs://${unfsd_storage}'"
+	    rc_flags="${rc_flags} --mds=${unfsd_mds_addr}"
+	    url="datafs://${unfsd_storage}"
 	    ;;
 	*)
 	    echo "Unrecognised server role ${unfsd_role}"
 	    exit 1
 	    ;;
     esac
+    rc_flags="${rc_flags} '${url}'"
 }
 
 load_rc_config $name

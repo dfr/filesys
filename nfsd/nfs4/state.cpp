@@ -111,6 +111,7 @@ void NfsState::recall()
     }
     if (!session) {
         LOG(ERROR) << "No back channel to send recall";
+        recalled_ = true;
         return;
     }
 

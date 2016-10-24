@@ -61,14 +61,14 @@ class NfsClient: public oncrpc::RestHandler,
 
 public:
     NfsClient(
-        keyval::Database* db,
+        std::shared_ptr<keyval::Database> db,
         filesys::nfs4::clientid4 id,
         const filesys::nfs4::client_owner4& owner,
         const std::string& principal,
         util::Clock::time_point expiry,
         const filesys::nfs4::state_protect4_a& spa);
     NfsClient(
-        keyval::Database* db,
+        std::shared_ptr<keyval::Database> db,
         filesys::nfs4::clientid4 id,
         std::unique_ptr<keyval::Iterator>& iterator,
         util::Clock::time_point expiry);
@@ -300,7 +300,7 @@ public:
 
 private:
     std::mutex mutex_;
-    keyval::Database* db_;
+    std::shared_ptr<keyval::Database> db_;
     std::shared_ptr<keyval::Namespace> clientsNS_;
     std::shared_ptr<keyval::Namespace> stateNS_;
     filesys::nfs4::clientid4 id_;
