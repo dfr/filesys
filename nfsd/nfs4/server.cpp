@@ -194,7 +194,7 @@ NfsServer::NfsServer(
         // Encode our network addresses so that other servers in a
         // replicated set can list them in their fs_locations
         // attributes
-        vector<utf8string> uaddrs;
+        vector<string> uaddrs;
         for (auto ai: addrs) {
             // If this is a wildcard address (e.g. 0.0.0.0:2049),
             // substitute the address corresponding with our hostname
@@ -216,18 +216,7 @@ NfsServer::NfsServer(
                 if (!found)
                     continue;
             }
-
-            // If the port is 2049, trim the port octets from the
-            // address for compatiblity with Linux
-            auto u = ai.uaddr();
-            if (ai.port() == 2049) {
-                auto i = u.rfind('.');
-                assert(i != string::npos);
-                i = u.rfind('.', i - 1);
-                assert(i != string::npos);
-                u = u.substr(0, i);
-            }
-            uaddrs.push_back(toUtf8string(u));
+            uaddrs.push_back(ai.uaddr());
         }
         vector<uint8_t> data(oncrpc::XdrSizeof(uaddrs));
         oncrpc::XdrMemory xm(data.data(), data.size());
@@ -3210,10 +3199,26 @@ void NfsServer::getAttr(
                 auto slash = toUtf8string("/");
                 xattr.fs_locations_.fs_root.push_back(slash);
                 for (auto& data: appdata) {
+                    vector<string> uaddrs;
                     fs_location4 loc;
                     loc.rootpath.push_back(slash);
                     oncrpc::XdrMemory xm(data.data(), data.size());
-                    xdr(loc.server, static_cast<oncrpc::XdrSource*>(&xm));
+                    xdr(uaddrs, static_cast<oncrpc::XdrSource*>(&xm));
+                    for (auto& u: uaddrs) {
+                        // If the port is 2049, trim the port octets from the
+                        // address for compatiblity with Linux
+                        auto ai = oncrpc::AddressInfo::fromUaddr(u, "tcp");
+                        if (ai.port() == 2049) {
+                            auto i = u.rfind('.');
+                            assert(i != string::npos);
+                            i = u.rfind('.', i - 1);
+                            assert(i != string::npos);
+                            loc.server.push_back(toUtf8string(u.substr(0, i)));
+                        }
+                        else {
+                            loc.server.push_back(toUtf8string(u));
+                        }
+                    }
                     xattr.fs_locations_.locations.push_back(loc);
                 }
                 break;

@@ -36,6 +36,7 @@ namespace {
 }
 
 DEFINE_int32(port, 2049, "port to listen for connections");
+DEFINE_int32(uiport, 80, "port to listen for UI connections");
 DEFINE_int32(iosize, 65536, "maximum size for read or write requests");
 DEFINE_int32(idle_timeout, 30, "idle timeout in seconds");
 DEFINE_int32(grace_time, 120, "NFSv4 grace period time in seconds");
@@ -155,6 +156,17 @@ public:
                 entry->field("port")->number(ai.port());
             }
             addrs.reset();
+
+            auto adminAddrs = dev->field("adminAddresses")->array();
+            for (auto& ai: devp->adminAddresses()) {
+                auto entry = adminAddrs->element()->object();
+                entry->field("netid")->string(ai.netid());
+                entry->field("uaddr")->string(ai.uaddr());
+                entry->field("host")->string(ai.host());
+                entry->field("port")->number(ai.port());
+            }
+            adminAddrs.reset();
+
             dev.reset();
         }
         devs.reset();
@@ -263,6 +275,7 @@ int main(int argc, char** argv)
     restreg->add("/fsattr", true, make_shared<ExportFsattr>(fs));
 
     vector<AddressInfo> addrs;
+    vector<AddressInfo> uiaddrs;
     auto s = FLAGS_listen;
     while (s.size() > 0) {
         auto i = s.find(',');
@@ -278,9 +291,14 @@ int main(int argc, char** argv)
         auto url = "tcp://" + addr + ":" + to_string(FLAGS_port);
         for (auto& ai: getAddressInfo(url))
             addrs.push_back(ai);
+
+        url = "tcp://" + addr + ":" + to_string(FLAGS_uiport);
+        for (auto& ai: getAddressInfo(url))
+            uiaddrs.push_back(ai);
     }
 
     vector<AddressInfo> boundAddrs;
+    vector<AddressInfo> boundAdminAddrs;
     for (auto& ai: addrs) {
         try {
             int fd = socket(ai.family, ai.socktype, ai.protocol);
@@ -288,12 +306,32 @@ int main(int argc, char** argv)
                 throw system_error(errno, system_category());
             int one = 1;
             ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-            auto sock = make_shared<ListenSocket>(fd, svcreg, restreg);
+            auto sock = make_shared<ListenSocket>(fd, svcreg, nullptr);
             sock->bind(ai.addr);
             sock->listen();
             sock->setBufferSize(FLAGS_iosize + 512);
             sockman->add(sock);
             boundAddrs.push_back(ai);
+        }
+        catch (runtime_error& e) {
+            cout << "nfsd: " << e.what() << endl;
+            exit(1);
+        }
+    }
+
+    for (auto& ai: uiaddrs) {
+        try {
+            int fd = socket(ai.family, ai.socktype, ai.protocol);
+            if (fd < 0)
+                throw system_error(errno, system_category());
+            int one = 1;
+            ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+            auto sock = make_shared<ListenSocket>(fd, nullptr, restreg);
+            sock->bind(ai.addr);
+            sock->listen();
+            sock->setBufferSize(FLAGS_iosize + 512);
+            sockman->add(sock);
+            boundAdminAddrs.push_back(ai);
         }
         catch (runtime_error& e) {
             cout << "nfsd: " << e.what() << endl;
@@ -309,7 +347,7 @@ int main(int argc, char** argv)
     if (FLAGS_mds.size() > 0) {
         auto ds = dynamic_pointer_cast<DataStore>(fs);
         if (ds) {
-            ds->reportStatus(sockman, FLAGS_mds, boundAddrs);
+            ds->reportStatus(sockman, FLAGS_mds, boundAddrs, boundAdminAddrs);
         }
     }
 

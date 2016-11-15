@@ -49,6 +49,12 @@ vector<oncrpc::AddressInfo> DistDevice::addresses() const
     return addrs_;
 }
 
+vector<oncrpc::AddressInfo> DistDevice::adminAddresses() const
+{
+    auto lk = lock();
+    return adminAddrs_;
+}
+
 Device::CallbackHandle DistDevice::addStateCallback(
     std::function<void(State)> cb)
 {
@@ -72,6 +78,7 @@ bool DistDevice::update(
     auto lk = lock();
     bool res = false;
     bool addressChanged = false;
+    bool needResolve = false;
     if (owner_ != status.owner) {
         LOG(INFO) << "Device " << id_
                   << ": owner changed: "
@@ -100,13 +107,28 @@ bool DistDevice::update(
                   << ": uaddrs changed: "
                   << uaddrs_ << " -> " << status.uaddrs;
         uaddrs_ = status.uaddrs;
-        resolveAddresses();
         res = true;
         addressChanged = true;
+        needResolve = true;
     }
     else if (addrs_.size() == 0) {
-        resolveAddresses();
+        needResolve = true;
     }
+    if (adminUaddrs_ != status.adminUaddrs) {
+        LOG(INFO) << "Device " << id_
+                  << ": adminUaddrs changed: "
+                  << adminUaddrs_ << " -> " << status.adminUaddrs;
+        adminUaddrs_ = status.adminUaddrs;
+        res = true;
+        addressChanged = true;
+        needResolve = true;
+    }
+    else if (adminAddrs_.size() == 0) {
+        needResolve = true;
+    }
+    if (needResolve) {
+        resolveAddresses();
+}
     storage_ = storage;
     if (addressChanged) {
         auto cbs = callbacks_;
@@ -234,5 +256,23 @@ void DistDevice::resolveAddresses()
             }
         }
         addrs_.push_back(ai);
+    }
+
+    adminAddrs_.clear();
+    for (auto& uaddr: adminUaddrs_) {
+        auto ai = oncrpc::AddressInfo::fromUaddr(uaddr, "tcp");
+        if (ai.isWildcard()) {
+            auto port = ai.port();
+            auto chan = oncrpc::CallContext::current().channel();
+            auto chanAddr = chan->remoteAddress();
+            if (ai.family == chanAddr.family) {
+                ai.addr = chanAddr.addr;
+                ai.setPort(port);
+            }
+            else {
+                continue;
+            }
+        }
+        adminAddrs_.push_back(ai);
     }
 }

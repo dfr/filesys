@@ -51,8 +51,9 @@ static void reportStatusHelper(
 }
 
 void DataStore::reportStatus(
-    std::weak_ptr<oncrpc::SocketManager> sockman, const std::string& addrs,
-    const std::vector<oncrpc::AddressInfo>& boundAddrs)
+    std::weak_ptr<oncrpc::SocketManager> sockman, const std::string& mds,
+    const std::vector<oncrpc::AddressInfo>& addrs,
+    const std::vector<oncrpc::AddressInfo>& adminAddrs)
 {
     std::random_device rnd;
     distfs::DeviceStatus device;
@@ -60,8 +61,10 @@ void DataStore::reportStatus(
     for (int i = 0; i < sizeof(device.owner.do_verifier); i++)
         device.owner.do_verifier[i] = rnd();
     device.owner.do_ownerid = fsid();
-    for (auto& ai: boundAddrs)
+    for (auto& ai: addrs)
         device.uaddrs.push_back(ai.uaddr());
+    for (auto& ai: adminAddrs)
+        device.adminUaddrs.push_back(ai.uaddr());
 
-    reportStatusHelper(device, this, sockman, addrs);
+    reportStatusHelper(device, this, sockman, mds);
 }

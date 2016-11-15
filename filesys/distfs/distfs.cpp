@@ -235,7 +235,7 @@ void DistFilesystem::status(const STATUSargs& args)
     storage_.totalSpace += args.storage.totalSpace;
     storage_.freeSpace += args.storage.freeSpace;
     storage_.availSpace += args.storage.availSpace;
-    if (dev->state() == DistDevice::RESTORING) {
+    if (db_->isMaster() && dev->state() == DistDevice::RESTORING) {
         // Defer writing the device entry until we are done
         // restoring it
         auto it = devicesToRestore_.find(dev);

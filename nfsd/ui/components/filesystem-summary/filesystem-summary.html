@@ -33,20 +33,26 @@
   </md-toolbar>
   <div ng-show="showDevs && !hideDevs" layout="column" class="md-margin">
     <div layout="row">
-      <div flex="33"><h2 class="md-title">ID</h2></div>
-      <div flex="33"><h2 class="md-title">Addresses</h2></div>
-      <div flex="33"><h2 class="md-title">State</h2></div>
+      <div flex="25"><h2 class="md-title">ID</h2></div>
+      <div flex="25"><h2 class="md-title">Data</h2></div>
+      <div flex="25"><h2 class="md-title">Admin</h2></div>
+      <div flex="25"><h2 class="md-title">State</h2></div>
     </div>
     <div layout="row" ng-repeat="dev in devices">
-      <div flex="33">{{dev.id}}</div>
-      <div flex="33">
-	<a ng-repeat="addr in formatAddresses(dev)",
+      <div flex="25">{{dev.id}}</div>
+      <div flex="25">
+	<div ng-repeat="addr in formatAddresses(dev.addresses)">
+	  {{addr}}
+	</div>
+      </div>
+      <div flex="25">
+	<a ng-repeat="addr in formatAddresses(dev.adminAddresses)",
 	   href="http://{{addr}}"
 	   target="_blank">
 	  {{addr}}
 	</a>
       </div>
-      <div flex="33"><span ng-style="{color:dev.color}">{{dev.state}}</span></div>
+      <div flex="25"><span ng-style="{color:dev.color}">{{dev.state}}</span></div>
     </div>
   </div>
 </div>

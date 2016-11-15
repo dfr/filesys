@@ -337,6 +337,7 @@ public:
     uint64_t id() const override { return id_; }
     Device::State state() const override { return state_; }
     std::vector<oncrpc::AddressInfo> addresses() const override;
+    std::vector<oncrpc::AddressInfo> adminAddresses() const override;
     CallbackHandle addStateCallback(std::function<void(State)> cb) override;
     void removeStateCallback(CallbackHandle h) override;
 
@@ -411,7 +412,9 @@ private:
     mutable std::mutex mutex_;
     distfs_owner owner_;
     std::vector<std::string> uaddrs_;
+    std::vector<std::string> adminUaddrs_;
     std::vector<oncrpc::AddressInfo> addrs_;
+    std::vector<oncrpc::AddressInfo> adminAddrs_;
     StorageStatus storage_;
     float priority_;
     uint64_t nextPieceIndex_;

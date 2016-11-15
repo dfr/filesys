@@ -327,8 +327,11 @@ public:
     /// Current device state
     virtual State state() const = 0;
 
-    /// Return a list of network addresses for this device
+    /// Return a list of network addresses for this device's data
     virtual std::vector<oncrpc::AddressInfo> addresses() const = 0;
+
+    /// Return a list of network addresses for this device's admin UI
+    virtual std::vector<oncrpc::AddressInfo> adminAddresses() const = 0;
 
     /// Register a callback which is called if the device changes states
     virtual CallbackHandle addStateCallback(
@@ -540,8 +543,9 @@ public:
     /// Schedule regular status reporting with a metadata server
     void reportStatus(
         std::weak_ptr<oncrpc::SocketManager> sockman,
-        const std::string& addr,
-        const std::vector<oncrpc::AddressInfo>& boundAddrs);
+        const std::string& mds,
+        const std::vector<oncrpc::AddressInfo>& addrs,
+        const std::vector<oncrpc::AddressInfo>& adminAddrs);
 };
 
 class FilesystemFactory

@@ -74,6 +74,11 @@ struct DeviceStatus
      * Address to use for accessing data
      */
     uaddr uaddrs<>;
+
+    /*
+     * Address to use for admin UI
+     */
+    uaddr adminUaddrs<>;
 };
 
 /*

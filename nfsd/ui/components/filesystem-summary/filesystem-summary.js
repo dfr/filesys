@@ -28,11 +28,11 @@ angular.module(
                     };
                     $scope.devices = [];
 
-                    $scope.formatAddresses = function(dev) {
-                        let addrs = new Set();
-                        for (let addr of dev.addresses)
-                            addrs.add(addr.host + ':' + addr.port);
-                        return Array.from(addrs);
+                    $scope.formatAddresses = function(addrs) {
+                        let res = new Set();
+                        for (let addr of addrs)
+                            res.add(addr.host + ':' + addr.port);
+                        return Array.from(res);
                     }
 
                     function stateColor(state) {
