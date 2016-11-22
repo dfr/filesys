@@ -8,13 +8,13 @@
   </md-toolbar>
   <div ng-show="showV4" layout="column" class="md-margin">
     <div layout="row">
-      <div flex="33"><h2 class="md-title">Operation</h2></div>
-      <div flex="66"><h2 class="md-title">Count</h2></div>
+      <div flex="25"><h2 class="md-title">Operation</h2></div>
+      <div flex="25"><h2 class="md-title">Count</h2></div>
     </div>
     <div layout="row"
 	 ng-repeat="entry in ops4 | orderBy: 'name'">
-      <div flex="33">{{entry.name}}</div>
-      <div flex="66">{{entry.count}}</div>
+      <div flex="25">{{entry.name}}</div>
+      <div flex="25">{{entry.count}}</div>
     </div>
   </div>
   <br>
@@ -27,13 +27,13 @@
   </md-toolbar>
   <div ng-show="showV3" layout="column" class="md-margin">
     <div layout="row">
-      <div flex="33"><h2 class="md-title">Operation</h2></div>
-      <div flex="66"><h2 class="md-title">Count</h2></div>
+      <div flex="25"><h2 class="md-title">Operation</h2></div>
+      <div flex="25"><h2 class="md-title">Count</h2></div>
     </div>
     <div layout="row"
 	 ng-repeat="entry in ops3 | orderBy: 'name'">
-      <div flex="33">{{entry.name}}</div>
-      <div flex="66">{{entry.count}}</div>
+      <div flex="25">{{entry.name}}</div>
+      <div flex="25">{{entry.count}}</div>
     </div>
   </div>
 </div>

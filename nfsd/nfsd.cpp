@@ -14,6 +14,7 @@
 #include <rpc++/rest.h>
 #include <rpc++/server.h>
 #include <rpc++/urlparser.h>
+#include <keyval/keyval.h>
 #include <filesys/filesys.h>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
@@ -170,6 +171,41 @@ public:
             dev.reset();
         }
         devs.reset();
+
+        auto db = fs_->database();
+        auto replicas = obj->field("replicas")->array();
+        if (db && db->isReplicated()) {
+            // The first entry is always the master replica
+            bool isMaster = true;
+            auto appdata = db->getAppData();
+            for (auto& data: appdata) {
+                auto replica = replicas->element()->object();
+                replica->field("isMaster")->boolean(isMaster);
+                auto addrs = replica->field("addresses")->array();
+
+                if (data.size() > 0) {
+                    vector<string> uaddrs;
+                    oncrpc::XdrMemory xm(data.data(), data.size());
+                    xdr(uaddrs, static_cast<oncrpc::XdrSource*>(&xm));
+                    for (auto& u: uaddrs) {
+                        // For the user interface, we need the admin port,
+                        // not the data port. We assume that all replicas
+                        // use the same admin port.
+                        auto ai = oncrpc::AddressInfo::fromUaddr(u, "tcp");
+                        auto entry = addrs->element()->object();
+                        entry->field("netid")->string(ai.netid());
+                        entry->field("uaddr")->string(ai.uaddr());
+                        entry->field("host")->string(ai.host());
+                        entry->field("port")->number(FLAGS_uiport);
+                    }
+                }
+
+                addrs.reset();
+                replica.reset();
+                isMaster = false;
+            }
+        }
+        replicas.reset();
 
         obj.reset();
         return true;

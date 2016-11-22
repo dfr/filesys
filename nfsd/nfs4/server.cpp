@@ -194,7 +194,7 @@ NfsServer::NfsServer(
         // Encode our network addresses so that other servers in a
         // replicated set can list them in their fs_locations
         // attributes
-        vector<string> uaddrs;
+        vector<string> uaddrs, adminUaddrs;
         for (auto ai: addrs) {
             // If this is a wildcard address (e.g. 0.0.0.0:2049),
             // substitute the address corresponding with our hostname
@@ -218,6 +218,7 @@ NfsServer::NfsServer(
             }
             uaddrs.push_back(ai.uaddr());
         }
+
         vector<uint8_t> data(oncrpc::XdrSizeof(uaddrs));
         oncrpc::XdrMemory xm(data.data(), data.size());
         xdr(uaddrs, static_cast<oncrpc::XdrSink*>(&xm));
@@ -2890,8 +2891,8 @@ int NfsServer::expireClients()
     // then that state entry is revoked.
     //
     // 3: A client which still has unrevoked state after 20*lease_time
-    // from its last renewal has all its immediately revoked and is
-    // purged.
+    // from its last renewal has all its state immediately revoked and
+    // is purged.
 restart:
     for (auto& e: clientsById_) {
         auto client = e.second;

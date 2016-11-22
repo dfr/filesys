@@ -28,6 +28,10 @@ angular.module(
                     };
                     $scope.devices = [];
 
+                    $scope.hideReplicas = false;
+                    $scope.showReplicas = true;
+                    $scope.replicas = [];
+
                     $scope.formatAddresses = function(addrs) {
                         let res = new Set();
                         for (let addr of addrs)
@@ -111,6 +115,14 @@ angular.module(
                             else {
                                 $scope.devices = mergeArray(
                                     $scope.devices, v.devices);
+                            }
+
+                            if (v.replicas.length == 0) {
+                                $scope.hideReplicas = true;
+                            }
+                            else {
+                                $scope.replicas = mergeArray(
+                                    $scope.replicas, v.replicas);
                             }
                         });
                     }
