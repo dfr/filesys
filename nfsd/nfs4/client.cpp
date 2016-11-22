@@ -307,7 +307,7 @@ void NfsClient::clearLayouts()
 
 void NfsClient::revokeState(std::shared_ptr<NfsState> ns)
 {
-    if (db_) {
+    if (db_ && db_->isMaster()) {
         auto trans = db_->beginTransaction();
         revokeState(ns, trans.get());
         db_->commit(move(trans));
@@ -493,7 +493,7 @@ void NfsClient::sendRecallAny()
         LOG(ERROR) << "No back channel";
         return;
     }
-    
+
     VLOG(1) << "recallable state count: " << recallableStateCount_
             << ": sending CB_RECALL_ANY";
     session->callback(
@@ -519,7 +519,7 @@ void NfsClient::expireState(util::Clock::time_point now)
         auto ns = e.second;
         if (ns->type() == StateType::DELEGATION ||
             ns->type() == StateType::LAYOUT) {
-            if (ns->expiry() < now) {
+            if (ns->expiry() < now && !ns->recalled()) {
                 auto fs = ns->fs();
                 if (fs && fs->isOpen(shared_from_this()))
                     continue;

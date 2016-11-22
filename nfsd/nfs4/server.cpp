@@ -181,7 +181,7 @@ NfsServer::NfsServer(
                         expiry);
                     break;
                 }
-                VLOG(1) << "Restored state: " << ns->id()
+                VLOG(2) << "Restored state: " << ns->id()
                         << ", owner: " << ns->owner();
                 ns->setRestored();
             }

@@ -622,7 +622,8 @@ void DistFilesystem::restoreDevice(std::shared_ptr<DistDevice> dev)
 void
 DistFilesystem::decommissionDevice(std::shared_ptr<DistDevice> dev)
 {
-    assert(db_->isMaster());
+    if (!db_->isMaster())
+        return;
 
     // Stop accounting for this device in our storage summary
     storage_.totalSpace -= dev->storage().totalSpace;

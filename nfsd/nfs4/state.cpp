@@ -93,12 +93,19 @@ void NfsState::recall()
 {
     assert(type_ == StateType::DELEGATION || type_ == StateType::LAYOUT);
 
+    if (recalled_ || revoked_)
+        return;
+
     // If this is a restored state entry which has not yet been
     // reclaimed, just mark as recalled since the client hasn't yet
     // re-connected
     if (restored_) {
-        VLOG(1) << "Marking un-reclaimed state as recalled: " << id_;
-        recalled_ = true;
+        VLOG(1) << "Revoking un-reclaimed state: " << id_;
+        auto cl = client_.lock();
+        if (cl) {
+            cl->revokeState(shared_from_this());
+            cl->clearState(id_);
+        }
         return;
     }
 
@@ -110,8 +117,12 @@ void NfsState::recall()
         }
     }
     if (!session) {
-        LOG(ERROR) << "No back channel to send recall";
-        recalled_ = true;
+        LOG(INFO) << "No back channel to send recall, revoking:" << id_;
+        auto cl = client_.lock();
+        if (cl) {
+            cl->revokeState(shared_from_this());
+            cl->clearState(id_);
+        }
         return;
     }
 

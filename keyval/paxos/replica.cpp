@@ -135,7 +135,8 @@ Replica::Replica(
     catch (std::system_error& e) {
     }
 
-    VLOG(1) << this << ": last applied instance: " << appliedInstance_;
+    LOG(INFO) << this << ": replica " << uuid_
+              << ": last applied instance " << appliedInstance_;
 
     identity({uuid_, status_, maxInstance_});
     std::unique_lock<std::mutex> lk(mutex_);
