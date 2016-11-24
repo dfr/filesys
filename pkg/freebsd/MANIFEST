@@ -1,0 +1,14 @@
+name:		unfsd
+version:	"0.01"
+origin:		local/unfsd
+prefix:		/usr/local
+maintainer:	dfr@rabson.org
+www:		none
+desc:		User-space NFSv4
+comment:	User-space NFSv4 implementation supporting pNFS
+files: {
+    /usr/local/unfsd/bin/fscli: -
+    /usr/local/unfsd/bin/objfsck: -
+    /usr/local/unfsd/bin/nfsd: -
+    /usr/local/unfsd/bin/distfsck: -
+}
