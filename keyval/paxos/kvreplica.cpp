@@ -176,6 +176,10 @@ std::unique_ptr<keyval::Transaction> KVReplica::beginTransaction()
 
 void KVReplica::commit(std::unique_ptr<keyval::Transaction>&& transaction)
 {
+    if (!isMaster())
+        LOG(WARNING) << "writing to database when not master:"
+                     << " this will start a master election";
+
     VLOG(2) << this << ": committing transaction";
     auto p = reinterpret_cast<KVTransaction*>(transaction.get());
     auto pt = execute(p->encode());
