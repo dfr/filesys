@@ -46,8 +46,9 @@ void DistfsCheck::check()
 
         for (auto& uaddr: ds.uaddrs) {
             try {
-                LOG(INFO) << "Server " << dsid << ": connecting";
                 auto ai = oncrpc::AddressInfo::fromUaddr(uaddr, "tcp");
+                LOG(INFO) << "Server " << dsid << ": connecting: "
+                          << ai.host() << ":" << ai.port();
                 auto chan = oncrpc::Channel::open(ai);
                 auto client = std::make_shared<oncrpc::SysClient>(
                     nfs4::NFS4_PROGRAM, nfs4::NFS_V4);
@@ -69,9 +70,10 @@ void DistfsCheck::check()
     iterator = dataNS->iterator();
     iterator->seek(datastart);
     while (iterator->valid(dataend)) {
-        DataKeyType key(iterator->key());
+        PieceData key(iterator->key());
         auto fileid = key.fileid();
         auto offset = key.offset();
+        auto size = key.size();
 
         //cerr << "checking {" << fileid << "," << offset << "}" << endl;
         auto val = iterator->value();
@@ -80,9 +82,9 @@ void DistfsCheck::check()
         xdr(loc, static_cast<oncrpc::XdrSource*>(&xm));
 
         for (auto entry: loc) {
-            //cerr << "checking server=" << entry.server << ", index=" << entry.index << endl;
+            //cerr << "checking device: " << entry.device << ", index: " << entry.index << endl;
             try {
-                DataKeyType val(
+                PieceData val(
                     piecesNS->get(DoubleKeyType(entry.device, entry.index)));
                 if (val.fileid() != fileid || val.offset() != offset) {
                     cerr << "fileid: " << fileid
@@ -91,8 +93,14 @@ void DistfsCheck::check()
                 }
                 auto ds = servers[entry.device];
                 Credential cred{0, 0, {}, true};
-                auto file = ds->findPiece(
-                    cred, PieceId{fileid, offset, blockSize_});
+                if (ds) {
+                    auto file = ds->findPiece(
+                        cred, PieceId{fileid, offset, size});
+                }
+                else {
+                    cerr << "no connection for device: "
+                         << entry.device << endl;
+                }
             }
             catch (system_error&) {
                 cerr << "fileid: " << fileid

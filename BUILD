@@ -39,6 +39,7 @@ filegroup(
         "//nfsd:nfsd",
         "//cli:fscli",
         "//filesys/objfs:objfsck",
+        "//filesys/distfs:distfsck",
     ],
 )
 

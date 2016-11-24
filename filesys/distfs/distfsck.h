@@ -9,7 +9,7 @@
 #include <map>
 
 #include "filesys/objfs/objfsck.h"
-#include "filesys/distfs/distfsproto.h"
+#include "filesys/distfs/distfs.h"
 
 namespace filesys {
 namespace distfs {
