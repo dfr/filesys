@@ -230,6 +230,29 @@ ObjFilesystem::databaseMasterChanged(bool isMaster)
     for (auto& entry: cache_) {
         entry.second->readMeta();
     }
+
+    if (isMaster) {
+        // Re-read filesystem metadata to get the correct value of nextId_
+        try {
+            auto buf = defaultNS_->get(KeyType(FileId(0)));
+            oncrpc::XdrMemory xm(buf->data(), buf->size());
+            xdr(meta_, static_cast<oncrpc::XdrSource*>(&xm));
+            if (meta_.vers != 1) {
+                LOG(ERROR) << "unexpected filesystem metadata version: "
+                           << meta_.vers << ", expected: " << 1;
+                throw system_error(EACCES, system_category());
+            }
+            nextId_ = meta_.nextId;
+            LOG(INFO) << "next fileid: " << nextId_;
+        }
+        catch (oncrpc::XdrError&) {
+            LOG(ERROR) << "error decoding filesystem metadata";
+            throw system_error(EACCES, system_category());
+        }
+        catch (system_error& e) {
+            LOG(ERROR) << "no filesystem metadata: " << e.what();
+        }
+    }
 }
 
 shared_ptr<Filesystem> ObjFilesystemFactory::mount(
