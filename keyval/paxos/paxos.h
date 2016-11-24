@@ -190,6 +190,10 @@ struct ProposerState
     /// If this instance executed one of our own transactions, this
     /// points at the pending transaction object
     std::shared_ptr<PendingTransaction> transaction;
+
+    /// True if we should log messages for this acceptor
+    ///
+    bool log = false;
 };
 
 /// The acceptor state for a single Paxos instance. This information

@@ -279,14 +279,15 @@ void Replica::promise(const PROMISEargs& args)
     if (pp->state == ProposerState::PHASE1 && i == pp->crnd) {
         pp->promisers.insert(args.uuid);
 
-        if (VLOG_IS_ON(2))
-            VLOG(2) << this << ": " << instance << ": received promise " << i
-                    << " reply count: " << pp->promisers.size();
+        if (pp->log)
+            LOG(INFO) << this << ": " << instance << ": received promise " << i
+                      << " reply count: " << pp->promisers.size();
 
         if (vrnd > pp->largestVrnd) {
-            VLOG(2) << this << ": " << instance
-                    << ": received promise vrnd " << vrnd
-                    << ": vval {" << vval.size() << " bytes}";
+            if (pp->log)
+                LOG(INFO) << this << ": " << instance
+                          << ": received promise vrnd " << vrnd
+                          << ": vval {" << vval.size() << " bytes}";
             assert(vrnd > PaxosRound{0});
             pp->largestVrnd = vrnd;
             pp->cval = vval;
@@ -336,7 +337,7 @@ void Replica::accept(const ACCEPTargs& args)
     auto ap = findAcceptorState(lk, instance, true);
     if (i >= ap->rnd && i != ap->vrnd) {
         if (VLOG_IS_ON(2))
-            VLOG(2) << this << ": " << instance << ": received accept " << i;
+            LOG(INFO) << this << ": " << instance << ": received accept " << i;
 
         updateLeaderTimer(lk);
         if (instance > maxInstance_) {
@@ -348,8 +349,8 @@ void Replica::accept(const ACCEPTargs& args)
         ap->vrnd = i;
         ap->vval = v;
         if (VLOG_IS_ON(2))
-            VLOG(2) << this << ": " << instance << ": sending accepted " << i
-                    << " {" << v.size() << " bytes}";
+            LOG(INFO) << this << ": " << instance << ": sending accepted " << i
+                      << " {" << v.size() << " bytes}";
         saveAcceptorState(lk, ap);
         proto_->accepted({uuid_, instance, i, ap->vval});
     } else {
@@ -372,16 +373,17 @@ void Replica::accepted(const ACCEPTargs& args)
     if (instance > maxInstance_)
         maxInstance_ = instance;
 
+    auto pp = findProposerState(lk, instance, false);
     auto lp = findLearnerState(lk, instance, true);
     auto it = lp->acceptors.find(args.uuid);
     if (it == lp->acceptors.end()) {
         lp->values[v]++;
         lp->acceptors.insert(args.uuid);
     }
-    if (VLOG_IS_ON(2))
-        VLOG(2) << this << ": " << instance << ": received accepted " << i
-                << " reply count: " << lp->acceptors.size()
-                << " {" << v.size() << " bytes}";
+    if (VLOG_IS_ON(2) || (pp && pp->log))
+        LOG(INFO) << this << ": " << instance << ": received accepted " << i
+                  << " reply count: " << lp->acceptors.size()
+                  << " {" << v.size() << " bytes}";
 
     // See if there is a consensus on a value
     int maxCount = 0;
@@ -408,7 +410,6 @@ void Replica::accepted(const ACCEPTargs& args)
 
         // If we also proposed the value, stop our re-send timer
         // and inform the client
-        auto pp = findProposerState(lk, instance, false);
         if (pp) {
             if (isLeader_) {
                 // Clear the newLeader flag if there was no conflict with
@@ -466,8 +467,12 @@ void Replica::nack(const NACKargs& args)
 
     auto pp = findProposerState(lk, instance, false);
     if (pp) {
-        VLOG(2) << this << ": " << instance << ": received nack " << i;
-        VLOG(2) << this << ": " << instance << ": current crnd " << pp->crnd;
+        if (pp->log) {
+            LOG(INFO) << this << ": " << instance
+                      << ": received nack " << i;
+            LOG(INFO) << this << ": " << instance
+                      << ": current crnd " << pp->crnd;
+        }
         if (pp->crnd.gen > 0 && i > pp->crnd) {
             pp->nackCount++;
             pp->crnd = PaxosRound{i.gen + 1, uuid_};
@@ -509,6 +514,7 @@ ProposerState* Replica::findProposerState(
                 instance, std::make_unique<ProposerState>(instance)));
         VLOG(2) << this << ": " << instance
                 << ": created new proposer " << i->second.get();
+        i->second->log = VLOG_IS_ON(2);
     }
     return i->second.get();
 }
@@ -628,8 +634,9 @@ void Replica::sendIdentity(std::unique_lock<std::mutex>& lk)
 
 void Replica::sendPrepare(std::unique_lock<std::mutex>& lk, ProposerState* pp)
 {
-    VLOG(2) << this << ": " << pp->instance
-            << ": sending prepare " << pp->crnd;
+    if (pp->log)
+        LOG(INFO) << this << ": " << pp->instance
+                  << ": sending prepare " << pp->crnd;
     if (pp->prepareTimer)
         tman_->cancel(pp->prepareTimer);
     pp->prepareTimer =
@@ -642,6 +649,7 @@ void Replica::sendPrepare(std::unique_lock<std::mutex>& lk, ProposerState* pp)
                 if (pp->state == ProposerState::PHASE1) {
                     pp->prepareTimer = 0;
                     pp->crnd.gen++;
+                    pp->log = true;
                     sendPrepare(lk2, pp);
                 }
             });
@@ -654,9 +662,10 @@ void Replica::sendPrepare(std::unique_lock<std::mutex>& lk, ProposerState* pp)
 
 void Replica::sendAccept(std::unique_lock<std::mutex>& lk, ProposerState* pp)
 {
-    VLOG(2) << this << ": " << pp->instance
-            << ": sending accept " << pp->crnd
-            << " {" << pp->cval.size() << " bytes}";
+    if (pp->log)
+        LOG(INFO) << this << ": " << pp->instance
+                  << ": sending accept " << pp->crnd
+                  << " {" << pp->cval.size() << " bytes}";
     if (pp->acceptTimer)
         tman_->cancel(pp->acceptTimer);
     pp->acceptTimer =
@@ -666,9 +675,21 @@ void Replica::sendAccept(std::unique_lock<std::mutex>& lk, ProposerState* pp)
                 LOG(INFO) << this << ": " << pp->instance
                           << ": accept timeout";
                 std::unique_lock<std::mutex> lk2(mutex_);
+                pp->acceptTimer = 0;
+                if (pp->instance <= appliedInstance_) {
+                    LOG(INFO) << this << ": " << pp->instance
+                              << ": already applied command, ignoring timeout";
+                    return;
+                }
                 if (pp->state == ProposerState::PHASE2) {
-                    pp->acceptTimer = 0;
+                    auto lp = findLearnerState(lk2, pp->instance, false);
+                    if (lp) {
+                        lp->values.clear();
+                        lp->acceptors.clear();
+                        lp->value = nullptr;
+                    }
                     pp->crnd.gen++;
+                    pp->log = true;
                     sendAccept(lk2, pp);
                 }
             });
@@ -703,10 +724,10 @@ void Replica::setLeader(std::unique_lock<std::mutex>& lk, const UUID& id)
         auto wasLeader = isLeader_;
         leader_ = id;
         isLeader_ = (leader_ == uuid_);
+        newLeader_ = true;
         if (isLeader_ != wasLeader) {
             if (isLeader_) {
                 LOG(INFO) << this << ": becoming leader";
-                newLeader_ = true;
             }
             else {
                 if (leaseTimer_) {
