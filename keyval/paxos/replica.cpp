@@ -872,7 +872,7 @@ bool Replica::applyCommands(std::unique_lock<std::mutex>& lk)
                 db()->commit(std::move(trans));
             }
             lp->applied = true;
-            //learnerState_.erase(instance);
+            learnerState_.erase(instance);
             appliedInstance_++;
         }
         else {
