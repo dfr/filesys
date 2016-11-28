@@ -241,24 +241,11 @@ int main(int argc, char** argv)
     if (FLAGS_daemon)
         ::daemon(true, true);
 
-    // We start the socket manager running on a thread here so that we
-    // can handle any filesystem-specific network messages while the
-    // filesystem is mounted
-    auto sockman = make_shared<SocketManager>();
-    sockman->setIdleTimeout(std::chrono::seconds(FLAGS_idle_timeout));
-    std::thread t([sockman]() { sockman->run(); });
-
     // Access the root node to make sure it is created (if necessary)
     // while we have our temporary socket manager thread running
-    auto fs = fac->mount(argv[1], sockman);
+    auto fs = fac->mount(argv[1]);
     fs->root();
     fsman.mount("/", fs);
-
-    // Stop our temporary socket manager thread now that the
-    // filesystem is mounted - we will run it again in this thread
-    // once we have bound the NFS sockets and services
-    sockman->stop();
-    t.join();
 
     shared_ptr<Filter> filter;
     if (FLAGS_allow.size() > 0 || FLAGS_deny.size() > 0) {
@@ -309,6 +296,7 @@ int main(int argc, char** argv)
     registerUiContent(restreg);
     restreg->add("/version", true, make_shared<ExportVersion>());
     restreg->add("/fsattr", true, make_shared<ExportFsattr>(fs));
+    auto sockman = make_shared<SocketManager>();
 
     vector<AddressInfo> addrs;
     vector<AddressInfo> uiaddrs;
@@ -355,6 +343,7 @@ int main(int argc, char** argv)
         }
     }
 
+    sockman->setIdleTimeout(std::chrono::seconds(FLAGS_idle_timeout));
     for (auto& ai: uiaddrs) {
         try {
             int fd = socket(ai.family, ai.socktype, ai.protocol);

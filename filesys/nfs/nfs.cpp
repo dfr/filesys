@@ -20,8 +20,7 @@ using namespace filesys;
 using namespace filesys::nfs;
 
 std::shared_ptr<Filesystem>
-NfsFilesystemFactory::mount(
-    const std::string& url, std::shared_ptr<oncrpc::SocketManager> sockman)
+NfsFilesystemFactory::mount(const std::string& url)
 {
     using namespace oncrpc;
 
@@ -55,10 +54,10 @@ NfsFilesystemFactory::mount(
 
     switch (nfsvers) {
     case 3:
-        return filesys::nfs3::NfsFilesystemFactory().mount(url, sockman);
+        return filesys::nfs3::NfsFilesystemFactory().mount(url);
 
     case 4:
-        return filesys::nfs4::NfsFilesystemFactory().mount(url, sockman);
+        return filesys::nfs4::NfsFilesystemFactory().mount(url);
 
     default:
         LOG(ERROR) << "Unsupported NFS version " << nfsvers;

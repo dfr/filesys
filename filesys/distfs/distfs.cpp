@@ -693,8 +693,7 @@ DistFilesystem::decommissionDevice(std::shared_ptr<DistDevice> dev)
 }
 
 shared_ptr<Filesystem>
-DistFilesystemFactory::mount(
-    const string& url, shared_ptr<oncrpc::SocketManager> sockman)
+DistFilesystemFactory::mount(const string& url)
 {
     LOG(INFO) << "mount: " << url;
     oncrpc::UrlParser p(url);
@@ -721,7 +720,7 @@ DistFilesystemFactory::mount(
             addr = it->second;
         else
             addr = replicas[0];
-        db = make_paxosdb(p.path, addr, replicas, sockman);
+        db = make_paxosdb(p.path, addr, replicas);
     }
     else {
         db = make_rocksdb(p.path);

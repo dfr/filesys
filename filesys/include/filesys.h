@@ -552,9 +552,7 @@ class FilesystemFactory
 {
 public:
     virtual std::string name() const = 0;
-    virtual std::shared_ptr<Filesystem> mount(
-        const std::string& url,
-        std::shared_ptr<oncrpc::SocketManager> sockman = nullptr) = 0;
+    virtual std::shared_ptr<Filesystem> mount(const std::string& url) = 0;
 };
 
 class FilesystemManager

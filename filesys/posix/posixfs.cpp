@@ -88,8 +88,7 @@ PosixFilesystem::remove(FileId id)
 }
 
 shared_ptr<Filesystem>
-PosixFilesystemFactory::mount(
-    const string& url, shared_ptr<oncrpc::SocketManager> sockman)
+PosixFilesystemFactory::mount(const string& url)
 {
     oncrpc::UrlParser p(url);
     return make_shared<PosixFilesystem>(p.path);

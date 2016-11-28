@@ -119,9 +119,6 @@ int main(int argc, char** argv)
 
     auto& fsman = FilesystemManager::instance();
 
-    auto sockman = std::make_shared<oncrpc::SocketManager>();
-    std::thread t([sockman]() { sockman->run(); });
-
     auto pfs = make_shared<filesys::pfs::PfsFilesystem>();
 
     for (int i = 1; i < argc; i++) {
@@ -142,7 +139,7 @@ int main(int argc, char** argv)
 
         shared_ptr<Filesystem> fs;
         try {
-            fs = fac->mount(url, sockman);
+            fs = fac->mount(url);
         }
         catch (runtime_error& e) {
             cerr << url << ": " << e.what() << endl;
@@ -179,9 +176,6 @@ int main(int argc, char** argv)
             continue;
         executeCommand(state, line.data());
     }
-
-    sockman->stop();
-    t.join();
 
     if (input != &cin)
         delete input;

@@ -252,8 +252,7 @@ NfsFilesystem::handleCallbacks()
 }
 
 shared_ptr<Filesystem>
-NfsFilesystemFactory::mount(
-    const string& url, shared_ptr<oncrpc::SocketManager> sockman)
+NfsFilesystemFactory::mount(const string& url)
 {
     using namespace oncrpc;
 

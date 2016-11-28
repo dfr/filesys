@@ -250,9 +250,7 @@ class PosixFilesystemFactory: public FilesystemFactory
 {
 public:
     std::string name() const override { return "file"; }
-    std::shared_ptr<Filesystem> mount(
-        const std::string& url,
-        std::shared_ptr<oncrpc::SocketManager> sockman) override;
+    std::shared_ptr<Filesystem> mount(const std::string& url) override;
 };
 
 void init(FilesystemManager* fsman);

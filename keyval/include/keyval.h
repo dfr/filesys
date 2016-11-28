@@ -161,16 +161,14 @@ std::shared_ptr<Database> make_rocksdb(const std::string& filename);
 std::shared_ptr<Database> make_paxosdb(
     const std::string& filename,
     const std::string& addr,
-    const std::vector<std::string>& replicas,
-    std::shared_ptr<oncrpc::SocketManager> sockman);
+    const std::vector<std::string>& replicas);
 static inline std::shared_ptr<Database> make_paxosdb(
     const std::string& filename,
-    const std::string& replica,
-    std::shared_ptr<oncrpc::SocketManager> sockman)
+    const std::string& replica)
 {
     std::vector<std::string> replicas;
     replicas.push_back(replica);
-    return make_paxosdb(filename, replica, replicas, sockman);
+    return make_paxosdb(filename, replica, replicas);
 }
 
 }

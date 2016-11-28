@@ -317,8 +317,7 @@ DataFilesystem::open(const Credential& cred, const PieceId& id, int flags)
 }
 
 shared_ptr<Filesystem>
-DataFilesystemFactory::mount(
-    const string& url, shared_ptr<oncrpc::SocketManager> sockman)
+DataFilesystemFactory::mount(const string& url)
 {
     oncrpc::UrlParser p(url);
     return make_shared<DataFilesystem>(

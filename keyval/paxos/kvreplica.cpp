@@ -112,12 +112,27 @@ KVReplica::KVReplica(
     std::shared_ptr<util::Clock> clock,
     std::shared_ptr<oncrpc::SocketManager> sockman,
     std::shared_ptr<Database> db)
-    : Replica(addr, replicas, clock, sockman, db)
+    : Replica(addr, replicas, clock, sockman, db),
+      sockman_(sockman)
 {
+    // Process incoming messages on a private thread - we can't use
+    // the application's socket manager since that can cause
+    // interactions and deadlocks where the application socket manager
+    // thread can block on executing paxos transactions
+    socketThread_ = std::thread([this]() { sockman_->run(); });
+
     // Sync with enough replicas to form a quorum - at least one of
     // them will perform a leadership election
     std::unique_lock<std::mutex> lk(mutex_);
     progress_.wait(lk);
+}
+
+KVReplica::~KVReplica()
+{
+    if (sockman_) {
+        sockman_->stop();
+        socketThread_.join();
+    }
 }
 
 void KVReplica::apply(
@@ -131,7 +146,7 @@ void KVReplica::apply(
     for (auto& op: kvtrans.ops) {
         switch (op.op) {
         case OP_PUT:
-            VLOG(2) << this << ": put "
+            VLOG(2) << "put "
                     << op.put().ns
                     << ", " << op.put().key
                     << ", " << op.put().value;
@@ -141,7 +156,7 @@ void KVReplica::apply(
                 toBuffer(op.put().value));
             break;
         case OP_REMOVE:
-            VLOG(2) << this << ": remove "
+            VLOG(2) << "remove "
                     << op.remove().ns
                     << ", " << op.remove().key;
             trans->remove(
@@ -159,7 +174,7 @@ void KVReplica::apply(
 
 void KVReplica::leaderChanged()
 {
-    LOG(INFO) << this << ": leaderChanged: " << isLeader_;
+    LOG(INFO) << "leader changed: " << isLeader_;
     for (auto& cb: masterChangeCallbacks_)
         cb(isLeader_);
 }
@@ -180,11 +195,11 @@ void KVReplica::commit(std::unique_ptr<keyval::Transaction>&& transaction)
         LOG(WARNING) << "writing to database when not master:"
                      << " this will start a master election";
 
-    VLOG(2) << this << ": committing transaction";
+    VLOG(2) << "committing transaction";
     auto p = reinterpret_cast<KVTransaction*>(transaction.get());
     auto pt = execute(p->encode());
     transaction.reset();
-    VLOG(2) << this << ": waiting for completion";
+    VLOG(2) << "waiting for completion";
     pt->wait();
 }
 

@@ -321,9 +321,17 @@ public:
 
     auto& uuid() const { return uuid_; }
     auto db() const { return db_.get(); }
-    auto peers() const { return int(peers_.size()); }
+
+    /// Return the number of active peers
+    auto peers() const
+    {
+        return healthyCount_ + recoveringCount_;
+    }
+
     auto healthy() const { return healthyCount_; }
     auto recovering() const { return recoveringCount_; }
+
+    /// Return the minimum number of votes needed to reach a quorum
     auto quorum() const
     {
         int q = peers() / 2 + 1;
@@ -342,8 +350,9 @@ public:
 
 protected:
     struct PeerState {
+        UUID id;
         util::Clock::time_point when;
-        ReplicaStatus status;
+        ReplicaStatus status = STATUS_UNKNOWN;
         std::vector<uint8_t> appdata;
     };
 
@@ -371,7 +380,13 @@ protected:
     /// loss. The lock will be unlocked on exit
     void sendAccept(std::unique_lock<std::mutex>& lk, ProposerState* pp);
 
+    /// Update peer status, timing out dead peers
     void updatePeers(std::unique_lock<std::mutex>& lk);
+
+    /// Log peer status
+    void logPeer(const PeerState& p);
+
+    /// Update our idea of who is currently leader
     void setLeader(std::unique_lock<std::mutex>& lk, const UUID& id);
 
     /// Called from accept to update the leader failure timer
@@ -490,6 +505,8 @@ public:
         std::shared_ptr<oncrpc::SocketManager> sockman,
         std::shared_ptr<Database> db);
 
+    ~KVReplica() override;
+
     // Replica overrides
     void apply(
         std::int64_t instance, const std::vector<uint8_t>& command) override;
@@ -514,6 +531,8 @@ public:
     }
 
 private:
+    std::shared_ptr<oncrpc::SocketManager> sockman_;
+    std::thread socketThread_;
     std::vector<std::function<void(bool)>> masterChangeCallbacks_;
 };
 

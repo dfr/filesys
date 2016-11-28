@@ -4,6 +4,7 @@
  */
 
 #include <cassert>
+#include <iomanip>
 #include <random>
 #include <system_error>
 
@@ -51,6 +52,7 @@ again:
         if (!db_->isMaster()) {
             // If we are not the master replica, just try again - the
             // master will write the metadata entry
+            std::this_thread::sleep_for(std::chrono::seconds(1));
             goto again;
         }
         meta_.vers = 1;
@@ -211,9 +213,41 @@ ObjFilesystem::writeMeta(Transaction* trans)
         make_shared<oncrpc::Buffer>(xm.writePos(), xm.buf()));
 }
 
+static std::ostream& operator<<(std::ostream& os, const UUID& id)
+{
+    const uint8_t* p = reinterpret_cast<const uint8_t*>(&id);
+    auto savefill = os.fill();
+    auto saveflags = os.flags();
+    os << std::hex << std::setfill('0');
+    os << std::setw(2) << int(p[0]);
+    os << std::setw(2) << int(p[1]);
+    os << std::setw(2) << int(p[2]);
+    os << std::setw(2) << int(p[3]);
+    os << "-";
+    os << std::setw(2) << int(p[4]);
+    os << std::setw(2) << int(p[5]);
+    os << "-";
+    os << std::setw(2) << int(p[6]);
+    os << std::setw(2) << int(p[7]);
+    os << "-";
+    os << std::setw(2) << int(p[8]);
+    os << std::setw(2) << int(p[9]);
+    os << "-";
+    os << std::setw(2) << int(p[10]);
+    os << std::setw(2) << int(p[11]);
+    os << std::setw(2) << int(p[12]);
+    os << std::setw(2) << int(p[13]);
+    os << std::setw(2) << int(p[14]);
+    os << std::setw(2) << int(p[15]);
+    os.fill(savefill);
+    os.flags(saveflags);
+    return os;
+}
+
 void
 ObjFilesystem::setFsid()
 {
+    LOG(INFO) << "fsid: " << meta_.fsid;
     fsid_.resize(sizeof(meta_.fsid));
     *reinterpret_cast<UUID*>(fsid_.data()) = meta_.fsid;
 }
@@ -255,9 +289,7 @@ ObjFilesystem::databaseMasterChanged(bool isMaster)
     }
 }
 
-shared_ptr<Filesystem> ObjFilesystemFactory::mount(
-    const std::string& url,
-    std::shared_ptr<oncrpc::SocketManager> sockman)
+shared_ptr<Filesystem> ObjFilesystemFactory::mount(const std::string& url)
 {
     oncrpc::UrlParser p(url);
     vector<string> replicas;
@@ -274,7 +306,7 @@ shared_ptr<Filesystem> ObjFilesystemFactory::mount(
             addr = it->second;
         else
             addr = replicas[0];
-        db = make_paxosdb(p.path, addr, replicas, sockman);
+        db = make_paxosdb(p.path, addr, replicas);
     }
     else {
         db = make_rocksdb(p.path);

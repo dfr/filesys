@@ -135,7 +135,7 @@ Replica::Replica(
     catch (std::system_error& e) {
     }
 
-    LOG(INFO) << this << ": replica " << uuid_
+    LOG(INFO) << "uuid: " << uuid_
               << ": last applied instance " << appliedInstance_;
 
     identity({uuid_, status_, maxInstance_});
@@ -225,19 +225,18 @@ void Replica::identity(const IDENTITYargs& args)
     auto instance = args.instance;
 
     if (VLOG_IS_ON(3)) {
-        VLOG(3) << this << ": " << instance << ": received identity from "
-                << args.uuid;
+        VLOG(3) << instance << ": received identity from " << args.uuid;
     }
 
-    auto newPeer = peers_.find(args.uuid) == peers_.end();
     auto& p = peers_[args.uuid];
+    auto peerChanged = p.status != args.status;
+    p.id = args.uuid;
     p.when = clock_->now();
     p.status = args.status;
     p.appdata = args.appdata;
     updatePeers(lk);
-    if (newPeer)
-        LOG(INFO) << this << ": " << peers_.size()
-                  << (peers_.size() > 1 ? " peers" : " peer");
+    if (peerChanged)
+        logPeer(p);
 }
 
 void Replica::prepare(const PREPAREargs& args)
@@ -247,7 +246,7 @@ void Replica::prepare(const PREPAREargs& args)
     auto& i = args.i;
 
     if (VLOG_IS_ON(2))
-        VLOG(2) << this << ": " << instance
+        VLOG(2) << instance
                 << ": from: " << args.uuid
                 << ": prepare " << i;
     auto ap = findAcceptorState(lk, instance, true);
@@ -255,12 +254,12 @@ void Replica::prepare(const PREPAREargs& args)
         if (instance > maxInstance_)
             setLeader(lk, args.uuid);
         if (VLOG_IS_ON(2))
-            VLOG(2) << this << ": " << instance << ": sending promise " << i;
+            VLOG(2) << instance << ": sending promise " << i;
         ap->rnd = i;
         saveAcceptorState(lk, ap);
         proto_->promise({uuid_, instance, i, ap->vrnd, ap->vval});
     } else if (i != ap->rnd) {
-        VLOG(2) << this << ": " << instance << ": sending nack " << ap->rnd;
+        VLOG(2) << instance << ": sending nack " << ap->rnd;
         proto_->nack({uuid_, instance, ap->rnd});
     }
 }
@@ -282,14 +281,14 @@ void Replica::promise(const PROMISEargs& args)
         pp->promisers.insert(args.uuid);
 
         if (pp->log)
-            LOG(INFO) << this << ": " << instance
+            LOG(INFO) << instance
                       << ": from: " << args.uuid
                       << ": promise " << i
                       << ", reply count: " << pp->promisers.size();
 
         if (vrnd > pp->largestVrnd) {
             if (pp->log)
-                LOG(INFO) << this << ": " << instance
+                LOG(INFO) << instance
                           << ": promise vrnd " << vrnd
                           << ", vval {" << vval.size() << " bytes}";
             assert(vrnd > PaxosRound{0});
@@ -341,7 +340,7 @@ void Replica::accept(const ACCEPTargs& args)
     auto ap = findAcceptorState(lk, instance, true);
     if (i >= ap->rnd && i != ap->vrnd) {
         if (VLOG_IS_ON(2))
-            LOG(INFO) << this << ": " << instance
+            LOG(INFO) << instance
                       << ": from: " << args.uuid
                       << ": accept " << i;
 
@@ -355,7 +354,7 @@ void Replica::accept(const ACCEPTargs& args)
         ap->vrnd = i;
         ap->vval = v;
         if (VLOG_IS_ON(2))
-            LOG(INFO) << this << ": " << instance << ": sending accepted " << i
+            LOG(INFO) << instance << ": sending accepted " << i
                       << " {" << v.size() << " bytes}";
         saveAcceptorState(lk, ap);
         proto_->accepted({uuid_, instance, i, ap->vval});
@@ -387,7 +386,7 @@ void Replica::accepted(const ACCEPTargs& args)
         lp->acceptors.insert(args.uuid);
     }
     if (VLOG_IS_ON(2) || (pp && pp->log))
-        LOG(INFO) << this << ": " << instance
+        LOG(INFO) << instance
                   << ": from: " << args.uuid
                   << ": accepted " << i
                   << " reply count: " << lp->acceptors.size()
@@ -410,7 +409,7 @@ void Replica::accepted(const ACCEPTargs& args)
         // We have received accepted replies from a majority of
         // acceptors so the value can be learned
         if (VLOG_IS_ON(2) || (pp && pp->log))
-            LOG(INFO) << this << ": " << instance << ": completed " << lp;
+            LOG(INFO) << instance << ": completed " << lp;
         lp->value = value;
 
         // If this is the most recent transaction, update the leader
@@ -459,7 +458,7 @@ void Replica::accepted(const ACCEPTargs& args)
             if (status_ == STATUS_RECOVERING) {
                 // We have values for all known instances so we are
                 // healthy again
-                LOG(INFO) << this << ": recovered to " << maxInstance_;
+                LOG(INFO) << "recovered to " << maxInstance_;
                 status_ = STATUS_HEALTHY;
                 sendIdentity(lk);
             }
@@ -477,10 +476,10 @@ void Replica::nack(const NACKargs& args)
     auto pp = findProposerState(lk, instance, false);
     if (pp) {
         if (pp->log) {
-            LOG(INFO) << this << ": " << instance
+            LOG(INFO) << instance
                       << ": from: " << args.uuid
                       << ": nack " << i;
-            LOG(INFO) << this << ": " << instance
+            LOG(INFO) << instance
                       << ": current crnd " << pp->crnd;
         }
         if (pp->crnd.gen > 0 && i > pp->crnd) {
@@ -498,7 +497,7 @@ std::shared_ptr<PendingTransaction> Replica::execute(
     auto trans = std::make_shared<PendingTransaction>(command);
     pendingCommands_.push_back(trans);
     auto pp = startNewInstance(lk, maxInstance_ + 1);
-    VLOG(2) << this << ": " << pp->instance
+    VLOG(2) << pp->instance
             << ": executing command in new instance";
     return trans;
 }
@@ -524,7 +523,7 @@ ProposerState* Replica::findProposerState(
                 instance, std::make_unique<ProposerState>(instance)));
         bool log = VLOG_IS_ON(2);
         if (log)
-            LOG(INFO) << this << ": " << instance
+            LOG(INFO) << instance
                       << ": created new proposer " << i->second.get();
         i->second->log = log;
     }
@@ -542,7 +541,7 @@ LearnerState* Replica::findLearnerState(
         lp->time = clock_->now();
         std::tie(i, std::ignore) = learnerState_.insert(
             std::make_pair(instance, std::move(lp)));
-        VLOG(2) << this << ": " << instance
+        VLOG(2) << instance
                 << ": created new learner " << i->second.get();
     }
     return i->second.get();
@@ -566,7 +565,7 @@ std::shared_ptr<AcceptorState> Replica::findAcceptorState(
                 oncrpc::XdrMemory xmv(val->data(), val->size());
 
                 auto ap = std::make_shared<AcceptorState>(instance);
-                VLOG(2) << this << ": " << instance
+                VLOG(2) << instance
                         << ": restored acceptor from db" << ap.get();
                 xdr(*ap, static_cast<oncrpc::XdrSource*>(&xmv));
 
@@ -578,7 +577,7 @@ std::shared_ptr<AcceptorState> Replica::findAcceptorState(
                 if (!create)
                     return nullptr;
                 auto ap = std::make_shared<AcceptorState>(instance);
-                VLOG(2) << this << ": " << instance
+                VLOG(2) << instance
                         << ": created new acceptor " << ap.get();
                 return ap;
             }
@@ -622,7 +621,7 @@ ProposerState* Replica::startNewInstance(
 void Replica::sendIdentity(std::unique_lock<std::mutex>& lk)
 {
     if (VLOG_IS_ON(3)) {
-        VLOG(3) << this << ": " << maxInstance_
+        VLOG(3) << maxInstance_
                 << ": " << uuid_ << ": sending identity";
     }
     if (identityTimer_)
@@ -647,7 +646,7 @@ void Replica::sendIdentity(std::unique_lock<std::mutex>& lk)
 void Replica::sendPrepare(std::unique_lock<std::mutex>& lk, ProposerState* pp)
 {
     if (pp->log)
-        LOG(INFO) << this << ": " << pp->instance
+        LOG(INFO) << pp->instance
                   << ": sending prepare " << pp->crnd;
     if (pp->prepareTimer) {
         tman_->cancel(pp->prepareTimer);
@@ -661,7 +660,7 @@ void Replica::sendPrepare(std::unique_lock<std::mutex>& lk, ProposerState* pp)
         tman_->add(
             clock_->now() + rtt_,
             [this, pp]() {
-                LOG(INFO) << this << ": " << pp->instance
+                LOG(INFO) << pp->instance
                           << ": prepare timeout";
                 std::unique_lock<std::mutex> lk2(mutex_);
                 if (pp->prepareTimer == 0) {
@@ -684,7 +683,7 @@ void Replica::sendPrepare(std::unique_lock<std::mutex>& lk, ProposerState* pp)
 void Replica::sendAccept(std::unique_lock<std::mutex>& lk, ProposerState* pp)
 {
     if (pp->log)
-        LOG(INFO) << this << ": " << pp->instance
+        LOG(INFO) << pp->instance
                   << ": sending accept " << pp->crnd
                   << " {" << pp->cval.size() << " bytes}";
     assert(!pp->prepareTimer);
@@ -696,7 +695,7 @@ void Replica::sendAccept(std::unique_lock<std::mutex>& lk, ProposerState* pp)
         tman_->add(
             clock_->now() + rtt_,
             [this, pp]() {
-                LOG(INFO) << this << ": " << pp->instance
+                LOG(INFO) << pp->instance
                 << ": accept timeout" << ", pp=" << pp;
 
                 std::unique_lock<std::mutex> lk2(mutex_);
@@ -705,7 +704,7 @@ void Replica::sendAccept(std::unique_lock<std::mutex>& lk, ProposerState* pp)
                 }
                 pp->acceptTimer = 0;
                 if (pp->instance <= appliedInstance_) {
-                    LOG(INFO) << this << ": " << pp->instance
+                    LOG(INFO) << pp->instance
                               << ": already applied command, ignoring timeout";
                     return;
                 }
@@ -730,16 +729,42 @@ void Replica::updatePeers(std::unique_lock<std::mutex>& lk)
 {
     auto cutoff = clock_->now() - LEADER_WAIT_TIME;
 
+    auto oldPeerCount = peers();
+
     healthyCount_ = 0;
     recoveringCount_ = 0;
-    for (const auto& p : peers_) {
+    for (auto& p : peers_) {
         if (p.second.when >= cutoff) {
             if (p.second.status == STATUS_HEALTHY)
                 healthyCount_++;
             if (p.second.status == STATUS_RECOVERING)
                 recoveringCount_++;
         }
+        else {
+            if (p.second.status != STATUS_DEAD) {
+                p.second.status = STATUS_DEAD;
+                logPeer(p.second);
+            }
+        }
     }
+    if (peers() != oldPeerCount) {
+        // Make sure we run the full protocol when the peer group
+        // changes
+        newLeader_ = true;
+        if (peers() < quorum())
+            LOG(INFO) << "peer count " << peers() << ": not a quorum";
+        else
+            LOG(INFO) << "peer count " << peers() << ": valid quorum";
+    }
+}
+
+void Replica::logPeer(const PeerState& p)
+{
+    static const char* statusNames[] = {
+        "dead", "healthy", "recovering", "unknown"
+    };
+    LOG(INFO) << "peer: " << p.id
+              << ", status: " << statusNames[p.status];
 }
 
 void Replica::setLeader(std::unique_lock<std::mutex>& lk, const UUID& id)
@@ -755,14 +780,14 @@ void Replica::setLeader(std::unique_lock<std::mutex>& lk, const UUID& id)
         newLeader_ = true;
         if (isLeader_ != wasLeader) {
             if (isLeader_) {
-                LOG(INFO) << this << ": becoming leader";
+                LOG(INFO) << "becoming leader";
             }
             else {
                 if (leaseTimer_) {
                     tman_->cancel(leaseTimer_);
                     leaseTimer_ = 0;
                 }
-                LOG(INFO) << this << ": becoming follower";
+                LOG(INFO) << "becoming follower";
             }
             leaderChanged();
         }
@@ -779,7 +804,7 @@ void Replica::updateLeaderTimer(std::unique_lock<std::mutex>& lk)
         tman_->add(
             clock_->now() + LEADER_WAIT_TIME,
             [this]() {
-                LOG(INFO) << this << ": leadership timeout";
+                LOG(INFO) << "leadership timeout";
                 std::unique_lock<std::mutex> lk2(mutex_);
                 startNewInstance(lk2, maxInstance_ + 1);
             });
@@ -795,7 +820,7 @@ void Replica::updateLeaseTimer(std::unique_lock<std::mutex>& lk)
         tman_->add(
             clock_->now() + 3*LEADER_WAIT_TIME/4,
             [this]() {
-                VLOG(2) << this << ": extending lease";
+                VLOG(2) << "extending lease";
                 std::unique_lock<std::mutex> lk2(mutex_);
                 startNewInstance(lk2, maxInstance_ + 1);
             });
@@ -818,9 +843,9 @@ bool Replica::applyCommands(std::unique_lock<std::mutex>& lk)
             // here again after we recover a value for this instance.
 
             if (VLOG_IS_ON(2) || (instance % 10000) == 0)
-                LOG(INFO) << this <<": recovering instance " << instance;
+                LOG(INFO) << "recovering instance " << instance;
             if (status_ != STATUS_RECOVERING)
-                LOG(INFO) << this << ": recovering from " << instance;
+                LOG(INFO) << "recovering from " << instance;
             status_ = STATUS_RECOVERING;
             if (isLeader_) {
                 // Some other replica is creating new instances so
@@ -838,7 +863,7 @@ bool Replica::applyCommands(std::unique_lock<std::mutex>& lk)
                 apply(instance, *lp->value);
             }
             else {
-                VLOG(2) << this << ": " << instance
+                VLOG(2) << instance
                         << ": empty command - not applying";
 
                 // We do need to write the instance number
@@ -870,6 +895,7 @@ void Replica::saveAcceptorState(
 
     auto trans = db_->beginTransaction();
     trans->put(log_, key, val);
+    db_->commit(std::move(trans));
 }
 
 void Replica::saveInstance(std::int64_t instance, Transaction* trans)
