@@ -42,6 +42,7 @@ struct KVReplicaTest: public ::testing::Test
     void TearDown() override
     {
         tman->stop();
+        replicas.clear();
     }
 
     /// Add a replica to the set

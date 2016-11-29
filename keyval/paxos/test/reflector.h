@@ -15,6 +15,13 @@ struct Reflector: public IPaxos1
     {
     }
 
+    ~Reflector()
+    {
+        // Make sure the replicas are destroyed before the timeout
+        // manager
+        replicas_.clear();
+    }
+
     // IPaxos1 overrides - we copy each message to all the replicas
     // asynchronously
     void null() override

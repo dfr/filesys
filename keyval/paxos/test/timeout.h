@@ -40,6 +40,8 @@ struct MyTimeoutManager: public oncrpc::TimeoutManager
         std::unique_lock<std::mutex> lk(mutex_);
         stopping_ = true;
         cv_.notify_all();
+        lk.unlock();
+        thread_.join();
     }
 
     void run()
