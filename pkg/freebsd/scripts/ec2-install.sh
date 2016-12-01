@@ -6,7 +6,10 @@ if ! pkg -N 2>/dev/null; then
 fi
 
 # Install awscli
-env ASSUME_ALWAYS_YES=YES pkg install awscli </dev/null | cat
+env ASSUME_ALWAYS_YES=YES pkg install awscli sudo bash </dev/null | cat
+
+# Enable sudo for wheel group
+echo '%wheel        ALL=(ALL) NOPASSWD: SETENV: ALL' > /usr/local/etc/sudoers.d/wheel
 
 # Install the binaries and scripts
 /usr/local/bin/aws s3 cp s3://rabson-org-dist/dist.tar.gz /tmp
