@@ -117,7 +117,7 @@ void NfsState::recall()
         }
     }
     if (!session) {
-        LOG(INFO) << "No back channel to send recall, revoking:" << id_;
+        VLOG(1) << "No back channel to send recall, revoking: " << id_;
         auto cl = client_.lock();
         if (cl) {
             cl->revokeState(shared_from_this());

@@ -515,6 +515,7 @@ private:
     std::shared_ptr<util::Clock> clock_;
     util::Clock::time_point graceExpiry_;
     std::shared_ptr<oncrpc::RestRegistry> restreg_;
+    bool expiring_ = false;
 
     // Statistics
     std::vector<int> stats_;     // per-compound op counts

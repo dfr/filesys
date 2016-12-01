@@ -656,6 +656,7 @@ OPEN4res NfsServer::open(
                 client, args.owner, share_access, share_deny, inGracePeriod());
 
             // Recall any conflicting delegations or layouts
+            auto flk = fs->lock();
             vector<shared_ptr<NfsState>> toRecall;
             if (share_access & OPEN4_SHARE_ACCESS_WRITE) {
                 VLOG(1) << "Checking for conflicting read or write state";
@@ -691,22 +692,17 @@ OPEN4res NfsServer::open(
                     }
                 }
             }
+            flk.unlock();
 
             // If we issued any recalls, ask our caller to re-try after a
             // short delay
             if (toRecall.size() > 0) {
-                // Only return NFS4ERR_DELAY if the recalled state was
-                // unreclaimed
-                bool needDelay = false;
+                lk.unlock();
                 for (auto ns: toRecall) {
                     ns->recall();
-                    if (!ns->restored())
-                        needDelay = true;
                 }
-                if (needDelay) {
-                    VLOG(1) << "Delaying open due to recalls";
-                    return OPEN4res(NFS4ERR_DELAY);
-                }
+                VLOG(1) << "Delaying open due to recalls";
+                return OPEN4res(NFS4ERR_DELAY);
             }
         }
 
@@ -1764,7 +1760,7 @@ CREATE_SESSION4res NfsServer::create_session(
             if (it->second->confirmed()) {
                 VLOG(1) << "Purging state for old clientid: "
                         << hex << it->second->id();
-                it->second->releaseState();
+                it->second->clearState();
                 clientsById_.erase(it->second->id());
                 clientsByOwnerId_.erase(it);
                 break;
@@ -2110,38 +2106,6 @@ LAYOUTGET4res NfsServer::layoutget(
             return LAYOUTGET4res(NFS4ERR_LAYOUTUNAVAILABLE);
         }
 
-        // Take the server lock to serialise with open
-        unique_lock<mutex> lock(mutex_);
-        auto fs = findState(lock, state.curr.file);
-
-        // Check for existing state conflicts
-        if (args.loga_iomode == LAYOUTIOMODE4_READ) {
-            // We can issue a read layout if there are no existing
-            // write opens. Note that we should be safe from existing
-            // delegations or layouts since they will have been
-            // recalled before the open for args.loga_stateid.
-            for (auto ns: fs->opens()) {
-                if (ns->client() == client)
-                    continue;
-                if (ns->access() & OPEN4_SHARE_ACCESS_WRITE) {
-                    VLOG(1) << "Denying read layout: "
-                            << "existing write open";
-                    return LAYOUTGET4res(NFS4ERR_LAYOUTUNAVAILABLE);
-                }
-            }
-        }
-        else {
-            // We can issue a write layout if there are no existing
-            // opens from other clients
-            for (auto ns: fs->opens()) {
-                if (ns->client() == client)
-                    continue;
-                VLOG(1) << "Denying write layout: "
-                        << "existing open";
-                return LAYOUTGET4res(NFS4ERR_LAYOUTUNAVAILABLE);
-            }
-        }
-
         vector<shared_ptr<Device>> devices;
         LAYOUTGET4resok resok;
         resok.logr_return_on_close = false;
@@ -2197,26 +2161,62 @@ LAYOUTGET4res NfsServer::layoutget(
             return LAYOUTGET4res(NFS4ERR_LAYOUTUNAVAILABLE);
         }
 
+        // Take the server lock to serialise with open
+        unique_lock<mutex> lock(mutex_);
+        auto fs = findState(lock, state.curr.file);
+
+        // Check for existing state conflicts
+        if (args.loga_iomode == LAYOUTIOMODE4_READ) {
+            // We can issue a read layout if there are no existing
+            // write opens. Note that we should be safe from existing
+            // delegations or layouts since they will have been
+            // recalled before the open for args.loga_stateid.
+            for (auto ns: fs->opens()) {
+                if (ns->client() == client)
+                    continue;
+                if (ns->access() & OPEN4_SHARE_ACCESS_WRITE) {
+                    VLOG(1) << "Denying read layout: "
+                            << "existing write open";
+                    return LAYOUTGET4res(NFS4ERR_LAYOUTUNAVAILABLE);
+                }
+            }
+        }
+        else {
+            // We can issue a write layout if there are no existing
+            // opens from other clients
+            for (auto ns: fs->opens()) {
+                if (ns->client() == client)
+                    continue;
+                VLOG(1) << "Denying write layout: "
+                        << "existing open";
+                return LAYOUTGET4res(NFS4ERR_LAYOUTUNAVAILABLE);
+            }
+        }
+
         // Now that we have finished calling anything which might raise an
         // exception, its safe to create the layout state object
         if (ns->type() != StateType::LAYOUT) {
+            // If there is an existing layout for this client, just
+            // delete it.
+            auto oldns = fs->findLayout(client);
+            auto newns = client->addLayout(
+                fs, args.loga_iomode, devices, leaseExpiry());
+            newns->setOffset(args.loga_offset);
+            newns->setLength(args.loga_length);
+
+            // Drop the lock to avoid deadlocks with client state
+            // expiry while we write the database transaction
+            lock.unlock();
+
             // Client presented an open, delegation or lock stateid -
             // we create a new layout state.
             auto trans = beginTransaction();
 
-            // If there is an existing layout for this client, just
-            // delete it.
-            auto oldns = fs->findLayout(client);
             if (oldns) {
                 oldns->remove(trans.get());
                 client->clearState(oldns->id());
                 fs->removeLayout(oldns);
             }
-
-            auto newns = client->addLayout(
-                fs, args.loga_iomode, devices, leaseExpiry());
-            newns->setOffset(args.loga_offset);
-            newns->setLength(args.loga_length);
 
             newns->save(trans.get());
             commit(move(trans));
@@ -2411,10 +2411,10 @@ RECLAIM_COMPLETE4res NfsServer::reclaim_complete(
     // Revoke any unreclaimed state and clear the restored flag - the
     // client is back in sync with the server
     auto client = state.session->client();
-    auto trans = beginTransaction();
-    client->revokedUnreclaimedState(trans.get());
+    client->revokeUnreclaimedState();
     client->clearRestored();
-    commit(move(trans));
+
+    VLOG(1) << "client has " << client->stateCount() << " state(s)";
 
     return RECLAIM_COMPLETE4res{NFS4_OK};
 }
@@ -2578,141 +2578,153 @@ void NfsServer::compound(oncrpc::CallContext&& ctx)
             ctx.getArgs(
                 [this, xresults](oncrpc::XdrSource* xargs)
                 {
-                    string tag;
-                    uint32_t minorversion;
-                    int opcount;
-                    xdr(tag, xargs);
-                    xdr(minorversion, xargs);
-                    xdr(opcount, xargs);
-                    if (minorversion != 1) {
-                        xdr(NFS4ERR_MINOR_VERS_MISMATCH, xresults);
-                        xdr(tag, xresults);
-                        xdr(0, xresults);
-                        return;
-                    }
+                    try {
+                        string tag;
+                        uint32_t minorversion;
+                        int opcount;
+                        xdr(tag, xargs);
+                        xdr(minorversion, xargs);
+                        xdr(opcount, xargs);
+                        if (minorversion != 1) {
+                            xdr(NFS4ERR_MINOR_VERS_MISMATCH, xresults);
+                            xdr(tag, xresults);
+                            xdr(0, xresults);
+                            return;
+                        }
 
-                    CompoundState state;
-                    state.opindex = 0;
-                    state.opcount = opcount;
+                        CompoundState state;
+                        state.opindex = 0;
+                        state.opcount = opcount;
 
-                    // The first opcode must be sequence or a valid
-                    // singleton op
-                    nfs_opnum4 op;
-                    xdr(op, xargs);
-                    bool validSingleton = isSingleton(op);
-                    if (op != OP_SEQUENCE && !validSingleton) {
-                        xdr(NFS4ERR_OP_NOT_IN_SESSION, xresults);
-                        xdr(tag, xresults);
-                        xdr(1, xresults);
-                        xdr(op, xresults);
-                        xdr(NFS4ERR_OP_NOT_IN_SESSION, xresults);
-                        return;
-                    }
-
-                    // If the first op is not sequence, it must be a singleton
-                    if (validSingleton) {
-                        if (opcount != 1) {
-                            xdr(NFS4ERR_NOT_ONLY_OP, xresults);
+                        // The first opcode must be sequence or a valid
+                        // singleton op
+                        nfs_opnum4 op;
+                        xdr(op, xargs);
+                        bool validSingleton = isSingleton(op);
+                        if (op != OP_SEQUENCE && !validSingleton) {
+                            xdr(NFS4ERR_OP_NOT_IN_SESSION, xresults);
                             xdr(tag, xresults);
                             xdr(1, xresults);
                             xdr(op, xresults);
-                            xdr(NFS4ERR_NOT_ONLY_OP, xresults);
+                            xdr(NFS4ERR_OP_NOT_IN_SESSION, xresults);
                             return;
+                        }
+
+                        // If the first op is not sequence, it must be a singleton
+                        if (validSingleton) {
+                            if (opcount != 1) {
+                                xdr(NFS4ERR_NOT_ONLY_OP, xresults);
+                                xdr(tag, xresults);
+                                xdr(1, xresults);
+                                xdr(op, xresults);
+                                xdr(NFS4ERR_NOT_ONLY_OP, xresults);
+                                return;
+                            }
+
+                            oncrpc::XdrWord* statusp =
+                                xresults->writeInline<oncrpc::XdrWord>(
+                                    sizeof(oncrpc::XdrWord));
+                            xdr(tag, xresults);
+                            xdr(1, xresults);
+                            xdr(op, xresults);
+                            *statusp = dispatchop(op, state, xargs, xresults);
+                            return;
+                        }
+
+                        SEQUENCE4args seqargs;
+                        SEQUENCE4res seqres;
+                        oncrpc::XdrSink* xreply = xresults;
+                        xdr(seqargs, xargs);
+
+                        shared_ptr<NfsSession> session;
+                        unique_lock<mutex> lock(mutex_);
+                        auto p = sessionsById_.find(seqargs.sa_sessionid);
+                        if (p != sessionsById_.end()) {
+                            session = p->second;
+                            stats_[OP_SEQUENCE]++;
+                            lock.unlock();
+                            seqres = session->sequence(state, seqargs);
+                        }
+                        else {
+                            lock.unlock();
+                            LOG(ERROR) << "Request received for unknown session: "
+                                       << seqargs.sa_sessionid;
+                            seqres = SEQUENCE4res(NFS4ERR_BADSESSION);
+                        }
+                        if (state.session) {
+                            state.session->client()->setExpiry(leaseExpiry());
+                        }
+                        if (state.slot) {
+                            auto slotp = state.slot;
+                            if (seqargs.sa_sequenceid == slotp->sequence) {
+                                slotp->reply->copyTo(xresults);
+                                return;
+                            }
+                            slotp->sequence++;
+                            auto& ctx = CallContext::current();
+                            auto sz = ctx.channel()->bufferSize();
+                            if (slotp->reply && slotp->reply->bufferSize() != sz)
+                                slotp->reply.reset();
+                            if (!slotp->reply) {
+                                slotp->reply = make_unique<oncrpc::Message>(sz);
+                            }
+                            else {
+                                slotp->reply->rewind();
+                                slotp->reply->setWriteSize(sz);
+                            }
+                            xreply = slotp->reply.get();
                         }
 
                         oncrpc::XdrWord* statusp =
-                            xresults->writeInline<oncrpc::XdrWord>(
+                            xreply->writeInline<oncrpc::XdrWord>(
                                 sizeof(oncrpc::XdrWord));
-                        xdr(tag, xresults);
-                        xdr(1, xresults);
-                        xdr(op, xresults);
-                        *statusp = dispatchop(op, state, xargs, xresults);
-                        return;
-                    }
+                        assert(statusp != nullptr);
+                        *statusp = seqres.sr_status;
+                        xdr(tag, xreply);
+                        oncrpc::XdrWord* opcountp =
+                            xreply->writeInline<oncrpc::XdrWord>(
+                                sizeof(oncrpc::XdrWord));
+                        assert(opcountp != nullptr);
+                        *opcountp = 1;
+                        xdr(OP_SEQUENCE, xreply);
+                        xdr(seqres, xreply);
+                        if (seqres.sr_status == NFS4_OK) {
+                            for (int i = 1; i < opcount; i++) {
+                                nfs_opnum4 op;
+                                nfsstat4 stat;
 
-                    SEQUENCE4args seqargs;
-                    SEQUENCE4res seqres;
-                    oncrpc::XdrSink* xreply = xresults;
-                    xdr(seqargs, xargs);
+                                xdr(op, xargs);
+                                *opcountp = i + 1;
+                                xdr(op, xreply);
 
-                    shared_ptr<NfsSession> session;
-                    unique_lock<mutex> lock(mutex_);
-                    auto p = sessionsById_.find(seqargs.sa_sessionid);
-                    if (p != sessionsById_.end()) {
-                        session = p->second;
-                        stats_[OP_SEQUENCE]++;
-                        lock.unlock();
-                        seqres = session->sequence(state, seqargs);
-                    }
-                    else {
-                        lock.unlock();
-                        LOG(ERROR) << "Request received for unknown session: "
-                                   << seqargs.sa_sessionid;
-                        seqres = SEQUENCE4res(NFS4ERR_BADSESSION);
-                    }
-                    if (state.session) {
-                        state.session->client()->setExpiry(leaseExpiry());
-                    }
-                    if (state.slot) {
-                        auto slotp = state.slot;
-                        if (seqargs.sa_sequenceid == slotp->sequence) {
-                            slotp->reply->copyTo(xresults);
-                            return;
-                        }
-                        slotp->sequence++;
-                        auto& ctx = CallContext::current();
-                        auto sz = ctx.channel()->bufferSize();
-                        if (slotp->reply && slotp->reply->bufferSize() != sz)
-                            slotp->reply.reset();
-                        if (!slotp->reply) {
-                            slotp->reply = make_unique<oncrpc::Message>(sz);
-                        }
-                        else {
-                            slotp->reply->rewind();
-                            slotp->reply->setWriteSize(sz);
-                        }
-                        xreply = slotp->reply.get();
-                    }
-
-                    oncrpc::XdrWord* statusp =
-                        xreply->writeInline<oncrpc::XdrWord>(
-                            sizeof(oncrpc::XdrWord));
-                    assert(statusp != nullptr);
-                    *statusp = seqres.sr_status;
-                    xdr(tag, xreply);
-                    oncrpc::XdrWord* opcountp =
-                        xreply->writeInline<oncrpc::XdrWord>(
-                            sizeof(oncrpc::XdrWord));
-                    assert(opcountp != nullptr);
-                    *opcountp = 1;
-                    xdr(OP_SEQUENCE, xreply);
-                    xdr(seqres, xreply);
-                    if (seqres.sr_status == NFS4_OK) {
-                        for (int i = 1; i < opcount; i++) {
-                            nfs_opnum4 op;
-                            nfsstat4 stat;
-
-                            xdr(op, xargs);
-                            *opcountp = i + 1;
-                            xdr(op, xreply);
-
-                            if (op == OP_SEQUENCE) {
-                                stat = NFS4ERR_SEQUENCE_POS;
-                                xdr(stat, xreply);
-                                break;
-                            }
-                            state.opindex = i;
-                            stat = dispatchop(op, state, xargs, xreply);
-                            if (stat != NFS4_OK) {
-                                *statusp = stat;
-                                break;
+                                if (op == OP_SEQUENCE) {
+                                    stat = NFS4ERR_SEQUENCE_POS;
+                                    xdr(stat, xreply);
+                                    break;
+                                }
+                                state.opindex = i;
+                                stat = dispatchop(op, state, xargs, xreply);
+                                if (stat != NFS4_OK) {
+                                    *statusp = stat;
+                                    break;
+                                }
                             }
                         }
+                        if (xreply != xresults) {
+                            xreply->flush();
+                            state.slot->busy = false;
+                            state.slot->reply->copyTo(xresults);
+                        }
                     }
-                    if (xreply != xresults) {
-                        xreply->flush();
-                        state.slot->busy = false;
-                        state.slot->reply->copyTo(xresults);
+                    catch (oncrpc::RpcError& e) {
+                        LOG(ERROR) << "RPC error processing compound call: "
+                                   << e.what();
+                        throw;
+                    }
+                    catch (system_error& e) {
+                        LOG(ERROR) << "system error processing compound call: "
+                                   << e.what();
+                        throw;
                     }
                 });
         });
@@ -2875,8 +2887,19 @@ void NfsServer::commit(std::unique_ptr<keyval::Transaction>&& trans)
 int NfsServer::expireClients()
 {
     unique_lock<mutex> lock(mutex_);
+    if (expiring_)
+        return 0;
+    expiring_ = true;
+
     auto now = clock_->now();
     int expired = 0;
+
+    // Take a copy of the client list first so we can drop the server
+    // lock
+    vector<shared_ptr<NfsClient>> clients;
+    for (auto& e: clientsById_)
+        clients.push_back(e.second);
+    lock.unlock();
 
     // Our expiry policy has several phases.
     //
@@ -2893,10 +2916,7 @@ int NfsServer::expireClients()
     // 3: A client which still has unrevoked state after 20*lease_time
     // from its last renewal has all its state immediately revoked and
     // is purged.
-restart:
-    for (auto& e: clientsById_) {
-        auto client = e.second;
-
+    for (auto client: clients) {
         // Expire old recallable state
         client->expireState(now);
 
@@ -2911,28 +2931,32 @@ restart:
             if (!client->hasState() && !client->hasRevokedState()) {
                 LOG(INFO) << "Expiring client with no state, clientid: "
                           << hex << client->id();
+                lock.lock();
                 destroyClient(lock, client);
+                lock.unlock();
                 expired++;
-                goto restart;
             }
         }
         if (client->expiry() + seconds(4*FLAGS_lease_time) < now &&
             !client->hasState()) {
             LOG(INFO) << "Expiring client with revoked state, clientid: "
                       << hex << client->id();
+            lock.lock();
             destroyClient(lock, client);
+            lock.unlock();
             expired++;
-            goto restart;
         }
         if (client->expiry() + seconds(19*FLAGS_lease_time) < now) {
             LOG(INFO) << "Expiring client with unrevoked state, clientid: "
                       << hex << client->id();
+            lock.lock();
             destroyClient(lock, client);
+            lock.unlock();
             expired++;
-            goto restart;
         }
     }
 
+    lock.lock();
     if (expired > 0) {
         // After expiry processing, it is possible that we may have
         // NfsFileState instances which can also be expired
@@ -2944,6 +2968,7 @@ restart:
             files_.erase(f);
     }
 
+    expiring_ = false;
     return expired;
 }
 

@@ -267,6 +267,16 @@ shared_ptr<NfsState> NfsClient::findState(
     throw NFS4ERR_OLD_STATEID;
 }
 
+void NfsClient::clearState()
+{
+    auto trans = db_->beginTransaction();
+    revokeState(trans.get());
+    db_->commit(move(trans));
+    std::unique_lock<std::mutex> lock(mutex_);
+    revokedState_.clear();
+    recallableStateCount_ = 0;
+}
+
 void NfsClient::clearState(const filesys::nfs4::stateid4& stateid)
 {
     std::unique_lock<std::mutex> lock(mutex_);
@@ -357,7 +367,7 @@ void NfsClient::revokeState(keyval::Transaction* trans)
     state_.clear();
 }
 
-void NfsClient::revokedUnreclaimedState(keyval::Transaction* trans)
+void NfsClient::revokeUnreclaimedState()
 {
     std::unique_lock<std::mutex> lock(mutex_);
     vector<shared_ptr<NfsState>> toRevoke;
@@ -367,7 +377,9 @@ void NfsClient::revokedUnreclaimedState(keyval::Transaction* trans)
             toRevoke.push_back(ns);
     }
     for (auto ns: toRevoke) {
-        ns->remove(trans);
+        auto trans = db_->beginTransaction();
+        ns->remove(trans.get());
+        db_->commit(move(trans));
         auto fs = ns->fs();
         if (fs) {
             fs->revoke(ns);

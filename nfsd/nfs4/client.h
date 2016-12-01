@@ -133,13 +133,6 @@ public:
         expiry_ = expiry;
     }
 
-    void releaseState()
-    {
-        state_.clear();
-        revokedState_.clear();
-        recallableStateCount_ = 0;
-    }
-
     void setConfirmed()
     {
         confirmed_ = true;
@@ -246,12 +239,13 @@ public:
         return ns;
     }
 
+    void clearState();
     void clearState(const filesys::nfs4::stateid4& stateid);
     void clearLayouts();
     void revokeState(std::shared_ptr<NfsState> ns);
     void revokeState(std::shared_ptr<NfsState> ns, keyval::Transaction* trans);
     void revokeState(keyval::Transaction* trans);
-    void revokedUnreclaimedState(keyval::Transaction* trans);
+    void revokeUnreclaimedState();
 
     void deviceCallback(
         std::shared_ptr<filesys::Device> dev,

@@ -214,8 +214,15 @@ void NfsSession::callback(
                     res(dec);
                 });
         }
+        catch (system_error& e) {
+            LOG(ERROR) << "Backchannel request failed: " << e.what();
+            lk.lock();
+            backChannel_.reset();
+            backChannelState_ = NONE;
+            return;
+        }
         catch (oncrpc::RpcError& e) {
-            LOG(ERROR) << "Backchannel request failed; " << e.what();
+            LOG(ERROR) << "Backchannel request failed: " << e.what();
             lk.lock();
             backChannel_.reset();
             backChannelState_ = NONE;
