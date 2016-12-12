@@ -141,14 +141,7 @@ bool NfsClient::post(
     if (uri.segments.size() == 4 && uri.segments[3] == "revoke") {
         LOG(INFO) << req->body();
         if (req->body() == "true") {
-            if (db_) {
-                auto trans = db_->beginTransaction();
-                revokeState(trans.get());
-                db_->commit(move(trans));
-            }
-            else {
-                revokeState(nullptr);
-            }
+            revokeState();
         }
         return true;
     }
@@ -269,9 +262,7 @@ shared_ptr<NfsState> NfsClient::findState(
 
 void NfsClient::clearState()
 {
-    auto trans = db_->beginTransaction();
-    revokeState(trans.get());
-    db_->commit(move(trans));
+    revokeState();
     std::unique_lock<std::mutex> lock(mutex_);
     revokedState_.clear();
     recallableStateCount_ = 0;
@@ -346,12 +337,14 @@ void NfsClient::revokeState(
     revokedState_[ns->id()] = ns;
 }
 
-void NfsClient::revokeState(keyval::Transaction* trans)
+void NfsClient::revokeState()
 {
     std::unique_lock<std::mutex> lock(mutex_);
     for (auto& e: state_) {
         auto ns = e.second;
-        ns->remove(trans);
+        auto trans = db_->beginTransaction();
+        ns->remove(trans.get());
+        db_->commit(move(trans));
 
         auto fs = ns->fs();
         if (fs) {

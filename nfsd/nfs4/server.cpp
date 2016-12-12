@@ -2090,6 +2090,10 @@ LAYOUTGET4res NfsServer::layoutget(
                 }
             }
             catch (system_error& e) {
+                // If the server is starting up it may not have enough
+                // devices yet - tell the client to retry
+                if (e.code().value() == EIO)
+                    return LAYOUTGET4res(NFS4ERR_DELAY);
                 LOG(ERROR) << "Error getting layout segment: " << e.what();
                 return LAYOUTGET4res(NFS4ERR_LAYOUTUNAVAILABLE);
             }
@@ -2157,6 +2161,10 @@ LAYOUTGET4res NfsServer::layoutget(
                 xdr(ffl, static_cast<oncrpc::XdrSink*>(&xm));
             }
         } catch (system_error& e) {
+            // If the server is starting up it may not have enough
+            // devices yet - tell the client to retry
+            if (e.code().value() == EIO)
+                return LAYOUTGET4res(NFS4ERR_DELAY);
             LOG(ERROR) << "Error getting layout devices: " << e.what();
             return LAYOUTGET4res(NFS4ERR_LAYOUTUNAVAILABLE);
         }
@@ -2395,7 +2403,7 @@ DESTROY_CLIENTID4res NfsServer::destroy_clientid(
                        << hex << client->id();
         if (client->sessionCount() > 0)
             LOG(ERROR) << "Can't destroy client with sessions, clientid: "
-                       << client->id();
+                       << hex << client->id();
         return DESTROY_CLIENTID4res{NFS4ERR_CLIENTID_BUSY};
     }
     destroyClient(lock, client);
@@ -2975,14 +2983,14 @@ int NfsServer::expireClients()
 void NfsServer::destroyClient(
     unique_lock<mutex>& lock, shared_ptr<NfsClient> client)
 {
-    auto trans = beginTransaction();
     for (auto& session: client->sessions()) {
         sessionsById_.erase(session->id());
     }
-    client->revokeState(trans.get());
+    client->revokeState();
     auto range = clientsByOwnerId_.equal_range(client->owner().co_ownerid);
     clientsById_.erase(client->id());
     clientsByOwnerId_.erase(range.first, range.second);
+    auto trans = beginTransaction();
     client->remove(trans.get());
     commit(move(trans));
 }

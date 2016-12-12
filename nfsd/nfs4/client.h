@@ -244,7 +244,7 @@ public:
     void clearLayouts();
     void revokeState(std::shared_ptr<NfsState> ns);
     void revokeState(std::shared_ptr<NfsState> ns, keyval::Transaction* trans);
-    void revokeState(keyval::Transaction* trans);
+    void revokeState();
     void revokeUnreclaimedState();
 
     void deviceCallback(
