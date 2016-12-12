@@ -34,6 +34,10 @@ PosixFilesystem::PosixFilesystem(const std::string& path)
     fsid_.resize(sizeof(stfs.f_fsid));
     copy_n(reinterpret_cast<const uint8_t*>(&stfs.f_fsid),
            sizeof(stfs.f_fsid), fsid_.data());
+
+    // XXX: Don't cache too many pieces - we are using select and don't
+    // want to have file descriptors greater than 1023
+    cache_.setSizeLimit(512);
 }
 
 shared_ptr<File>

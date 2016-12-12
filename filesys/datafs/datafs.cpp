@@ -127,6 +127,10 @@ DataFilesystem::DataFilesystem(shared_ptr<Filesystem> store)
 
     fsid_.resize(16);
     copy_n(buf->data(), 16, fsid_.data());
+
+    // XXX: Don't cache too many pieces - we are using select and don't
+    // want to have file descriptors greater than 1023
+    cache_.setSizeLimit(512);
 }
 
 std::shared_ptr<File>
