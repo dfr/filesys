@@ -350,6 +350,11 @@ void Replica::accept(const ACCEPTargs& args)
             maxInstance_ = instance;
         }
 
+        // Pre-create the learner to avoid getting confused in
+        // applyCommands if we learn a future instance ahead of
+        // this one
+        findLearnerState(lk, instance, true);
+
         ap->rnd = i;
         ap->vrnd = i;
         ap->vval = v;
@@ -493,6 +498,11 @@ void Replica::nack(const NACKargs& args)
 std::shared_ptr<PendingTransaction> Replica::execute(
         const std::vector<uint8_t>& command)
 {
+    // Must be small enough for a single UDP packet
+    if (command.size() > 1400)
+        LOG(FATAL) << "paxos transaction too large {"
+                   << command.size() << " bytes}";
+
     std::unique_lock<std::mutex> lk(mutex_);
     auto trans = std::make_shared<PendingTransaction>(command);
     pendingCommands_.push_back(trans);
@@ -842,10 +852,12 @@ bool Replica::applyCommands(std::unique_lock<std::mutex>& lk)
             // If the gap is larger than one instance, we will end up
             // here again after we recover a value for this instance.
 
-            if (VLOG_IS_ON(2) || (instance % 10000) == 0)
+            if (VLOG_IS_ON(2) || (instance % 10000) == 0) {
                 LOG(INFO) << "recovering instance " << instance;
-            if (status_ != STATUS_RECOVERING)
+            }
+            if (status_ != STATUS_RECOVERING) {
                 LOG(INFO) << "recovering from " << instance;
+            }
             status_ = STATUS_RECOVERING;
             if (isLeader_) {
                 // Some other replica is creating new instances so
