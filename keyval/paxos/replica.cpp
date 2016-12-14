@@ -449,25 +449,25 @@ void Replica::accepted(const ACCEPTargs& args)
                 pp->transaction.reset();
             }
             proposerState_.erase(instance);
-            activeInstances_--;
         }
 
-        if (applyCommands(lk)) {
-            // If we are fully up to date and still have commands
-            // pending start a new round to try and get them executed
-            if (isLeader_ && pendingCommands_.size() > 0 &&
-                activeInstances_ == 0) {
-                startNewInstance(lk, maxInstance_ + 1);
-            }
+        bool sync = applyCommands(lk);
 
-            if (status_ == STATUS_RECOVERING) {
-                // We have values for all known instances so we are
-                // healthy again
-                LOG(INFO) << "recovered to " << maxInstance_;
-                status_ = STATUS_HEALTHY;
-                sendIdentity(lk);
-            }
+        // If we are leader and still have commands pending start a
+        // new round to try and get them executed
+        if (isLeader_ && pendingCommands_.size() > 0 &&
+            proposerState_.size() == 0) {
+            startNewInstance(lk, maxInstance_ + 1);
         }
+
+        if (sync && status_ == STATUS_RECOVERING) {
+            // We have values for all known instances so we are
+            // healthy again
+            LOG(INFO) << "recovered to " << maxInstance_;
+            status_ = STATUS_HEALTHY;
+            sendIdentity(lk);
+        }
+
         progress_.notify_all();
     }
 }
@@ -597,7 +597,6 @@ std::shared_ptr<AcceptorState> Replica::findAcceptorState(
 ProposerState* Replica::startNewInstance(
     std::unique_lock<std::mutex>& lk, std::int64_t instance)
 {
-    activeInstances_++;
     auto pp = findProposerState(lk, instance, true);
     if (pp->state == ProposerState::INIT) {
         assert(pp->crnd == PaxosRound{0});
@@ -832,6 +831,10 @@ void Replica::updateLeaseTimer(std::unique_lock<std::mutex>& lk)
             [this]() {
                 VLOG(2) << "extending lease";
                 std::unique_lock<std::mutex> lk2(mutex_);
+
+                if (pendingCommands_.size() > 0 && proposerState_.size() == 0)
+                    LOG(FATAL) << "pending commands but no active instances";
+
                 startNewInstance(lk2, maxInstance_ + 1);
             });
 }

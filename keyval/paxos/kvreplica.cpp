@@ -6,6 +6,7 @@
 #include <cassert>
 #include <chrono>
 #include <iomanip>
+#include <iostream>
 #include <random>
 #include <glog/logging.h>
 #include <glog/stl_logging.h>
@@ -15,6 +16,7 @@
 
 using namespace keyval;
 using namespace keyval::paxos;
+using namespace std::chrono_literals;
 
 class KVNamespace: public keyval::Namespace
 {
@@ -90,6 +92,26 @@ public:
         oncrpc::XdrMemory xm(res.data(), res.size());
         xdr(trans_, static_cast<oncrpc::XdrSink*>(&xm));
         return res;
+    }
+
+    auto opcount() const { return trans_.ops.size(); }
+
+    void log()
+    {
+        // XXX detect ascii and dump as hex
+        LOG(INFO) << "op count: " << trans_.ops.size();
+        for (auto& op: trans_.ops) {
+            switch (op.op) {
+            case OP_PUT:
+                LOG(INFO) << "put " << op.put().ns << ", "
+                          << op.put().key << ", " << op.put().value;
+                break;
+            case OP_REMOVE:
+                LOG(INFO) << "remove " << op.remove().ns << ", "
+                          << op.remove().key;
+                break;
+            }
+        }
     }
 
 private:
@@ -195,12 +217,25 @@ void KVReplica::commit(std::unique_ptr<keyval::Transaction>&& transaction)
         LOG(WARNING) << "writing to database when not master:"
                      << " this will start a master election";
 
+    auto startTime = clock_->now();
+
+
     VLOG(2) << "committing transaction";
     auto p = reinterpret_cast<KVTransaction*>(transaction.get());
     auto pt = execute(p->encode());
-    transaction.reset();
     VLOG(2) << "waiting for completion";
     pt->wait();
+
+    auto deltaTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+        clock_->now() - startTime);
+
+    if (deltaTime > 500ms) {
+        LOG(INFO) << "slow transaction: " << deltaTime.count() << "ms";
+        //p->log();
+        //abort();
+    }
+
+    transaction.reset();
 }
 
 void KVReplica::flush()

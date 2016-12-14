@@ -109,6 +109,17 @@ public:
             cv_.wait(lk);
     }
 
+    /// Wait until the transaction is completed
+    template <typename Rep, typename Period>
+    std::cv_status wait_for(const std::chrono::duration<Rep, Period>& rel_time)
+    {
+        std::unique_lock<std::mutex> lk(mutex_);
+        if (!completed_)
+            return cv_.wait_for(lk, rel_time);
+        else
+            return std::cv_status::no_timeout;
+    }
+
     /// Set the completed flag and wake up any sleepers
     void complete()
     {
@@ -341,7 +352,7 @@ public:
             return minimumQuorum_;
     }
     auto isLeader() const { return isLeader_; }
-    auto activeInstances() const { return activeInstances_; }
+    auto activeInstances() const { return proposerState_.size(); }
     auto disableLeaderElections() { leaderElections_ = false; }
 
     /// Force this replica to believe it is leader - used in unit
@@ -477,10 +488,6 @@ protected:
 
     /// The last instance which we have applied to our state machine
     std::int64_t appliedInstance_ = 0;
-
-    /// The number of incomplete paxos instances which are currently
-    /// in-flight
-    int activeInstances_ = 0;
 
     /// Pending commands that have not yet been processed
     ///
