@@ -191,6 +191,12 @@ NfsServer::NfsServer(
             }
         }
 
+        for (auto entry: clientsById_) {
+            auto client = entry.second;
+            LOG(INFO) << "clientid: " << hex << client->id() << dec
+                      << ": " << client->stateCount() << " state(s)";
+        }
+
         // Encode our network addresses so that other servers in a
         // replicated set can list them in their fs_locations
         // attributes
@@ -617,12 +623,14 @@ OPEN4res NfsServer::open(
             verf = *reinterpret_cast<const uint64_t*>(verfp->data());
         }
 
-        // Serialize open and layoutget so that we can ensure that we
-        // handle any state conflicts correctly
-        unique_lock<mutex> lk(mutex_);
-
         // See if the requested file exists so that we can check for conflicts
         shared_ptr<File> dir = state.curr.file;
+        auto dfs = findState(dir);
+
+        // Serialize open and layoutget so that we can ensure that we
+        // handle any state conflicts correctly
+        auto dlk = dfs->lock();
+
         shared_ptr<File> file;
         switch (args.claim.claim) {
         case CLAIM_NULL: {
@@ -647,16 +655,19 @@ OPEN4res NfsServer::open(
 
         shared_ptr<NfsFileState> fs;
         if (file) {
-            fs = findState(lk, file);
+            fs = findState(file);
+            unique_lock<mutex> flk;
+            if (dir != file)
+                flk = fs->lock();
 
             // Check existing share reservations - this will throw an
             // appropriate exception if there is a conflict.
             VLOG(1) << "Checking existing share reservations";
             fs->checkShare(
+                dir == file ? dlk : flk,
                 client, args.owner, share_access, share_deny, inGracePeriod());
 
             // Recall any conflicting delegations or layouts
-            auto flk = fs->lock();
             vector<shared_ptr<NfsState>> toRecall;
             if (share_access & OPEN4_SHARE_ACCESS_WRITE) {
                 VLOG(1) << "Checking for conflicting read or write state";
@@ -692,12 +703,13 @@ OPEN4res NfsServer::open(
                     }
                 }
             }
-            flk.unlock();
 
             // If we issued any recalls, ask our caller to re-try after a
             // short delay
             if (toRecall.size() > 0) {
-                lk.unlock();
+                dlk.unlock();
+                if (dir != file)
+                    flk.unlock();
                 for (auto ns: toRecall) {
                     ns->recall();
                 }
@@ -705,6 +717,7 @@ OPEN4res NfsServer::open(
                 return OPEN4res(NFS4ERR_DELAY);
             }
         }
+        dlk.unlock();
 
         // There are no state conflicts so go head and open or create
         // the file and apply any attribute changes
@@ -790,7 +803,7 @@ OPEN4res NfsServer::open(
             assert(state.curr.file == file);
         }
         else {
-            fs = findState(lk, state.curr.file);
+            fs = findState(state.curr.file);
         }
 
         // Check for open upgrade
@@ -1673,6 +1686,7 @@ retry:
     }
     assert(client);
 
+    lock.unlock();
     if (needCommit)
         commit(move(trans));
     else
@@ -2169,9 +2183,9 @@ LAYOUTGET4res NfsServer::layoutget(
             return LAYOUTGET4res(NFS4ERR_LAYOUTUNAVAILABLE);
         }
 
-        // Take the server lock to serialise with open
-        unique_lock<mutex> lock(mutex_);
-        auto fs = findState(lock, state.curr.file);
+        // Take the filestate lock to serialise with open
+        auto fs = findState(state.curr.file);
+        unique_lock<mutex> lk = fs->lock();
 
         // Check for existing state conflicts
         if (args.loga_iomode == LAYOUTIOMODE4_READ) {
@@ -2201,6 +2215,8 @@ LAYOUTGET4res NfsServer::layoutget(
             }
         }
 
+        lk.unlock();
+
         // Now that we have finished calling anything which might raise an
         // exception, its safe to create the layout state object
         if (ns->type() != StateType::LAYOUT) {
@@ -2211,10 +2227,6 @@ LAYOUTGET4res NfsServer::layoutget(
                 fs, args.loga_iomode, devices, leaseExpiry());
             newns->setOffset(args.loga_offset);
             newns->setLength(args.loga_length);
-
-            // Drop the lock to avoid deadlocks with client state
-            // expiry while we write the database transaction
-            lock.unlock();
 
             // Client presented an open, delegation or lock stateid -
             // we create a new layout state.
@@ -2899,6 +2911,8 @@ int NfsServer::expireClients()
         return 0;
     expiring_ = true;
 
+    //LOG(INFO) << "expiring clients";
+
     auto now = clock_->now();
     int expired = 0;
 
@@ -2976,6 +2990,11 @@ int NfsServer::expireClients()
             files_.erase(f);
     }
 
+    auto deltaTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+        clock_->now() - now);
+    if (deltaTime.count() > 100)
+        LOG(INFO) << "expiring clients took: " << deltaTime.count() << "ms";
+
     expiring_ = false;
     return expired;
 }
@@ -2990,9 +3009,11 @@ void NfsServer::destroyClient(
     auto range = clientsByOwnerId_.equal_range(client->owner().co_ownerid);
     clientsById_.erase(client->id());
     clientsByOwnerId_.erase(range.first, range.second);
+    lock.unlock();
     auto trans = beginTransaction();
     client->remove(trans.get());
     commit(move(trans));
+    lock.lock();
 }
 
 function<void(Setattr*)> NfsServer::importAttr(

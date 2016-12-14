@@ -321,6 +321,9 @@ void NfsClient::revokeState(std::shared_ptr<NfsState> ns)
 void NfsClient::revokeState(
     std::shared_ptr<NfsState> ns, keyval::Transaction* trans)
 {
+    if (ns->revoked())
+        return;
+
     ns->remove(trans);
 
     std::unique_lock<std::mutex> lock(mutex_);
@@ -342,9 +345,11 @@ void NfsClient::revokeState()
     std::unique_lock<std::mutex> lock(mutex_);
     for (auto& e: state_) {
         auto ns = e.second;
-        auto trans = db_->beginTransaction();
-        ns->remove(trans.get());
-        db_->commit(move(trans));
+        if (db_ && db_->isMaster()) {
+            auto trans = db_->beginTransaction();
+            ns->remove(trans.get());
+            db_->commit(move(trans));
+        }
 
         auto fs = ns->fs();
         if (fs) {
@@ -369,21 +374,9 @@ void NfsClient::revokeUnreclaimedState()
         if (ns->restored())
             toRevoke.push_back(ns);
     }
+    lock.unlock();
     for (auto ns: toRevoke) {
-        auto trans = db_->beginTransaction();
-        ns->remove(trans.get());
-        db_->commit(move(trans));
-        auto fs = ns->fs();
-        if (fs) {
-            fs->revoke(ns);
-        }
-        if (ns->type() == StateType::DELEGATION ||
-            ns->type() == StateType::LAYOUT)
-            recallableStateCount_--;
-        if (ns->type() == StateType::LAYOUT)
-            clearLayout(lock, ns);
-        revokedState_[ns->id()] = ns;
-        state_.erase(ns->id());
+        revokeState(ns);
     }
 }
 
@@ -519,8 +512,11 @@ void NfsClient::expireState(util::Clock::time_point now)
 {
     // Recall any old state which isn't open on this client
     std::unique_lock<std::mutex> lock(mutex_);
+    auto stateCopy = state_;
+    lock.unlock();
+
     std::vector<std::shared_ptr<NfsState>> toRecall;
-    for (auto& e: state_) {
+    for (auto& e: stateCopy) {
         auto ns = e.second;
         if (ns->type() == StateType::DELEGATION ||
             ns->type() == StateType::LAYOUT) {
@@ -532,7 +528,6 @@ void NfsClient::expireState(util::Clock::time_point now)
             }
         }
     }
-    lock.unlock();
     for (auto ns: toRecall)
         ns->recall();
 }

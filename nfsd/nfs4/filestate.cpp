@@ -97,12 +97,11 @@ shared_ptr<NfsState> NfsFileState::findLayout(
 /// Return true if this owner can open with the given access and
 /// deny share reservation
 void NfsFileState::checkShare(
+    unique_lock<mutex>& lock,
     shared_ptr<NfsClient> client,
     const filesys::nfs4::open_owner4& owner,
     int access, int deny, bool inGracePeriod)
 {
-    unique_lock<mutex> lock(mutex_);
-
     // If the requested reservation conflicts with the current state
     // and that conflicting reservation is not owned by this owner,
     // deny the reservation
