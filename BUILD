@@ -40,6 +40,7 @@ filegroup(
         "//cli:fscli",
         "//filesys/objfs:objfsck",
         "//filesys/distfs:distfsck",
+        "//external:ldb",
     ],
 )
 
