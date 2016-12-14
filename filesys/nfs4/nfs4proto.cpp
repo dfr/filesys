@@ -238,6 +238,7 @@ retry:
     catch (nfsstat4 stat) {
         if (stat == NFS4ERR_STALE_CLIENTID) {
             // We need to create a new client and recover state
+            LOG(INFO) << "stale clientid: " << std::hex << clientid_;
             clientid_ = 0;
             recovery = true;
             goto retry;

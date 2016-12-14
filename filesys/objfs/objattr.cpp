@@ -6,6 +6,7 @@
 #include <cassert>
 #include <chrono>
 #include <system_error>
+#include <glog/logging.h>
 
 #include "objfs.h"
 
@@ -112,15 +113,21 @@ std::uint64_t ObjGetattr::createverf() const
 
 void ObjSetattr::setMode(int mode)
 {
-    if (cred_.uid() != attr_.uid && !cred_.privileged())
+    if (cred_.uid() != attr_.uid && !cred_.privileged()) {
+        VLOG(1) << "setMode failed: cred uid: " << cred_.uid()
+                << ", file uid: " << attr_.uid;
         throw system_error(EPERM, system_category());
+    }
     attr_.mode = mode;
 }
 
 void ObjSetattr::setUid(int uid)
 {
-    if (uint32_t(uid) != attr_.uid && !cred_.privileged())
+    if (uint32_t(uid) != attr_.uid && !cred_.privileged()) {
+        VLOG(1) << "setMode failed: cred uid: " << cred_.uid()
+                << ", file uid: " << attr_.uid;
         throw system_error(EPERM, system_category());
+    }
     attr_.uid = uid;
 }
 
@@ -129,10 +136,14 @@ void ObjSetattr::setGid(int gid)
     // If the cred matches the file owner and contains the requested group,
     // or the cred is privileged, we can change the file group
     if ((cred_.uid() == attr_.uid && cred_.hasgroup(gid))
-        || cred_.privileged())
+        || cred_.privileged()) {
         attr_.gid = gid;
-    else
+    }
+    else {
+        VLOG(1) << "setMode failed: cred uid: " << cred_.uid()
+                << ", file uid: " << attr_.uid;
         throw system_error(EPERM, system_category());
+    }
 }
 
 void ObjSetattr::setSize(std::uint64_t size)

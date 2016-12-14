@@ -608,7 +608,10 @@ void ObjFile::checkSticky(const Credential& cred, ObjFile* file)
     if (cred.privileged())
         return;
     if (meta_.attr.mode & ModeFlags::STICKY) {
+        VLOG(1) << "checking sticky directory";
         if (cred.uid() != file->meta_.attr.uid) {
+            VLOG(1) << "failed: cred uid: " << cred.uid()
+                    << ", file uid: " << file->meta_.attr.uid;
             throw system_error(EPERM, system_category());
         }
     }
