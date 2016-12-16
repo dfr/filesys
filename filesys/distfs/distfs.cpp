@@ -148,10 +148,14 @@ DistFilesystem::DistFilesystem(shared_ptr<Database> db, const string& addr)
 
 DistFilesystem::~DistFilesystem()
 {
-    unbind(svcreg_);
-    dscache_.clear();
+    unique_lock<mutex> lk(mutex_);
+    stopping_ = true;
+    lk.unlock();
+
     sockman_->stop();
     thread_.join();
+    unbind(svcreg_);
+    dscache_.clear();
 }
 
 vector<shared_ptr<Device>> DistFilesystem::devices(uint64_t& gen)
@@ -199,6 +203,9 @@ void DistFilesystem::status(const STATUSargs& args)
     VLOG(2) << "Received status for device: " << args.device.owner;
 
     unique_lock<mutex> lk(mutex_);
+    if (stopping_)
+        return;
+
     auto it = devicesByOwnerId_.find(args.device.owner.do_ownerid);
     shared_ptr<DistDevice> dev;
     bool needWrite = false;

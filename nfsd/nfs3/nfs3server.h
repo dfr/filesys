@@ -55,14 +55,14 @@ public:
     /// on startup, before any clients are connected.
     void setRestRegistry(std::shared_ptr<oncrpc::RestRegistry> restreg)
     {
-        assert(!restreg_);
+        assert(!restreg_.lock());
         restreg_ = restreg;
-        restreg_->add("/nfs3", true, shared_from_this());
+        restreg->add("/nfs3", true, shared_from_this());
     }
 
 private:
     std::vector<int> sec_;
-    std::shared_ptr<oncrpc::RestRegistry> restreg_;
+    std::weak_ptr<oncrpc::RestRegistry> restreg_;
 
     // Statistics
     std::vector<int> stats_;     // per-rpc op counts

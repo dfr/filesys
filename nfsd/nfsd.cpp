@@ -227,11 +227,33 @@ public:
         std::shared_ptr<oncrpc::RestRequest> req,
         std::unique_ptr<oncrpc::RestEncoder>&& res) override
     {
-        return db_->get(req, std::move(res));
+        return db_.lock()->get(req, std::move(res));
     }
 
 private:
-    std::shared_ptr<keyval::Database> db_;
+    std::weak_ptr<keyval::Database> db_;
+};
+
+class QuitHook: public oncrpc::RestHandler
+{
+public:
+    QuitHook(shared_ptr<SocketManager> sockman)
+        : sockman_(sockman)
+    {
+    }
+
+    bool post(
+        std::shared_ptr<oncrpc::RestRequest> req,
+        std::unique_ptr<oncrpc::RestEncoder>&& res) override
+    {
+        if (req->body() == "true") {
+            sockman_.lock()->stop();
+        }
+        return true;
+    }
+
+private:
+    std::weak_ptr<SocketManager> sockman_;
 };
 
 }
@@ -261,7 +283,6 @@ int main(int argc, char** argv)
         ::daemon(true, true);
 
     // Access the root node to make sure it is created (if necessary)
-    // while we have our temporary socket manager thread running
     auto fs = fac->mount(argv[1]);
     fs->root();
     fsman.mount("/", fs);
@@ -319,6 +340,7 @@ int main(int argc, char** argv)
     if (db)
         restreg->add("/dbstats", true, make_shared<ExportDbstats>(db));
     auto sockman = make_shared<SocketManager>();
+    restreg->add("/quit", true, make_shared<QuitHook>(sockman));
 
     vector<AddressInfo> addrs;
     vector<AddressInfo> uiaddrs;
@@ -399,4 +421,13 @@ int main(int argc, char** argv)
     }
 
     sockman->run();
+
+    threadpool.reset();
+    nfs3::shutdown();
+    nfs4::shutdown();
+    fsman.clear();
+    sockman.reset();
+    svcreg.reset();
+    restreg.reset();
+    fs.reset();
 }

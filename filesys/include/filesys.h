@@ -589,6 +589,12 @@ public:
     auto begin() { return filesystems_.begin(); }
     auto end() { return filesystems_.end(); }
 
+    void clear()
+    {
+        factories_.clear();
+        filesystems_.clear();
+    }
+
 private:
     std::map<std::string, std::shared_ptr<FilesystemFactory>> factories_;
     std::map<std::string, std::shared_ptr<Filesystem>> filesystems_;

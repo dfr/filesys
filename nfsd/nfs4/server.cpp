@@ -1565,8 +1565,9 @@ retry:
             client = make_shared<NfsClient>(
                 db_, id, args.eia_clientowner,
                 ctx.principal(), leaseExpiry(), args.eia_state_protect);
-            if (restreg_)
-                client->setRestRegistry(restreg_);
+            auto restreg = restreg_.lock();
+            if (restreg)
+                client->setRestRegistry(restreg);
             clientsById_[id] = client;
             clientsByOwnerId_.insert(
                 make_pair(args.eia_clientowner.co_ownerid, client));
@@ -1630,8 +1631,9 @@ retry:
                             db_, id, args.eia_clientowner,
                             ctx.principal(), leaseExpiry(),
                             args.eia_state_protect);
-                        if (restreg_)
-                            client->setRestRegistry(restreg_);
+                        auto restreg = restreg_.lock();
+                        if (restreg)
+                            client->setRestRegistry(restreg);
                         clientsById_[id] = client;
                         clientsByOwnerId_.insert(
                             make_pair(args.eia_clientowner.co_ownerid, client));
@@ -1803,8 +1805,9 @@ CREATE_SESSION4res NfsServer::create_session(
     auto session = make_shared<NfsSession>(
         client, ctx.channel(), fca, bca,
         args.csa_cb_program, args.csa_sec_parms);
-    if (restreg_)
-        session->setRestRegistry(restreg_);
+    auto restreg = restreg_.lock();
+    if (restreg)
+        session->setRestRegistry(restreg);
     sessionsById_[session->id()] = session;
     client->addSession(session);
 

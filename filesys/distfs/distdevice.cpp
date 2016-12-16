@@ -194,8 +194,12 @@ void DistDevice::write(shared_ptr<DistFilesystem> fs)
 
 void DistDevice::scheduleTimeout(
     weak_ptr<DistFilesystem> fs,
-    shared_ptr<oncrpc::TimeoutManager> tman)
+    weak_ptr<oncrpc::TimeoutManager> tman)
 {
+    auto p = tman.lock();
+    if (!p)
+        return;
+
     static random_device dev;
     static default_random_engine rnd(dev());
     int heartbeat_ms = 1000*DISTFS_HEARTBEAT;
@@ -203,7 +207,7 @@ void DistDevice::scheduleTimeout(
         -heartbeat_ms / 8, heartbeat_ms / 8);
 
     if (timeout_) {
-        tman->cancel(timeout_);
+        p->cancel(timeout_);
         timeout_ = 0;
     }
 
@@ -215,9 +219,9 @@ void DistDevice::scheduleTimeout(
         break;
 
     case MISSING:
-        timeout_ = tman->add(
+        timeout_ = p->add(
             now + milliseconds(8*heartbeat_ms + dist(rnd)),
-            [this, fs, tman]() {
+            [this, fs]() {
                 setState(DEAD);
                 fs.lock()->decommissionDevice(shared_from_this());
             });
@@ -225,7 +229,7 @@ void DistDevice::scheduleTimeout(
 
     case UNKNOWN:
     case HEALTHY:
-        timeout_ = tman->add(
+        timeout_ = p->add(
             now + milliseconds(2*heartbeat_ms + dist(rnd)),
             [this, fs, tman]() {
                 setState(MISSING);

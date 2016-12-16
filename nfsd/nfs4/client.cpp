@@ -63,8 +63,9 @@ NfsClient::NfsClient(
 
 NfsClient::~NfsClient()
 {
-    if (restreg_) {
-        restreg_->remove(std::string("/nfs4/client/") + toHexClientid(id_));
+    auto restreg = restreg_.lock();
+    if (restreg) {
+        restreg->remove(std::string("/nfs4/client/") + toHexClientid(id_));
         restreg_.reset();
     }
 
@@ -175,9 +176,9 @@ void NfsClient::encodeState(
 
 void NfsClient::setRestRegistry(std::shared_ptr<oncrpc::RestRegistry> restreg)
 {
-    assert(!restreg_);
+    assert(!restreg_.lock());
     restreg_ = restreg;
-    restreg_->add(
+    restreg->add(
         std::string("/nfs4/client/") + toHexClientid(id_), false,
         shared_from_this());
 }

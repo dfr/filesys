@@ -86,3 +86,9 @@ void nfsd::nfs3::init(
         }
     }
 }
+
+void nfsd::nfs3::shutdown()
+{
+    mountService.reset();
+    nfsService.reset();
+}

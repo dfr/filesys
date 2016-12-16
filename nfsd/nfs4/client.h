@@ -306,7 +306,7 @@ private:
     bool restored_ = false;
     std::atomic_int nextSessionIndex_;
     std::unordered_set<std::shared_ptr<NfsSession>> sessions_;
-    std::shared_ptr<oncrpc::RestRegistry> restreg_;
+    std::weak_ptr<oncrpc::RestRegistry> restreg_;
 
     // Device state tracking
     std::unordered_map<

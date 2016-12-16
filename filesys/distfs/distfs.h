@@ -403,7 +403,7 @@ public:
     /// Schedule a task to evaluate a data device's state
     void scheduleTimeout(
         std::weak_ptr<DistFilesystem> fs,
-        std::shared_ptr<oncrpc::TimeoutManager> tman);
+        std::weak_ptr<oncrpc::TimeoutManager> tman);
 
 private:
     void resolveAddresses();
@@ -596,6 +596,7 @@ private:
     std::thread thread_;
     std::shared_ptr<oncrpc::SocketManager> sockman_;
     std::shared_ptr<oncrpc::ServiceRegistry> svcreg_;
+    bool stopping_ = false;
 
     // Cache piece lookups
     util::LRUCache<PieceId, DistPiece, PieceIdHash> piececache_;

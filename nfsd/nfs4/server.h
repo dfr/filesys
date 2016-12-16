@@ -494,9 +494,9 @@ public:
     /// up to the registry as well
     void setRestRegistry(std::shared_ptr<oncrpc::RestRegistry> restreg)
     {
-        assert(!restreg_);
+        assert(!restreg_.lock());
         restreg_ = restreg;
-        restreg_->add("/nfs4", false, shared_from_this());
+        restreg->add("/nfs4", false, shared_from_this());
         for (auto& entry: clientsById_)
             entry.second->setRestRegistry(restreg);
     }
@@ -514,7 +514,7 @@ private:
     std::shared_ptr<filesys::nfs4::IIdMapper> idmapper_;
     std::shared_ptr<util::Clock> clock_;
     util::Clock::time_point graceExpiry_;
-    std::shared_ptr<oncrpc::RestRegistry> restreg_;
+    std::weak_ptr<oncrpc::RestRegistry> restreg_;
     bool expiring_ = false;
 
     // Statistics

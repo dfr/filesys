@@ -52,7 +52,7 @@ NfsFilesystem::NfsFilesystem(
     proto_ = make_shared<NfsProto>(this, chan, client, clientowner, cbprog_);
 
     // Handle callbacks on a new thread
-    cbthread_ = thread([this, chan](){ handleCallbacks(); });
+    cbthread_ = thread([this](){ handleCallbacks(); });
 }
 
 NfsFilesystem::NfsFilesystem(
@@ -242,7 +242,9 @@ NfsFilesystem::handleCallbacks()
         auto sockchan = dynamic_pointer_cast<oncrpc::Socket>(chan);
         if (sockchan) {
             chan->onReconnect(
-                [this, sockchan]() {
+                [this]() {
+                    auto chan = proto_->channel();
+                    auto sockchan = dynamic_pointer_cast<oncrpc::Socket>(chan);
                     sockman_->add(sockchan);
                 });
             sockman_->add(sockchan);

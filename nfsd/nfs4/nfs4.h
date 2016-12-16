@@ -28,6 +28,8 @@ void init(
     const std::vector<oncrpc::AddressInfo>& addrs,
     std::shared_ptr<filesys::Filesystem> fs);
 
+void shutdown();
+
 }
 
 }

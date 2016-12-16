@@ -111,7 +111,7 @@ private:
     std::condition_variable backChannelWait_;
     filesys::nfs4::sessionid4 id_;
     std::vector<Slot> slots_;
-    std::shared_ptr<oncrpc::RestRegistry> restreg_;
+    std::weak_ptr<oncrpc::RestRegistry> restreg_;
 
     // Callback slot state
     std::shared_ptr<oncrpc::Client> cbClient_;

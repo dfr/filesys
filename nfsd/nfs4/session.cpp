@@ -334,9 +334,9 @@ bool NfsSession::get(
 void NfsSession::setRestRegistry(
     std::shared_ptr<oncrpc::RestRegistry> restreg)
 {
-    assert(!restreg_);
+    assert(!restreg_.lock());
     restreg_ = restreg;
-    restreg_->add(
+    restreg->add(
         std::string("/nfs4/session/") + toHexSessionid(id_), true,
         shared_from_this());
 }
