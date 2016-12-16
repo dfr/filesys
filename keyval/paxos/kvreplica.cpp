@@ -242,6 +242,13 @@ void KVReplica::flush()
 {
 }
 
+bool KVReplica::get(
+    std::shared_ptr<oncrpc::RestRequest> req,
+    std::unique_ptr<oncrpc::RestEncoder>&& res)
+{
+    return db_->get(req, std::move(res));
+}
+
 void KVReplica::onMasterChange(std::function<void(bool)> cb)
 {
     masterChangeCallbacks_.push_back(cb);

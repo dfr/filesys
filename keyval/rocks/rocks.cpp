@@ -5,6 +5,7 @@
 
 #include <system_error>
 
+#include <rpc++/rest.h>
 #include "rocks.h"
 
 using namespace keyval;
@@ -83,6 +84,27 @@ void RocksDatabase::commit(unique_ptr<Transaction>&& transaction)
 void RocksDatabase::flush()
 {
     db_->SyncWAL();
+}
+
+bool RocksDatabase::get(
+    std::shared_ptr<oncrpc::RestRequest> req,
+    std::unique_ptr<oncrpc::RestEncoder>&& res)
+{
+    auto obj = res->object();
+    uint64_t val;
+
+    auto options = db_->GetOptions();
+    BlockBasedTableOptions* bbo = reinterpret_cast<BlockBasedTableOptions*>(
+        options.table_factory->GetOptions());
+    obj->field("blockCacheMem")->number(long(bbo->block_cache->GetUsage()));
+
+    db_->GetIntProperty("rocksdb.estimate-table-readers-mem", &val);
+    obj->field("tableReadersMem")->number(long(val));
+
+    db_->GetIntProperty("rocksdb.cur-size-all-mem-tables", &val);
+    obj->field("memtableSize")->number(long(val));
+
+    return true;
 }
 
 unique_ptr<keyval::Iterator> RocksNamespace::iterator()

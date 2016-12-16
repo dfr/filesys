@@ -16,6 +16,8 @@ class Clock;
 }
 
 namespace oncrpc {
+class RestEncoder;
+class RestRequest;
 class SocketManager;
 }
 
@@ -52,6 +54,11 @@ public:
     /// For replicated databases, return true if this instance is the
     /// 'master' replica
     virtual bool isMaster() = 0;
+
+    /// Databases can implement this to allow exporting metrics
+    virtual bool get(
+        std::shared_ptr<oncrpc::RestRequest> req,
+        std::unique_ptr<oncrpc::RestEncoder>&& res) = 0;
 
     /// Register a callback function which is called if the database
     /// master state changes. The callback function is called with a

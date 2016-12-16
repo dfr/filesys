@@ -215,6 +215,25 @@ private:
     std::shared_ptr<Filesystem> fs_;
 };
 
+class ExportDbstats: public oncrpc::RestHandler
+{
+public:
+    ExportDbstats(std::shared_ptr<keyval::Database> db)
+        : db_(db)
+    {
+    }
+
+    bool get(
+        std::shared_ptr<oncrpc::RestRequest> req,
+        std::unique_ptr<oncrpc::RestEncoder>&& res) override
+    {
+        return db_->get(req, std::move(res));
+    }
+
+private:
+    std::shared_ptr<keyval::Database> db_;
+};
+
 }
 
 int main(int argc, char** argv)
@@ -296,6 +315,9 @@ int main(int argc, char** argv)
     registerUiContent(restreg);
     restreg->add("/version", true, make_shared<ExportVersion>());
     restreg->add("/fsattr", true, make_shared<ExportFsattr>(fs));
+    auto db = fs->database();
+    if (db)
+        restreg->add("/dbstats", true, make_shared<ExportDbstats>(db));
     auto sockman = make_shared<SocketManager>();
 
     vector<AddressInfo> addrs;

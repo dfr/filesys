@@ -46,6 +46,9 @@ public:
     void flush() override {}
     bool isReplicated() override { return false; }
     bool isMaster() override { return true; }
+    bool get(
+        std::shared_ptr<oncrpc::RestRequest> req,
+        std::unique_ptr<oncrpc::RestEncoder>&& res) override { return false; }
     void onMasterChange(std::function<void(bool)> cb) override {}
     void setAppData(const std::vector<uint8_t>& data) override {}
     std::vector<std::vector<uint8_t>> getAppData() override { return {}; }
