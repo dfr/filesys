@@ -124,8 +124,9 @@ void ObjSetattr::setMode(int mode)
 void ObjSetattr::setUid(int uid)
 {
     if (uint32_t(uid) != attr_.uid && !cred_.privileged()) {
-        VLOG(1) << "setMode failed: cred uid: " << cred_.uid()
-                << ", file uid: " << attr_.uid;
+        VLOG(1) << "setUid failed: cred uid: " << cred_.uid()
+                << ", file uid: " << attr_.uid
+                << ", requested uid: " << uid;
         throw system_error(EPERM, system_category());
     }
     attr_.uid = uid;
@@ -140,8 +141,9 @@ void ObjSetattr::setGid(int gid)
         attr_.gid = gid;
     }
     else {
-        VLOG(1) << "setMode failed: cred uid: " << cred_.uid()
-                << ", file uid: " << attr_.uid;
+        VLOG(1) << "setGid failed: cred uid: " << cred_.uid()
+                << ", file uid: " << attr_.uid
+                << ", requested gid: " << gid;
         throw system_error(EPERM, system_category());
     }
 }
