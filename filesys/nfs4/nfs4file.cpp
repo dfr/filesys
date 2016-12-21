@@ -106,7 +106,7 @@ shared_ptr<Getattr> NfsFile::getattr()
 
 void NfsFile::setattr(const Credential&, function<void(Setattr*)> cb)
 {
-    NfsSetattr sattr;
+    NfsSetattr sattr(nfs()->idmapper());
     cb(&sattr);
     if (isset(sattr.attrmask_, FATTR4_SIZE))
         cache_.truncate(sattr.size_);
@@ -252,7 +252,7 @@ shared_ptr<OpenFile> NfsFile::open(
             }
             openflag4 openflag;
             if (flags & OpenFlags::CREATE) {
-                NfsSetattr sattr;
+                NfsSetattr sattr(nfs()->idmapper());
                 cb(&sattr);
                 if (flags & OpenFlags::TRUNCATE) {
                     sattr.setSize(0);
@@ -616,7 +616,7 @@ shared_ptr<File> NfsFile::create(
     const createtype4& objtype, const utf8string& objname,
     function<void(Setattr*)> cb)
 {
-    NfsSetattr sattr;
+    NfsSetattr sattr(nfs()->idmapper());
     cb(&sattr);
     nfs_fh4 fh;
     fattr4 attr;

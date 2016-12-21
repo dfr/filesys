@@ -94,14 +94,26 @@ public:
 
     string lookup(int id) override
     {
-
         ::passwd pbuf;
-        char buf[128];
         ::passwd* pwd;
-        if (::getpwuid_r(id, &pbuf, buf, sizeof(buf), &pwd) == 0) {
+
+        int buflen = 512;
+        auto buf = make_unique<char[]>(buflen);
+        int rv;
+        for (;;) {
+            rv = ::getpwuid_r(id, &pbuf, buf.get(), buflen, &pwd);
+            if (rv == ERANGE) {
+                buflen = 2*buflen;
+                auto buf = make_unique<char[]>(buflen);
+                continue;
+            }
+            break;
+        }
+        if (rv == 0) {
             if (pwd)
                 return string(pwd->pw_name) + "@" + realm_;
         }
+        LOG(INFO) << "Lookup failed for uid: " << id;
         return "unknown@" + realm_;
     }
 
@@ -109,8 +121,13 @@ public:
     {
         auto sep = val.find('@');
         if (sep == string::npos) {
-            LOG(ERROR) << "Malformed owner: " << val;
-            return 65534;
+            try {
+                return stoi(val);
+            }
+            catch (std::invalid_argument&) {
+                LOG(ERROR) << "Malformed owner: " << val;
+                return 65534;
+            }
         }
         auto id = val.substr(0, sep);
         auto realm = val.substr(sep + 1);
@@ -120,12 +137,25 @@ public:
         }
 
         ::passwd pbuf;
-        char buf[128];
         ::passwd* pwd;
-        if (::getpwnam_r(id.c_str(), &pbuf, buf, sizeof(buf), &pwd) == 0) {
+
+        int buflen = 512;
+        auto buf = make_unique<char[]>(buflen);
+        int rv;
+        for (;;) {
+            rv = ::getpwnam_r(id.c_str(), &pbuf, buf.get(), buflen, &pwd);
+            if (rv == ERANGE) {
+                buflen = 2*buflen;
+                auto buf = make_unique<char[]>(buflen);
+                continue;
+            }
+            break;
+        }
+        if (rv == 0) {
             if (pwd)
                 return pwd->pw_uid;
         }
+        LOG(INFO) << "Lookup failed for owner: " << val;
         return 65534;
     }
 
@@ -144,12 +174,25 @@ public:
     string lookup(int id) override
     {
         ::group gbuf;
-        char buf[128];
         ::group* grp;
-        if (::getgrgid_r(id, &gbuf, buf, sizeof(buf), &grp) == 0) {
+
+        int buflen = 512;
+        auto buf = make_unique<char[]>(buflen);
+        int rv;
+        for (;;) {
+            rv = ::getgrgid_r(id, &gbuf, buf.get(), buflen, &grp);
+            if (rv == ERANGE) {
+                buflen = 2*buflen;
+                auto buf = make_unique<char[]>(buflen);
+                continue;
+            }
+            break;
+        }
+        if (rv == 0) {
             if (grp)
                 return string(grp->gr_name) + "@" + realm_;
         }
+        LOG(INFO) << "Lookup failed for gid: " << id;
         return "unknown@" + realm_;
     }
 
@@ -157,8 +200,13 @@ public:
     {
         auto sep = val.find('@');
         if (sep == string::npos) {
-            LOG(ERROR) << "Malformed owner: " << val;
-            return 65534;
+            try {
+                return std::stoi(val);
+            }
+            catch (std::invalid_argument&) {
+                LOG(ERROR) << "Malformed owner: " << val;
+                return 65534;
+            }
         }
         auto id = val.substr(0, sep);
         auto realm = val.substr(sep + 1);
@@ -168,12 +216,25 @@ public:
         }
 
         ::group gbuf;
-        char buf[128];
         ::group* grp;
-        if (::getgrnam_r(id.c_str(), &gbuf, buf, sizeof(buf), &grp) == 0) {
+
+        int buflen = 512;
+        auto buf = make_unique<char[]>(buflen);
+        int rv;
+        for (;;) {
+            rv = ::getgrnam_r(id.c_str(), &gbuf, buf.get(), buflen, &grp);
+            if (rv == ERANGE) {
+                buflen = 2*buflen;
+                auto buf = make_unique<char[]>(buflen);
+                continue;
+            }
+            break;
+        }
+        if (rv == 0) {
             if (grp)
                 return grp->gr_gid;
         }
+        LOG(INFO) << "Lookup failed for group: " << val;
         return 65534;
     }
 

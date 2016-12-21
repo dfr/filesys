@@ -65,6 +65,11 @@ private:
 class NfsSetattr: public Setattr, public NfsAttr
 {
 public:
+    NfsSetattr(std::shared_ptr<IIdMapper> idmapper)
+        : idmapper_(idmapper)
+    {
+    }
+
     // Setattr overrides
     void setMode(int mode) override;
     void setUid(int uid) override;
@@ -74,6 +79,8 @@ public:
     void setAtime(std::chrono::system_clock::time_point atime) override;
     void setChange(std::uint64_t verf) override;
     void setCreateverf(std::uint64_t verf) override;
+
+    std::shared_ptr<IIdMapper> idmapper_;
 };
 
 class NfsFsattr: public Fsattr

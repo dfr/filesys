@@ -157,14 +157,14 @@ void NfsSetattr::setMode(int mode)
 
 void NfsSetattr::setUid(int uid)
 {
-    //attr_.uid.set_set_it(true);
-    //attr_.uid.uid() = uid;
+    set(attrmask_, FATTR4_OWNER);
+    owner_ = toUtf8string(idmapper_->fromUid(uid));
 }
 
 void NfsSetattr::setGid(int gid)
 {
-    //attr_.gid.set_set_it(true);
-    //attr_.gid.gid() = gid;
+    set(attrmask_, FATTR4_OWNER_GROUP);
+    owner_group_ = toUtf8string(idmapper_->fromGid(gid));
 }
 
 void NfsSetattr::setSize(std::uint64_t size)

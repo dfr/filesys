@@ -243,9 +243,12 @@ NfsFilesystem::handleCallbacks()
         if (sockchan) {
             chan->onReconnect(
                 [this]() {
-                    auto chan = proto_->channel();
-                    auto sockchan = dynamic_pointer_cast<oncrpc::Socket>(chan);
-                    sockman_->add(sockchan);
+                    if (proto_) {
+                        auto chan = proto_->channel();
+                        auto sockchan =
+                            dynamic_pointer_cast<oncrpc::Socket>(chan);
+                        sockman_->add(sockchan);
+                    }
                 });
             sockman_->add(sockchan);
             sockman_->run();
