@@ -415,25 +415,30 @@ void NfsClient::deviceCallback(shared_ptr<Device> dev, Device::State state)
         if (ds.notifications & (1 << NOTIFY_DEVICEID4_CHANGE)) {
             LOG(INFO) << "Client " << hex << id_
                       << ": notify change for device " << devid;
-            session->callback(
-                "DeviceChange",
-                [=](auto& enc) {
-                    notify_deviceid_change4 ndc;
-                    ndc.ndc_layouttype = LAYOUT4_FLEX_FILES;
-                    ndc.ndc_deviceid = exportDeviceid(devid);
-                    ndc.ndc_immediate = true;
+            try {
+                session->callback(
+                    "DeviceChange",
+                    [=](auto& enc) {
+                        notify_deviceid_change4 ndc;
+                        ndc.ndc_layouttype = LAYOUT4_FLEX_FILES;
+                        ndc.ndc_deviceid = exportDeviceid(devid);
+                        ndc.ndc_immediate = true;
 
-                    notify4 n;
-                    set(n.notify_mask, NOTIFY_DEVICEID4_CHANGE);
-                    n.notify_vals.resize(oncrpc::XdrSizeof(ndc));
-                    oncrpc::XdrMemory xm(
-                        n.notify_vals.data(), n.notify_vals.size());
-                    xdr(ndc, static_cast<oncrpc::XdrSink*>(&xm));
-                    enc.notify_deviceid({n});
-                },
-                [](auto& dec) {
-                    dec.notify_deviceid();
-                });
+                        notify4 n;
+                        set(n.notify_mask, NOTIFY_DEVICEID4_CHANGE);
+                        n.notify_vals.resize(oncrpc::XdrSizeof(ndc));
+                        oncrpc::XdrMemory xm(
+                            n.notify_vals.data(), n.notify_vals.size());
+                        xdr(ndc, static_cast<oncrpc::XdrSink*>(&xm));
+                        enc.notify_deviceid({n});
+                    },
+                    [](auto& dec) {
+                        dec.notify_deviceid();
+                    });
+            }
+            catch (nfsstat4 stat) {
+                LOG(INFO) << "notification failed with status: " << stat;
+            }
         }
         break;
 

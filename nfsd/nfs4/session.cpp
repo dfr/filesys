@@ -214,6 +214,18 @@ void NfsSession::callback(
                     res(dec);
                 });
         }
+        catch (nfsstat4 stat) {
+            if (stat == NFS4ERR_BADSESSION) {
+                LOG(ERROR) << "Backchannel request failed, status: " << stat;
+                lk.lock();
+                backChannel_.reset();
+                backChannelState_ = NONE;
+                return;
+            }
+            else {
+                throw;
+            }
+        }
         catch (system_error& e) {
             LOG(ERROR) << "Backchannel request failed: " << e.what();
             lk.lock();
