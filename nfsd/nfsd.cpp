@@ -46,7 +46,6 @@ DEFINE_string(sec, "sys", "Acceptable authentication flavors");
 DEFINE_string(realm, "", "Local krb5 realm name");
 DEFINE_int32(threads, 0, "Number of worker threads");
 DEFINE_string(listen, "[::],0.0.0.0", "Addresses to listen for connections");
-DEFINE_string(mds, "", "URL to contact metadata server");
 DEFINE_bool(daemon, false, "Run the server as a background task");
 DEFINE_string(fsid, "", "Override file system identifier for new filesystems");
 DEFINE_string(allow, "", "Networks allowed to send requests");
@@ -413,11 +412,9 @@ int main(int argc, char** argv)
     nfs3::init(svcreg, restreg, threadpool, sec, boundAddrs, fs);
     nfs4::init(sockman, svcreg, restreg, threadpool, sec, boundAddrs, fs);
 
-    if (FLAGS_mds.size() > 0) {
-        auto ds = dynamic_pointer_cast<DataStore>(fs);
-        if (ds) {
-            ds->reportStatus(sockman, FLAGS_mds, boundAddrs, boundAdminAddrs);
-        }
+    auto ds = dynamic_pointer_cast<DataStore>(fs);
+    if (ds) {
+        ds->reportStatus(sockman, argv[1], boundAddrs, boundAdminAddrs);
     }
 
     sockman->run();

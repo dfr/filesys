@@ -21,10 +21,9 @@ using namespace std::literals;
 
 DistFilesystem::DistFilesystem(
     shared_ptr<keyval::Database> db,
-    const string& addr,
+    const vector<string>& addrs,
     shared_ptr<util::Clock> clock)
     : ObjFilesystem(move(db), clock, pieceSize()),
-      addr_(addr),
       replicas_(3),
       sockman_(make_shared<oncrpc::SocketManager>()),
       svcreg_(make_shared<oncrpc::ServiceRegistry>())
@@ -89,21 +88,23 @@ DistFilesystem::DistFilesystem(
     // Schedule resilvering for anything still in the repairs table.
     // We delay any repair attempts for 2*DISTFS_HEARTBEAT to allow time
     // to reconnect with the data servers
-    auto delay = chrono::milliseconds(2000*DISTFS_HEARTBEAT);
-    repairsNS_ = db_->getNamespace("repairs");
-    for (auto iterator = repairsNS_->iterator();
-         iterator->valid();
-         iterator->next()) {
-        PieceData key(iterator->key());
-        PieceId id{key.fileid(), key.offset(), key.size()};
-        resilverPiece(id, delay);
+    if (db_->isMaster()) {
+        auto delay = chrono::milliseconds(2000*DISTFS_HEARTBEAT);
+        repairsNS_ = db_->getNamespace("repairs");
+        for (auto iterator = repairsNS_->iterator();
+             iterator->valid();
+             iterator->next()) {
+            PieceData key(iterator->key());
+            PieceId id{key.fileid(), key.offset(), key.size()};
+            resilverPiece(id, delay);
 
-        // Rate limit resilvering to 100 pieces/sec
-        delay += 10ms;
+            // Rate limit resilvering to 100 pieces/sec
+            delay += 10ms;
+        }
     }
 
     bind(svcreg_);
-    if (addr.size() > 0) {
+    if (addrs.size() > 0) {
         // Bind to the device discovery port so that we can receive status
         // updates from the device fleet.
         //
@@ -113,21 +114,26 @@ DistFilesystem::DistFilesystem(
         // to at least one address.
         int bound = false;
         exception_ptr lastError;
-        for (auto& ai: oncrpc::getAddressInfo(addr)) {
-            try {
-                int fd = socket(ai.family, ai.socktype, ai.protocol);
-                if (fd < 0)
-                    throw system_error(errno, system_category());
-                int one = 1;
-                ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-                ::setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
-                auto sock = make_shared<oncrpc::DatagramChannel>(fd, svcreg_);
-                sock->bind(ai.addr);
-                sockman_->add(sock);
-                bound = true;
-            }
-            catch (system_error& e) {
-                lastError = std::current_exception();
+        for (auto& addr: addrs) {
+            for (auto& ai: oncrpc::getAddressInfo(addr)) {
+                try {
+                    int fd = socket(ai.family, ai.socktype, ai.protocol);
+                    if (fd < 0)
+                        throw system_error(errno, system_category());
+                    int one = 1;
+                    ::setsockopt(
+                        fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+                    ::setsockopt(
+                        fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
+                    auto sock = make_shared<oncrpc::DatagramChannel>(
+                        fd, svcreg_);
+                    sock->bind(ai.addr);
+                    sockman_->add(sock);
+                    bound = true;
+                }
+                catch (system_error& e) {
+                    lastError = std::current_exception();
+                }
             }
         }
         if (!bound) {
@@ -141,8 +147,9 @@ DistFilesystem::DistFilesystem(
         });
 }
 
-DistFilesystem::DistFilesystem(shared_ptr<Database> db, const string& addr)
-    : DistFilesystem(move(db), addr, make_shared<util::SystemClock>())
+DistFilesystem::DistFilesystem(
+    shared_ptr<Database> db, const vector<string>& addrs)
+    : DistFilesystem(move(db), addrs, make_shared<util::SystemClock>())
 {
 }
 
@@ -704,35 +711,25 @@ DistFilesystemFactory::mount(const string& url)
 {
     LOG(INFO) << "mount: " << url;
     oncrpc::UrlParser p(url);
-    string addr;
+    vector<string> addrs;
     vector<string> replicas;
 
-    auto it = p.query.find("mds-addr");
-    if (it == p.query.end()) {
-        addr = "udp://127.0.0.1:20249";
-    }
-    else {
-        addr = it->second;
-    }
+    auto mdsRange = p.query.equal_range("mds");
+    for (auto it = mdsRange.first; it != mdsRange.second; ++it)
+        addrs.push_back(it->second);
 
-    auto range = p.query.equal_range("replica");
-    for (it = range.first; it != range.second; ++it)
+    auto replicaRange = p.query.equal_range("replica");
+    for (auto it = replicaRange.first; it != replicaRange.second; ++it)
         replicas.push_back(it->second);
 
     shared_ptr<Database> db;
     if (replicas.size() > 0) {
-        string addr;
-        auto it = p.query.find("addr");
-        if (it != p.query.end())
-            addr = it->second;
-        else
-            addr = replicas[0];
-        db = make_paxosdb(p.path, addr, replicas);
+        db = make_paxosdb(p.path, replicas);
     }
     else {
         db = make_rocksdb(p.path);
     }
-    return make_shared<DistFilesystem>(db, addr);
+    return make_shared<DistFilesystem>(db, addrs);
 };
 
 void filesys::distfs::init(FilesystemManager* fsman)

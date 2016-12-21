@@ -40,6 +40,7 @@ debug2_cmd="unfsd_debug 2"
 
 unfsd_url()
 {
+    local mds
     local replicas
     local url
 
@@ -56,6 +57,12 @@ unfsd_url()
     else
 	replicas=""
     fi
+    for addr in $(echo ${unfsd_mds_addr}); do
+	if [ -n "${mds}" ]; then
+	    mds="${mds}&"
+	fi
+	mds="${mds}mds=${addr}"
+    done
     case ${unfsd_role} in
 	SIMPLE)
 	    url="objfs://${unfsd_storage}"
@@ -64,14 +71,13 @@ unfsd_url()
 	    fi
 	    ;;
 	METADATA)
-	    url="distfs://${unfsd_storage}?mds-addr=${unfsd_mds_addr}"
+	    url="distfs://${unfsd_storage}?${mds}"
 	    if [ -n "${replicas}" ]; then
 		url="${url}&${replicas}"
 	    fi
 	    ;;
 	DATA)
-	    rc_flags="${rc_flags} --mds=${unfsd_mds_addr}"
-	    url="datafs://${unfsd_storage}"
+	    url="datafs://${unfsd_storage}?${mds}"
 	    ;;
 	*)
 	    echo "Unrecognised server role ${unfsd_role}"
@@ -79,20 +85,6 @@ unfsd_url()
 	    ;;
     esac
     echo ${url}
-}
-
-unfsd_flags()
-{
-    local url
-    url=$(unfsd_url)
-    case ${unfsd_role} in
-	DATA)
-	    echo "--mds=${unfsd_mds_addr}"
-	    ;;
-	*)
-	    echo ""
-	    ;;
-    esac
 }
 
 unfsd_prestart()
@@ -131,7 +123,7 @@ unfsd_prestart()
 	    fi
 	fi
     fi
-    rc_flags="${rc_flags} $(unfsd_flags) '$(unfsd_url)'"
+    rc_flags="${rc_flags} '$(unfsd_url)'"
 }
 
 unfsd_debug()
@@ -139,7 +131,7 @@ unfsd_debug()
     local level
     level=$1
     rc_flags=$(echo ${rc_flags} | sed -e 's/--daemon/--alsologtostderr/')
-    rc_flags="${rc_flags} --alsologtostderr --logbufsecs=5 --v=${level} $(unfsd_flags) $(unfsd_url)"
+    rc_flags="${rc_flags} --alsologtostderr --logbufsecs=5 --v=${level} $(unfsd_url)"
     ${command} ${rc_flags}
 }
 

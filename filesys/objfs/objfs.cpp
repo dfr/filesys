@@ -300,13 +300,7 @@ shared_ptr<Filesystem> ObjFilesystemFactory::mount(const std::string& url)
 
     shared_ptr<Database> db;
     if (replicas.size() > 0) {
-        string addr;
-        auto it = p.query.find("addr");
-        if (it != p.query.end())
-            addr = it->second;
-        else
-            addr = replicas[0];
-        db = make_paxosdb(p.path, addr, replicas);
+        db = make_paxosdb(p.path, replicas);
     }
     else {
         db = make_rocksdb(p.path);

@@ -457,11 +457,11 @@ class DistFilesystem: public objfs::ObjFilesystem,
 public:
     DistFilesystem(
         std::shared_ptr<keyval::Database> db,
-        const std::string& addr,
+        const std::vector<std::string>& addrs,
         std::shared_ptr<util::Clock> clock);
     DistFilesystem(
         std::shared_ptr<keyval::Database> db,
-        const std::string& addr);
+        const std::vector<std::string>& addrs);
     ~DistFilesystem() override;
 
     // Filesystem overrides
@@ -556,9 +556,6 @@ private:
     /// Unique client owner string for connecting to devices using
     /// NFSv4
     std::string clientowner_;
-
-    /// Binding address
-    std::string addr_;
 
     /// Number of replicas of each piece of data to store
     int replicas_;

@@ -159,7 +159,6 @@ static std::shared_ptr<oncrpc::Channel> connectChannel(
 }
 
 Replica::Replica(
-    const std::string& addr,
     const std::vector<std::string>& replicas,
     std::shared_ptr<util::Clock> clock,
     std::shared_ptr<oncrpc::SocketManager> sockman,
@@ -179,23 +178,25 @@ Replica::Replica(
     // address.
     int bound = false;
     std::exception_ptr lastError;
-    for (auto& ai: oncrpc::getAddressInfo(addr)) {
-        try {
-            int fd = socket(ai.family, ai.socktype, ai.protocol);
-            if (fd < 0)
-                throw std::system_error(errno, std::system_category());
-            int one = 1;
-            ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-            ::setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
-            auto sock = std::make_shared<oncrpc::DatagramChannel>(fd, svcreg_);
-            sock->bind(ai.addr);
-            sock->connect(ai.addr);
-            sockman->add(sock);
-            LOG(INFO) << "bind: " << ai.host() << ":" << ai.port();
-            bound = true;
-        }
-        catch (std::system_error& e) {
-            lastError = std::current_exception();
+    for (auto& addr: replicas) {
+        for (auto& ai: oncrpc::getAddressInfo(addr)) {
+            try {
+                int fd = socket(ai.family, ai.socktype, ai.protocol);
+                if (fd < 0)
+                    throw std::system_error(errno, std::system_category());
+                int one = 1;
+                ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+                ::setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
+                auto sock = std::make_shared<oncrpc::DatagramChannel>(
+                    fd, svcreg_);
+                sock->bind(ai.addr);
+                sockman->add(sock);
+                LOG(INFO) << "bind: " << ai.host() << ":" << ai.port();
+                bound = true;
+            }
+            catch (std::system_error& e) {
+                lastError = std::current_exception();
+            }
         }
     }
     if (!bound) {

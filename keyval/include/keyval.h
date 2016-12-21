@@ -167,15 +167,6 @@ std::shared_ptr<Database> make_rocksdb(const std::string& filename);
 ///
 std::shared_ptr<Database> make_paxosdb(
     const std::string& filename,
-    const std::string& addr,
     const std::vector<std::string>& replicas);
-static inline std::shared_ptr<Database> make_paxosdb(
-    const std::string& filename,
-    const std::string& replica)
-{
-    std::vector<std::string> replicas;
-    replicas.push_back(replica);
-    return make_paxosdb(filename, replica, replicas);
-}
 
 }

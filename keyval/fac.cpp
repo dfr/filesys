@@ -23,12 +23,11 @@ std::shared_ptr<Database> keyval::make_rocksdb(const std::string& filename)
 
 std::shared_ptr<Database> keyval::make_paxosdb(
     const std::string& filename,
-    const std::string& addr,
     const std::vector<std::string>& replicas)
 {
     auto clock = std::make_shared<util::SystemClock>();
     auto db = std::make_shared<keyval::rocks::RocksDatabase>(filename);
     auto sockman = std::make_shared<oncrpc::SocketManager>();
     return std::make_shared<keyval::paxos::KVReplica>(
-        addr, replicas, clock, sockman, db);
+        replicas, clock, sockman, db);
 }

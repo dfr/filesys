@@ -8,6 +8,7 @@
 
 #include <filesys/filesys.h>
 #include <gflags/gflags.h>
+#include <rpc++/urlparser.h>
 
 #include "filesys/distfs/distfsproto.h"
 
@@ -21,7 +22,7 @@ static void reportStatusHelper(
     distfs::DeviceStatus device,
     DataStore* ds,
     std::weak_ptr<oncrpc::SocketManager> sockman,
-    std::string addrs)
+    std::vector<std::string> addrs)
 {
     // Report status now, then schedule a repeat call
     Credential cred{0, 0, {}, true};
@@ -32,8 +33,7 @@ static void reportStatusHelper(
     args.storage.freeSpace = fsattr->freeSpace();
     args.storage.availSpace = fsattr->availSpace();
 
-    std::istringstream is(addrs);
-    for (std::string addr; std::getline(is, addr, ','); ) {
+    for (std::string addr: addrs) {
         for (auto& ai: oncrpc::getAddressInfo(addr, "udp")) {
             auto chan = oncrpc::Channel::open(ai);
             distfs::DistfsMds1<oncrpc::SysClient> mds(chan);
@@ -51,12 +51,18 @@ static void reportStatusHelper(
 }
 
 void DataStore::reportStatus(
-    std::weak_ptr<oncrpc::SocketManager> sockman, const std::string& mds,
+    std::weak_ptr<oncrpc::SocketManager> sockman, const std::string& url,
     const std::vector<oncrpc::AddressInfo>& addrs,
     const std::vector<oncrpc::AddressInfo>& adminAddrs)
 {
     std::random_device rnd;
     distfs::DeviceStatus device;
+    std::vector<std::string> mds;
+
+    oncrpc::UrlParser p(url);
+    auto mdsRange = p.query.equal_range("mds");
+    for (auto it = mdsRange.first; it != mdsRange.second; ++it)
+        mds.push_back(it->second);
 
     for (int i = 0; i < sizeof(device.owner.do_verifier); i++)
         device.owner.do_verifier[i] = rnd();

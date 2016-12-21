@@ -129,12 +129,11 @@ KVReplica::KVReplica(
 }
 
 KVReplica::KVReplica(
-    const std::string& addr,
     const std::vector<std::string>& replicas,
     std::shared_ptr<util::Clock> clock,
     std::shared_ptr<oncrpc::SocketManager> sockman,
     std::shared_ptr<Database> db)
-    : Replica(addr, replicas, clock, sockman, db),
+    : Replica(replicas, clock, sockman, db),
       sockman_(sockman)
 {
     // Process incoming messages on a private thread - we can't use

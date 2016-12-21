@@ -300,7 +300,6 @@ public:
         std::shared_ptr<Database> db);
 
     Replica(
-        const std::string& addr,
         const std::vector<std::string>& replicas,
         std::shared_ptr<util::Clock> clock,
         std::shared_ptr<oncrpc::SocketManager> sockman,
@@ -506,7 +505,6 @@ public:
         std::shared_ptr<Database> db);
 
     KVReplica(
-        const std::string& addr,
         const std::vector<std::string>& replicas,
         std::shared_ptr<util::Clock> clock,
         std::shared_ptr<oncrpc::SocketManager> sockman,
