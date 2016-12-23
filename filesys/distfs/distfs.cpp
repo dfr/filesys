@@ -88,9 +88,9 @@ DistFilesystem::DistFilesystem(
     // Schedule resilvering for anything still in the repairs table.
     // We delay any repair attempts for 2*DISTFS_HEARTBEAT to allow time
     // to reconnect with the data servers
+    repairsNS_ = db_->getNamespace("repairs");
     if (db_->isMaster()) {
         auto delay = chrono::milliseconds(2000*DISTFS_HEARTBEAT);
-        repairsNS_ = db_->getNamespace("repairs");
         for (auto iterator = repairsNS_->iterator();
              iterator->valid();
              iterator->next()) {
@@ -529,52 +529,61 @@ void DistFilesystem::restoreDevice(std::shared_ptr<DistDevice> dev)
     Credential cred(0, 0, {}, true);
     vector<PieceId> toAdd;
     vector<PieceId> toRemove;
-    for (auto iter = ds->root()->readdir(cred, 0);
-         iter->valid(); iter->next()) {
-        // Names are formatted as '<fileid>-<log2size>-<index>' with
-        // <fileid> in hex, log2size and index in decimal
-        if (iter->name() == "." || iter->name() == "..")
-            continue;
-        istringstream ss(iter->name());
-        uint32_t l2size;
-        uint64_t fileid, index;
-        ss >> hex >> fileid >> dec;
-        ss.get();
-        ss >> l2size;
-        ss.get();
-        ss >> index;
-        auto pieceId = l2size == 64 ?
-            PieceId{FileId(fileid), 0, 0} :
+    try {
+        for (auto iter = ds->root()->readdir(cred, 0);
+             iter->valid(); iter->next()) {
+            // Names are formatted as '<fileid>-<log2size>-<index>' with
+            // <fileid> in hex, log2size and index in decimal
+            if (iter->name() == "." || iter->name() == "..")
+                continue;
+            istringstream ss(iter->name());
+            uint32_t l2size;
+            uint64_t fileid, index;
+            ss >> hex >> fileid >> dec;
+            ss.get();
+            ss >> l2size;
+            ss.get();
+            ss >> index;
+            auto pieceId = l2size == 64 ?
+                PieceId{FileId(fileid), 0, 0} :
             PieceId{FileId(fileid), index << l2size, 1u << l2size};
-        VLOG(2) << "Checking piece " << pieceId;
-        try {
-            auto piece = findPiece(pieceId, false, nullptr);
-            if (!piece->hasLocation(dev->id())) {
-                // The piece entry doesn't list this device - purge the
-                // device's copy of the piece
+            VLOG(2) << "Checking piece " << pieceId;
+            try {
+                auto piece = findPiece(pieceId, false, nullptr);
+                if (!piece->hasLocation(dev->id())) {
+                    // The piece entry doesn't list this device - purge the
+                    // device's copy of the piece
+                    LOG(INFO) << "Device " << dev->id()
+                              << ": unexpected copy of piece " << pieceId
+                              << ": removing";
+                    toRemove.push_back(pieceId);
+                }
+                else if (expectedPieces.find(pieceId) == expectedPieces.end()) {
+                    // This seems unlikely to happen - the pieces
+                    // namespace is out of sync with the data
+                    // namespace. We can fixed it easily enough though.
+                    LOG(INFO) << "Device " << dev->id()
+                              << ": valid copy of piece " << pieceId
+                              << " which is not in the pieces table: repairing";
+                    toAdd.push_back(pieceId);
+                }
+            }
+            catch (system_error& e) {
+                // The listed piece doesn't exist in our database
                 LOG(INFO) << "Device " << dev->id()
-                          << ": unexpected copy of piece " << pieceId
+                          << ": unknown piece " << pieceId
                           << ": removing";
                 toRemove.push_back(pieceId);
             }
-            else if (expectedPieces.find(pieceId) == expectedPieces.end()) {
-                // This seems unlikely to happen - the pieces
-                // namespace is out of sync with the data
-                // namespace. We can fixed it easily enough though.
-                LOG(INFO) << "Device " << dev->id()
-                          << ": valid copy of piece " << pieceId
-                          << " which is not in the pieces table: repairing";
-                toAdd.push_back(pieceId);
-            }
+            expectedPieces.erase(pieceId);
         }
-        catch (system_error& e) {
-            // The listed piece doesn't exist in our database
-            LOG(INFO) << "Device " << dev->id()
-                      << ": unknown piece " << pieceId
-                      << ": removing";
-            toRemove.push_back(pieceId);
-        }
-        expectedPieces.erase(pieceId);
+    }
+    catch (system_error& e) {
+        unique_lock<mutex> lk(mutex_);
+        dev->setState(DistDevice::UNKNOWN);
+        dev->scheduleTimeout(shared_from_this(), sockman_);
+        devicesToRestore_.erase(dev);
+        return;
     }
 
     if (expectedPieces.size() > 0) {
