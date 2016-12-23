@@ -19,6 +19,7 @@ angular.module(
                     var self = this;
 
                     function resetScope() {
+                        $scope.seqid = undefined;
                         $scope.expiry = "";
                         $scope.fh = "";
                         $scope.revoked = undefined;
@@ -49,6 +50,7 @@ angular.module(
                                 stateId: $scope.stateId
                             },
                             function(v) {
+                                $scope.seqid = v.seqid;
                                 $scope.expiry = v.expiry;
                                 $scope.fh = v.fh;
                                 $scope.revoked = v.revoked;

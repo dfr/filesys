@@ -154,8 +154,7 @@ void NfsState::recall()
                             << " revoking layout now";
                     auto cl = client_.lock();
                     if (cl) {
-                        cl->revokeState(shared_from_this());
-                        cl->clearState(id_);
+                        cl->revokeAndClear(shared_from_this());
                     }
                 }
             }
@@ -167,6 +166,12 @@ void NfsState::recall()
 void NfsState::updateOpen(
     int access, int deny, shared_ptr<filesys::OpenFile> of)
 {
+    // If there is no change, ignore it and don't increment seqid.
+    // Linux clients seem to get confused and use the older seqid in
+    // this situation
+    if (data_.access == access && data_.deny == deny)
+        return;
+
     // If the new access mode is less restrictive than the
     // previous, we need to keep the new open owner
     if ((data_.access | access) != data_.access) {

@@ -98,6 +98,7 @@ SEQUENCE4res NfsSession::sequence(
 
         if (client_.lock()->hasRevokedState()) {
             flags |= SEQ4_STATUS_EXPIRED_SOME_STATE_REVOKED;
+            client_.lock()->reportRevoked();
         }
         if (backChannelState_ == NONE) {
             flags |= SEQ4_STATUS_CB_PATH_DOWN_SESSION;

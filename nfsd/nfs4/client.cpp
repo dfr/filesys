@@ -155,6 +155,7 @@ void NfsClient::encodeState(
 {
     auto obj = enc->object();
     obj->field("id")->string(toHexStateid(ns->id()));
+    obj->field("seqid")->number(int(ns->id().seqid));
     if (ns->type() == StateType::OPEN) {
         obj->field("expiry")->string("Not applicable");
     }
@@ -258,6 +259,8 @@ shared_ptr<NfsState> NfsClient::findState(
         return ns;
     if (id.seqid > ns->id().seqid)
         throw NFS4ERR_BAD_STATEID;
+    VLOG(1) << "old seqid, expected: " << ns->id().seqid
+            << ", given: " << id.seqid;
     throw NFS4ERR_OLD_STATEID;
 }
 
@@ -378,7 +381,32 @@ void NfsClient::revokeUnreclaimedState()
     lock.unlock();
     for (auto ns: toRevoke) {
         revokeState(ns);
+        clearState(ns->id());
     }
+}
+
+void NfsClient::revokeAndClear(std::shared_ptr<NfsState> ns)
+{
+    if (ns->revoked())
+        return;
+
+    if (db_ && db_->isMaster()) {
+        auto trans = db_->beginTransaction();
+        ns->remove(trans.get());
+        db_->commit(move(trans));
+    }
+
+    std::unique_lock<std::mutex> lock(mutex_);
+    auto fs = ns->fs();
+    if (fs) {
+        fs->revoke(ns);
+    }
+    if (ns->type() == StateType::DELEGATION ||
+        ns->type() == StateType::LAYOUT)
+        recallableStateCount_--;
+    if (ns->type() == StateType::LAYOUT)
+        clearLayout(lock, ns);
+    state_.erase(ns->id());
 }
 
 void NfsClient::setReply(const CREATE_SESSION4res& reply)
@@ -518,11 +546,8 @@ void NfsClient::expireState(util::Clock::time_point now)
 {
     // Recall any old state which isn't open on this client
     std::unique_lock<std::mutex> lock(mutex_);
-    auto stateCopy = state_;
-    lock.unlock();
-
     std::vector<std::shared_ptr<NfsState>> toRecall;
-    for (auto& e: stateCopy) {
+    for (auto& e: state_) {
         auto ns = e.second;
         if (ns->type() == StateType::DELEGATION ||
             ns->type() == StateType::LAYOUT) {
@@ -531,9 +556,40 @@ void NfsClient::expireState(util::Clock::time_point now)
                 if (fs && fs->isOpen(shared_from_this()))
                     continue;
                 toRecall.push_back(ns);
+                // Rate-limit recalls
+                if (toRecall.size() >= 100)
+                    break;
             }
         }
     }
+    lock.unlock();
     for (auto ns: toRecall)
         ns->recall();
+}
+
+void NfsClient::reportRevoked()
+{
+    if (VLOG_IS_ON(1)) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        int o = 0, d = 0, l = 0;
+        for (auto& e: revokedState_) {
+            auto ns = e.second;
+            switch (ns->type()) {
+            case StateType::OPEN:
+                o++;
+                break;
+            case StateType::DELEGATION:
+                o++;
+                break;
+            case StateType::LAYOUT:
+                o++;
+                break;
+            }
+        }
+        LOG(INFO) << "client " << hex << id_ << dec
+                  << " has revoked state"
+                  << ": " << o << " opens"
+                  << ", " << d << " delegations"
+                  << ", " << l << " layouts";
+    }
 }

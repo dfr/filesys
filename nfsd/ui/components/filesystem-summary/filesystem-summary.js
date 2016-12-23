@@ -44,12 +44,12 @@ angular.module(
                         case 'healthy':
                             return 'green';
                         case 'restoring':
-                            return 'yellow';
-                        case 'missing':
                             return 'orange';
+                        case 'missing':
+                            return 'red';
                         case 'dead':
                         default:
-                            return 'red';
+                            return 'black';
                         }
                     }
 

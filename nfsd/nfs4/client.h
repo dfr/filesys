@@ -246,6 +246,7 @@ public:
     void revokeState(std::shared_ptr<NfsState> ns, keyval::Transaction* trans);
     void revokeState();
     void revokeUnreclaimedState();
+    void revokeAndClear(std::shared_ptr<NfsState> ns);
 
     void deviceCallback(
         std::shared_ptr<filesys::Device> dev,
@@ -291,6 +292,8 @@ public:
     void sendRecallAny();
 
     void expireState(util::Clock::time_point now);
+
+    void reportRevoked();
 
 private:
     std::mutex mutex_;
