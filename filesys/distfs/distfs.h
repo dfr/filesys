@@ -542,6 +542,9 @@ public:
     /// For unit testing, manually add a data store
     void addDataStore(std::shared_ptr<DataStore> ds);
 
+    /// Load the devices table
+    void loadDevices();
+
     /// Restore a recently restarted data device, validating its piece
     /// collection
     void restoreDevice(std::shared_ptr<DistDevice> dev);

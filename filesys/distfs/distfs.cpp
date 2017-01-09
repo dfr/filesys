@@ -39,51 +39,8 @@ DistFilesystem::DistFilesystem(
     // Load the entire devices table into memory - this is reasonable
     // since there are likely on the order of 1e3 - 1e4 devices
     devicesNS_ = db_->getNamespace("devices");
-    for (auto iterator = devicesNS_->iterator();
-         iterator->valid();
-         iterator->next()) {
-        KeyType k(iterator->key());
-        auto id = k.id();
-        DeviceStatus val;
-        auto buf = iterator->value();
-        oncrpc::XdrMemory xm(buf->data(), buf->size());
-        xdr(val, static_cast<oncrpc::XdrSource*>(&xm));
-
-        if (id >= nextDeviceId_)
-            nextDeviceId_ = id + 1;
-
-        LOG(INFO) << "Restoring device " << id
-                  << ": owner " << val.owner;
-        auto dev = make_shared<DistDevice>(id, val);
-        devicesByOwnerId_[val.owner.do_ownerid] = dev;
-        devicesById_[id] = dev;
-        devices_.insert(dev);
-    }
-
-    // Use the piece table to deduce the next piece index for each
-    // device entry
     piecesNS_ = db_->getNamespace("pieces");
-    for (auto& dev: devices_) {
-        auto iter = piecesNS_->iterator(DoubleKeyType(dev->id(), ~0ull));
-        if (iter->valid()) {
-            iter->prev();
-        }
-        else {
-            iter->seekToLast();
-        }
-        if (!iter->valid()) {
-            dev->setNextPieceIndex(0);
-        }
-        else {
-            DoubleKeyType k(iter->key());
-            if (k.id0() == dev->id())
-                dev->setNextPieceIndex(k.id1() + 1);
-            else
-                dev->setNextPieceIndex(0);
-        }
-        VLOG(1) << "Device " << dev->id()
-                << ": next piece index " << dev->nextPieceIndex();
-    }
+    loadDevices();
 
     // Schedule resilvering for anything still in the repairs table.
     // We delay any repair attempts for 2*DISTFS_HEARTBEAT to allow time
@@ -203,10 +160,16 @@ void
 DistFilesystem::databaseMasterChanged(bool isMaster)
 {
     ObjFilesystem::databaseMasterChanged(isMaster);
+    piececache_.clear();
+    dscache_.clear();
+    loadDevices();
 }
 
 void DistFilesystem::status(const STATUSargs& args)
 {
+    if (!db_->isMaster())
+        return;
+
     VLOG(2) << "Received status for device: " << args.device.owner;
 
     unique_lock<mutex> lk(mutex_);
@@ -492,6 +455,64 @@ void DistFilesystem::addDataStore(std::shared_ptr<DataStore> ds)
     devices_.insert(dev);
     devicesGen_++;
     dscache_.add(dev->id(), ds);
+}
+
+void DistFilesystem::loadDevices()
+{
+    unique_lock<mutex> lk(mutex_);
+
+    devicesByOwnerId_.clear();
+    devicesById_.clear();
+    devices_.clear();
+    devicesToRestore_.clear();
+
+    if (!db_->isMaster())
+        return;
+
+    for (auto iterator = devicesNS_->iterator();
+         iterator->valid();
+         iterator->next()) {
+        KeyType k(iterator->key());
+        auto id = k.id();
+        DeviceStatus val;
+        auto buf = iterator->value();
+        oncrpc::XdrMemory xm(buf->data(), buf->size());
+        xdr(val, static_cast<oncrpc::XdrSource*>(&xm));
+
+        if (id >= nextDeviceId_)
+            nextDeviceId_ = id + 1;
+
+        LOG(INFO) << "Loading device " << id
+                  << ": owner " << val.owner;
+        auto dev = make_shared<DistDevice>(id, val);
+        devicesByOwnerId_[val.owner.do_ownerid] = dev;
+        devicesById_[id] = dev;
+        devices_.insert(dev);
+    }
+
+    // Use the piece table to deduce the next piece index for each
+    // device entry
+    for (auto& dev: devices_) {
+        auto iter = piecesNS_->iterator(DoubleKeyType(dev->id(), ~0ull));
+        if (iter->valid()) {
+            iter->prev();
+        }
+        else {
+            iter->seekToLast();
+        }
+        if (!iter->valid()) {
+            dev->setNextPieceIndex(0);
+        }
+        else {
+            DoubleKeyType k(iter->key());
+            if (k.id0() == dev->id())
+                dev->setNextPieceIndex(k.id1() + 1);
+            else
+                dev->setNextPieceIndex(0);
+        }
+        VLOG(1) << "device " << dev->id()
+                << ": next piece index " << dev->nextPieceIndex();
+    }
 }
 
 void DistFilesystem::restoreDevice(std::shared_ptr<DistDevice> dev)
