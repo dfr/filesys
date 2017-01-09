@@ -29,6 +29,23 @@ class Iterator;
 class Namespace;
 class Transaction;
 
+/// Current state of a database replica
+struct ReplicaInfo
+{
+    enum State {
+        DEAD,
+        HEALTHY,
+        RECOVERING,
+        UNKNOWN
+    };
+
+    /// Current replica state
+    State state;
+
+    /// Application data for this replica
+    std::vector<uint8_t> appdata;
+};
+
 /// An interface to a key-value database
 class Database
 {
@@ -71,9 +88,9 @@ public:
     // replicated database
     virtual void setAppData(const std::vector<uint8_t>& data) = 0;
 
-    // Return the application-layer data from each replica with the
-    // data for the current master listed first
-    virtual std::vector<std::vector<uint8_t>> getAppData() = 0;
+    // Return the state for each replica with the state for the
+    // current master listed first
+    virtual std::vector<ReplicaInfo> getReplicas() = 0;
 };
 
 /// Key/value pairs are grouped by namespace

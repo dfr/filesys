@@ -258,17 +258,24 @@ void KVReplica::setAppData(const std::vector<uint8_t>& data)
     appdata_ = data;
 }
 
-std::vector<std::vector<uint8_t>> KVReplica::getAppData()
+std::vector<ReplicaInfo> KVReplica::getReplicas()
 {
-    std::vector<std::vector<uint8_t>> res;
+    std::vector<ReplicaInfo> res;
 
     for (auto& entry: peers_) {
         if (entry.first == leader_)
-            res.push_back(entry.second.appdata);
+            res.push_back(
+                { static_cast<ReplicaInfo::State>(entry.second.status),
+                  entry.second.appdata });
     }
     for (auto& entry: peers_) {
-        if (entry.first != leader_)
-            res.push_back(entry.second.appdata);
+        if (entry.first != leader_) {
+            auto status = entry.second.status;
+            if (status == STATUS_HEALTHY || status == STATUS_RECOVERING)
+                res.push_back(
+                    { static_cast<ReplicaInfo::State>(entry.second.status),
+                      entry.second.appdata });
+        }
     }
 
     return res;

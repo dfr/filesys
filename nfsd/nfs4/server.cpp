@@ -3253,10 +3253,11 @@ void NfsServer::getAttr(
                 //xattr.layout_alignment_ = FLAGS_iosize;
                 break;
             case FATTR4_FS_LOCATIONS: {
-                auto appdata = db_->getAppData();
+                auto info = db_->getReplicas();
                 auto slash = toUtf8string("/");
                 xattr.fs_locations_.fs_root.push_back(slash);
-                for (auto& data: appdata) {
+                for (auto& entry: info) {
+                    const auto& data = entry.appdata;
                     vector<string> uaddrs;
                     fs_location4 loc;
                     loc.rootpath.push_back(slash);

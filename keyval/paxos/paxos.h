@@ -529,7 +529,7 @@ public:
         std::unique_ptr<oncrpc::RestEncoder>&& res) override;
     void onMasterChange(std::function<void(bool)> cb) override;
     void setAppData(const std::vector<uint8_t>& data) override;
-    std::vector<std::vector<uint8_t>> getAppData() override;
+    std::vector<ReplicaInfo> getReplicas() override;
 
     std::shared_ptr<Buffer> toBuffer(const std::vector<uint8_t>& vec)
     {

@@ -176,8 +176,9 @@ public:
         if (db && db->isReplicated()) {
             // The first entry is always the master replica
             bool isMaster = true;
-            auto appdata = db->getAppData();
-            for (auto& data: appdata) {
+            auto info = db->getReplicas();
+            for (auto& entry: info) {
+                const auto& data = entry.appdata;
                 auto replica = replicas->element()->object();
                 replica->field("isMaster")->boolean(isMaster);
                 auto addrs = replica->field("addresses")->array();
