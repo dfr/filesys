@@ -282,7 +282,8 @@ void NfsProto::disconnect()
         if (stat != NFS4ERR_BADSESSION)
             throw;
     }
-    catch (std::system_error&) {
+    catch (std::runtime_error& e) {
+        LOG(INFO) << "exception on disconnect: " << e.what();
     }
     chan_.reset();
 }
