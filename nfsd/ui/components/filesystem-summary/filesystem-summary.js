@@ -86,6 +86,10 @@ angular.module(
                                     }
                                 }
                             }
+                            for (let i = 0; i < newList.length; i++) {
+                                let newEntry = newList[i];
+                                newEntry.color = stateColor(newEntry.state);
+                            }
                             if (listChanged) {
                                 return newList;
                             }
@@ -93,7 +97,6 @@ angular.module(
                                 for (let i = 0; i < newList.length; i++) {
                                     let oldEntry = oldList[i];
                                     let newEntry = newList[i];
-                                    newEntry.color = stateColor(newEntry.state);
                                     for (let field in newEntry) {
                                         if (oldEntry[field] != newEntry[field])
                                             oldEntry[field] = newEntry[field];

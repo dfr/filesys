@@ -141,7 +141,7 @@ public:
         std::uint64_t gen;
         auto list = fs_->devices(gen);
         for (auto devp: list) {
-            const char* stateNames[] = {
+            static const char* stateNames[] = {
                 "unknown", "restoring", "missing", "dead", "healthy"
             };
             auto dev = devs->element()->object();
@@ -178,14 +178,17 @@ public:
             bool isMaster = true;
             auto info = db->getReplicas();
             for (auto& entry: info) {
-                const auto& data = entry.appdata;
+                static const char* stateNames[] = {
+                    "dead", "healthy", "recovering", "unknown"
+                };
                 auto replica = replicas->element()->object();
                 replica->field("isMaster")->boolean(isMaster);
+                replica->field("state")->string(stateNames[entry.state]);
                 auto addrs = replica->field("addresses")->array();
-
-                if (data.size() > 0) {
+                if (entry.appdata.size() > 0) {
                     vector<string> uaddrs;
-                    oncrpc::XdrMemory xm(data.data(), data.size());
+                    oncrpc::XdrMemory xm(
+                        entry.appdata.data(), entry.appdata.size());
                     xdr(uaddrs, static_cast<oncrpc::XdrSource*>(&xm));
                     for (auto& u: uaddrs) {
                         // For the user interface, we need the admin port,

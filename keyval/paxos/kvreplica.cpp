@@ -270,11 +270,9 @@ std::vector<ReplicaInfo> KVReplica::getReplicas()
     }
     for (auto& entry: peers_) {
         if (entry.first != leader_) {
-            auto status = entry.second.status;
-            if (status == STATUS_HEALTHY || status == STATUS_RECOVERING)
-                res.push_back(
-                    { static_cast<ReplicaInfo::State>(entry.second.status),
-                      entry.second.appdata });
+            res.push_back(
+                { static_cast<ReplicaInfo::State>(entry.second.status),
+                  entry.second.appdata });
         }
     }
 

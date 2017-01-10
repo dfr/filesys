@@ -52,20 +52,26 @@
 	  {{addr}}
 	</a>
       </div>
-      <div flex="25"><span ng-style="{color:dev.color}">{{dev.state}}</span></div>
+      <div flex="25">
+	<span ng-style="{color:dev.color}">{{dev.state}}</span>
+      </div>
     </div>
   </div>
   <md-toolbar ng-show="!hideReplicas" layout="row">
-    <md-button ng-click="showReplicas = !showReplicas" aria-label="Show Replicas">
+    <md-button ng-click="showReplicas = !showReplicas"
+	       aria-label="Show Replicas">
       <md-icon ng-show="showReplicas" md-svg-icon="menu-open"></md-icon>
       <md-icon ng-show="!showReplicas" md-svg-icon="menu-closed"></md-icon>
     </md-button>
     <span><h2 class="md-title">Replicas</h2></span>
   </md-toolbar>
-  <div ng-show="showReplicas && !hideReplicas" layout="column" class="md-margin">
+  <div ng-show="showReplicas && !hideReplicas" layout="column"
+       class="md-margin">
     <div layout="row">
       <div flex="25"><h2 class="md-title">Link</h2></div>
-      <div flex="25"><h2 class="md-title">Status</h2></div>
+      <div flex="25"><h2 class="md-title">Type</h2></div>
+      <div flex="25"></div>
+      <div flex="25"><h2 class="md-title">State</h2></div>
     </div>
     <div layout="row" ng-repeat="rep in replicas">
       <div flex="25">
@@ -78,6 +84,10 @@
       <div flex="25">
 	<div ng-if="rep.isMaster">Master</div>
 	<div ng-if="!rep.isMaster">Replica</div>
+      </div>
+      <div flex="25"></div>
+      <div flex="25">
+	<span ng-style="{color:rep.color}">{{rep.state}}</span>
       </div>
     </div>
   </div>

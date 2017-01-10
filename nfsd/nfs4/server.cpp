@@ -3257,6 +3257,9 @@ void NfsServer::getAttr(
                 auto slash = toUtf8string("/");
                 xattr.fs_locations_.fs_root.push_back(slash);
                 for (auto& entry: info) {
+                    if (entry.state != keyval::ReplicaInfo::HEALTHY &&
+                        entry.state != keyval::ReplicaInfo::RECOVERING)
+                        continue;
                     const auto& data = entry.appdata;
                     vector<string> uaddrs;
                     fs_location4 loc;
