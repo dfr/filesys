@@ -18,11 +18,12 @@ rcvar=unfsd_enable
 command="/usr/local/unfsd/bin/nfsd"
 start_precmd="${name}_prestart"
 
-extra_commands="upgrade debug0 debug1 debug2"
+extra_commands="upgrade log0 log1 log2 debug"
 upgrade_cmd="unfsd_upgrade"
-debug0_cmd="unfsd_debug 0"
-debug1_cmd="unfsd_debug 1"
-debug2_cmd="unfsd_debug 2"
+log0_cmd="unfsd_log 0"
+log1_cmd="unfsd_log 1"
+log2_cmd="unfsd_log 2"
+debug_cmd="unfsd_debug 0"
 
 : ${unfsd_enable:="NO"}
 : ${unfsd_role:="SIMPLE"}
@@ -126,13 +127,22 @@ unfsd_prestart()
     rc_flags="${rc_flags} '$(unfsd_url)'"
 }
 
-unfsd_debug()
+unfsd_log()
 {
     local level
     level=$1
     rc_flags=$(echo ${rc_flags} | sed -e 's/--daemon/--alsologtostderr/')
     rc_flags="${rc_flags} --alsologtostderr --logbufsecs=5 --v=${level} $(unfsd_url)"
     ${command} ${rc_flags}
+}
+
+unfsd_debug()
+{
+    local level
+    level=$1
+    rc_flags=$(echo ${rc_flags} | sed -e 's/--daemon/--alsologtostderr/')
+    rc_flags="${rc_flags} --alsologtostderr --logbufsecs=5 --v=${level} $(unfsd_url)"
+    /usr/local/bin/lldb38 -- ${command} ${rc_flags}
 }
 
 unfsd_upgrade()
