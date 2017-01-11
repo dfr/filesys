@@ -1,3 +1,8 @@
+#-
+# Copyright (c) 2016-2017 Doug Rabson
+# All rights reserved.
+#
+
 cc_library(
     name = "paxos",
     copts = ["-std=c++14"],

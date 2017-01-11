@@ -1,3 +1,8 @@
+#-
+# Copyright (c) 2016-2017 Doug Rabson
+# All rights reserved.
+#
+
 cc_inc_library(
     name = "util",
     hdrs = glob(["include/*.h"]),

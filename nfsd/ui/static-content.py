@@ -1,3 +1,8 @@
+#-
+# Copyright (c) 2016-2017 Doug Rabson
+# All rights reserved.
+#
+
 import os
 import sys
 
