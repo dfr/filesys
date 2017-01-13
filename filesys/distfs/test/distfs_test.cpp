@@ -34,7 +34,8 @@ public:
         clock_ = make_shared<util::MockClock>();
 
         // Create a scratch metadata filesystem to 'export'
-        mds_ = make_shared<DistFilesystem>(keyval::make_memdb(), "", clock_);
+        vector<string> addrs = {};
+        mds_ = make_shared<DistFilesystem>(keyval::make_memdb(), addrs, clock_);
         fsman_.mount("/", mds_);
         Credential cred(0, 0, {}, true);
         mds_->root()->setattr(cred, setMode777);

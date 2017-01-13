@@ -67,16 +67,19 @@ void NfsState::remove(keyval::Transaction* trans)
 
     if (trans) {
         StateKey sk;
-        sk.fh = fs()->fh();
-        sk.type = type_;
-        sk.clientOwner = client()->owner().co_ownerid;
-        if (type_ == StateType::OPEN)
-            sk.stateOwner = owner_.owner;
+        auto p = fs();
+        if (p) {
+            sk.fh = p->fh();
+            sk.type = type_;
+            sk.clientOwner = client()->owner().co_ownerid;
+            if (type_ == StateType::OPEN)
+                sk.stateOwner = owner_.owner;
 
-        auto key = make_shared<oncrpc::Buffer>(oncrpc::XdrSizeof(sk));
-        oncrpc::XdrMemory xmk(key->data(), key->size());
-        xdr(sk, static_cast<oncrpc::XdrSink*>(&xmk));
-        trans->remove(stateNS_, key);
+            auto key = make_shared<oncrpc::Buffer>(oncrpc::XdrSizeof(sk));
+            oncrpc::XdrMemory xmk(key->data(), key->size());
+            xdr(sk, static_cast<oncrpc::XdrSink*>(&xmk));
+            trans->remove(stateNS_, key);
+        }
     }
 }
 
