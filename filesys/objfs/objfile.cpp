@@ -90,7 +90,7 @@ void ObjFile::setattr(const Credential& cred, function<void(Setattr*)> cb)
     auto trans = fs->db()->beginTransaction();
     if (meta_.attr.size != oldSize) {
         // Purge any data after the new size.
-        truncate(cred, trans.get(), meta_.attr.size);
+        truncate(cred, trans.get(), oldSize, meta_.attr.size);
     }
     writeMeta(trans.get());
     fs->db()->commit(move(trans));
@@ -149,7 +149,7 @@ shared_ptr<OpenFile> ObjFile::open(
             file->meta_.attr.ctime = getTime();
             auto trans = fs->db()->beginTransaction();
             // Purge file contents
-            file->truncate(cred, trans.get(), 0);
+            file->truncate(cred, trans.get(), file->meta_.attr.size, 0);
             file->writeMeta(trans.get());
             fs->db()->commit(move(trans));
         }
@@ -506,7 +506,7 @@ void ObjFile::unlink(
         else {
             VLOG(2) << "deleting fileid: " << id;
             // Purge file data
-            file->truncate(cred, trans, 0);
+            file->truncate(cred, trans, file->meta_.attr.size, 0);
             trans->remove(fs->defaultNS(), KeyType(id));
             fs->remove(file->fileid());
         }
@@ -638,7 +638,8 @@ void ObjFile::updateModifyTime()
 }
 
 void ObjFile::truncate(
-    const Credential& cred, Transaction* trans, uint64_t newSize)
+    const Credential& cred, Transaction* trans,
+    uint64_t oldSize, uint64_t newSize)
 {
     // If the file size is reduced, purge any data after the new size.
     auto fs = fs_.lock();

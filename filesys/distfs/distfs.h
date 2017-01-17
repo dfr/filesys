@@ -53,7 +53,7 @@ public:
     // ObjFile overrides
     void truncate(
         const Credential& cred, keyval::Transaction* trans,
-        std::uint64_t newSize) override;
+        std::uint64_t oldSize, std::uint64_t newSize) override;
 
 private:
 };

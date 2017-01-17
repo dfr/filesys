@@ -68,7 +68,8 @@ shared_ptr<Piece> DistFile::data(
 }
 
 void DistFile::truncate(
-    const Credential& cred, Transaction* trans, uint64_t newSize)
+    const Credential& cred, Transaction* trans,
+    uint64_t oldSize, uint64_t newSize)
 {
     // If the file size is reduced, purge any data after the new size.
     auto fs = dynamic_pointer_cast<DistFilesystem>(fs_.lock());
@@ -94,7 +95,7 @@ void DistFile::truncate(
     }
     meta_.attr.size = newSize;
 
-    if (newSize > 0) {
+    if (newSize > 0 && newSize < oldSize) {
         // Possibly truncate the last piece of the file
         auto bn = blockSize ? newSize / blockSize : 0;
         auto boff = blockSize ? newSize % blockSize : newSize;
@@ -212,7 +213,7 @@ uint32_t DistOpenFile::write(
     file_->writeMeta(trans.get());
 
     if (offset + len > meta.attr.size) {
-        file_->truncate(cred_, trans.get(), offset + len);
+        file_->truncate(cred_, trans.get(), meta.attr.size, offset + len);
     }
 
     // Write one piece at a time

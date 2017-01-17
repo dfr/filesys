@@ -208,7 +208,7 @@ public:
     void updateModifyTime();
     virtual void truncate(
         const Credential& cred, keyval::Transaction* trans,
-        std::uint64_t newSize);
+        std::uint64_t oldSize, std::uint64_t newSize);
 
 protected:
     std::mutex mutex_;
