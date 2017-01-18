@@ -13,6 +13,7 @@ cc_library(
         "//external:rpcxx",
         "//filesys:hdrs",
         "//filesys:access",
+        "//filesys/posix",
         "//keyval",
         "//util",
         "//external:glog",

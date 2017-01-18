@@ -439,11 +439,14 @@ struct DevCompare
 class DistFsattr: public objfs::ObjFsattr
 {
 public:
-    DistFsattr(std::shared_ptr<DistFilesystem> fs);
+    DistFsattr(
+        std::shared_ptr<DistFilesystem> fs,
+        std::shared_ptr<Fsattr> backingFsattr);
 
     size_t totalSpace() const override;
     size_t freeSpace() const override;
     size_t availSpace() const override;
+    size_t totalFiles() const override;
     int repairQueueSize() const override;
 
 private:
@@ -457,10 +460,12 @@ class DistFilesystem: public objfs::ObjFilesystem,
 public:
     DistFilesystem(
         std::shared_ptr<keyval::Database> db,
+        std::shared_ptr<Filesystem> backingFs,
         const std::vector<std::string>& addrs,
         std::shared_ptr<util::Clock> clock);
     DistFilesystem(
         std::shared_ptr<keyval::Database> db,
+        std::shared_ptr<Filesystem> backingFs,
         const std::vector<std::string>& addrs);
     ~DistFilesystem() override;
 

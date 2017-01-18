@@ -23,7 +23,7 @@ public:
     {
         Credential cred(0, 0, {}, true);
         clock_ = make_shared<util::MockClock>();
-        fs_ = make_shared<ObjFilesystem>(make_memdb(), clock_);
+        fs_ = make_shared<ObjFilesystem>(make_memdb(), nullptr, clock_);
         blockSize_ = fs_->blockSize();
         fs_->root()->setattr(cred, setMode777);
     }

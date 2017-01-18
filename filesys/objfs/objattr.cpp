@@ -208,8 +208,10 @@ void ObjSetattr::setCreateverf(std::uint64_t verf)
     attr_.atime = verf;
 }
 
-ObjFsattr::ObjFsattr(std::shared_ptr<ObjFilesystem> fs)
-    : fs_(fs)
+ObjFsattr::ObjFsattr(
+    std::shared_ptr<ObjFilesystem> fs, std::shared_ptr<Fsattr> backingFsattr)
+    : fs_(fs),
+      backingFsattr_(backingFsattr)
 {
     // XXX bogus - we should keep track in the fs object
     KeyType start(1);
@@ -222,16 +224,26 @@ ObjFsattr::ObjFsattr(std::shared_ptr<ObjFilesystem> fs)
 
 size_t ObjFsattr::totalSpace() const
 {
-    return 0;
+    if (backingFsattr_)
+        return backingFsattr_->totalSpace();
+    else
+        return 0;
 }
 
-size_t ObjFsattr::freeSpace() const {
-    return 0;
+size_t ObjFsattr::freeSpace() const
+{
+    if (backingFsattr_)
+        return backingFsattr_->freeSpace();
+    else
+        return 0;
 }
 
 size_t ObjFsattr::availSpace() const
 {
-    return 0;
+    if (backingFsattr_)
+        return backingFsattr_->availSpace();
+    else
+        return 0;
 }
 
 size_t ObjFsattr::totalFiles() const
@@ -244,7 +256,7 @@ size_t ObjFsattr::totalFiles() const
 
 size_t ObjFsattr::freeFiles() const
 {
-    return freeSpace() - fileCount_;
+    return totalFiles() - fileCount_;
 }
 
 size_t ObjFsattr::availFiles() const
@@ -266,4 +278,3 @@ int ObjFsattr::repairQueueSize() const
 {
     return 0;
 }
-

@@ -13,6 +13,7 @@
 #include <glog/logging.h>
 
 #include "objfs.h"
+#include "filesys/posix/posixfs.h"
 
 using namespace filesys;
 using namespace filesys::objfs;
@@ -22,10 +23,13 @@ using namespace std;
 static std::random_device rnd;
 
 ObjFilesystem::ObjFilesystem(
-    shared_ptr<Database> db, shared_ptr<util::Clock> clock,
+    shared_ptr<Database> db,
+    shared_ptr<Filesystem> backingFs,
+    shared_ptr<util::Clock> clock,
     uint64_t blockSize)
     : clock_(clock),
       db_(db),
+      backingFs_(backingFs),
       blockSize_(blockSize)
 {
     defaultNS_ = db_->getNamespace("default");
@@ -74,8 +78,11 @@ again:
     }
 }
 
-ObjFilesystem::ObjFilesystem(shared_ptr<Database> db, uint64_t blockSize)
-    : ObjFilesystem(db, make_shared<util::SystemClock>(), blockSize)
+ObjFilesystem::ObjFilesystem(
+    shared_ptr<Database> db,
+    shared_ptr<Filesystem> backingFs,
+    uint64_t blockSize)
+    : ObjFilesystem(db, backingFs, make_shared<util::SystemClock>(), blockSize)
 {
 }
 
@@ -306,7 +313,8 @@ shared_ptr<Filesystem> ObjFilesystemFactory::mount(const std::string& url)
         db = make_rocksdb(p.path);
     }
 
-    return make_shared<ObjFilesystem>(db);
+    auto backingFs = make_shared<posix::PosixFilesystem>(p.path);
+    return make_shared<ObjFilesystem>(db, backingFs);
 }
 
 void filesys::objfs::init(FilesystemManager* fsman)

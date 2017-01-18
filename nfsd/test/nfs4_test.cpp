@@ -65,7 +65,7 @@ public:
         // Create a scratch filesystem to 'export'
         vector<string> noaddrs = {};
         mds_ = make_shared<DistFilesystem>(
-            keyval::make_memdb(), noaddrs, clock_);
+            keyval::make_memdb(), nullptr, noaddrs, clock_);
         fsman_.mount("/", mds_);
         Credential cred(0, 0, {}, true);
         mds_->root()->setattr(cred, setMode777);
@@ -75,7 +75,7 @@ public:
         for (int i = 0; i < 5; i++) {
             auto ds = make_shared<DataFilesystem>(
                 make_shared<ObjFilesystem>(
-                    keyval::make_memdb(), clock_));
+                    keyval::make_memdb(), nullptr, clock_));
             ds_.push_back(ds);
             mds_->addDataStore(ds);
         }

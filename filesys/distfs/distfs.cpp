@@ -10,6 +10,7 @@
 #include <glog/logging.h>
 #include <glog/stl_logging.h>
 #include "distfs.h"
+#include "filesys/posix/posixfs.h"
 
 using namespace filesys;
 using namespace filesys::objfs;
@@ -21,9 +22,10 @@ using namespace std::literals;
 
 DistFilesystem::DistFilesystem(
     shared_ptr<keyval::Database> db,
+    shared_ptr<Filesystem> backingFs,
     const vector<string>& addrs,
     shared_ptr<util::Clock> clock)
-    : ObjFilesystem(move(db), clock, pieceSize()),
+    : ObjFilesystem(move(db), move(backingFs), clock, pieceSize()),
       replicas_(3),
       sockman_(make_shared<oncrpc::SocketManager>()),
       svcreg_(make_shared<oncrpc::ServiceRegistry>())
@@ -105,8 +107,11 @@ DistFilesystem::DistFilesystem(
 }
 
 DistFilesystem::DistFilesystem(
-    shared_ptr<Database> db, const vector<string>& addrs)
-    : DistFilesystem(move(db), addrs, make_shared<util::SystemClock>())
+    shared_ptr<Database> db,
+    shared_ptr<Filesystem> backingFs,
+    const vector<string>& addrs)
+    : DistFilesystem(
+        move(db), move(backingFs), addrs, make_shared<util::SystemClock>())
 {
 }
 
@@ -759,7 +764,8 @@ DistFilesystemFactory::mount(const string& url)
     else {
         db = make_rocksdb(p.path);
     }
-    return make_shared<DistFilesystem>(db, addrs);
+    auto backingFs = make_shared<posix::PosixFilesystem>(p.path);
+    return make_shared<DistFilesystem>(db, backingFs, addrs);
 };
 
 void filesys::distfs::init(FilesystemManager* fsman)

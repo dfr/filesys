@@ -82,7 +82,8 @@ private:
 class ObjFsattr: public Fsattr
 {
 public:
-    ObjFsattr(std::shared_ptr<ObjFilesystem> fs);
+    ObjFsattr(std::shared_ptr<ObjFilesystem> fs,
+              std::shared_ptr<Fsattr> backingFsattr);
 
     size_t totalSpace() const override;
     size_t freeSpace() const override;
@@ -94,8 +95,9 @@ public:
     int nameMax() const override;
     int repairQueueSize() const override;
 
-private:
+protected:
     std::shared_ptr<ObjFilesystem> fs_;
+    std::shared_ptr<Fsattr> backingFsattr_;
     size_t fileCount_;
 };
 
@@ -276,9 +278,11 @@ class ObjFilesystem: public Filesystem,
 public:
     ObjFilesystem(
         std::shared_ptr<keyval::Database> db,
+        std::shared_ptr<Filesystem> backingFs,
         std::uint64_t blockSize = 4096);
     ObjFilesystem(
         std::shared_ptr<keyval::Database> db,
+        std::shared_ptr<Filesystem> backingFs,
         std::shared_ptr<util::Clock> clock,
         std::uint64_t blockSize = 4096);
     ~ObjFilesystem() override;
@@ -288,6 +292,7 @@ public:
     std::shared_ptr<File> find(const FileHandle& fh) override;
     std::shared_ptr<keyval::Database> database() const override;
 
+    auto backingFs() const { return backingFs_; }
     auto defaultNS() const { return defaultNS_; }
     auto directoriesNS() const { return directoriesNS_; }
     auto dataNS() const { return dataNS_; }
@@ -326,6 +331,7 @@ protected:
     std::mutex mutex_;
     std::shared_ptr<util::Clock> clock_;
     std::shared_ptr<keyval::Database> db_;
+    std::shared_ptr<Filesystem> backingFs_;
     std::shared_ptr<keyval::Namespace> defaultNS_;
     std::shared_ptr<keyval::Namespace> directoriesNS_;
     std::shared_ptr<keyval::Namespace> dataNS_;
