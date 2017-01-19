@@ -86,8 +86,8 @@ void DistFile::truncate(
     DataKeyType end(fileid(), ~0ull);
 
     if (blockSize || newSize == 0) {
-        auto iterator = fs->dataNS()->iterator(start);
-        while (iterator->valid(end)) {
+        auto iterator = fs->dataNS()->iterator(start, end);
+        while (iterator->valid()) {
             PieceData dk(iterator->key());
             fs->removePiece(
                 cred, PieceId{dk.fileid(), dk.offset(), dk.size()}, trans);

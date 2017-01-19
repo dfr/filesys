@@ -42,9 +42,8 @@ void ObjfsCheck::check(bool checkData)
     }
 
     KeyType start(1), end(~0ul);
-    auto iterator = defaultNS->iterator();
-    iterator->seek(start);
-    while (iterator->valid(end)) {
+    auto iterator = defaultNS->iterator(start, end);
+    while (iterator->valid()) {
         KeyType k(iterator->key());
         auto id = k.id();
         ObjFileMeta meta;
@@ -60,9 +59,8 @@ void ObjfsCheck::check(bool checkData)
     iterator.reset();
 
     DirectoryKeyType dirstart(1, ""), dirend(~0ul, "");
-    iterator = directoriesNS->iterator();
-    iterator->seek(dirstart);
-    while (iterator->valid(dirend)) {
+    iterator = directoriesNS->iterator(dirstart, dirend);
+    while (iterator->valid()) {
         DirectoryKeyType k(iterator->key());
 
         DirectoryEntry entry;
@@ -90,11 +88,10 @@ void ObjfsCheck::check(bool checkData)
 
     if (checkData) {
         DataKeyType datastart(1, 0), dataend(~0ul, 0);
-        iterator = dataNS->iterator();
-        iterator->seek(datastart);
+        iterator = dataNS->iterator(datastart, dataend);
         uint64_t lastOffset = 0;
         uint64_t lastFileid = 0;
-        while (iterator->valid(dataend)) {
+        while (iterator->valid()) {
             DataKeyType key(iterator->key());
             auto fileid = key.fileid();
             auto offset = key.offset();

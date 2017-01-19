@@ -398,9 +398,14 @@ DistFilesystem::addPieceLocations(
     // Record our choices in the pieces table
     for (int i = 0; i < count; i++) {
         auto& entry = loc[i];
-        DoubleKeyType pieceKey(entry.device, entry.index);
-        PieceData pieceData(id);
-        trans->put(piecesNS_, pieceKey, pieceData);
+        trans->put(
+            piecesNS_,
+            DoubleKeyType(entry.device, entry.index),
+            PieceData(id));
+        trans->put(
+            piecesNS_,
+            DoubleKeyType(entry.device, 0),
+            KeyType(replicas[i]->nextPieceIndex()));
     }
 
     // Add the new locations and resilver if required. This will also record
@@ -495,26 +500,11 @@ void DistFilesystem::loadDevices()
         devices_.insert(dev);
     }
 
-    // Use the piece table to deduce the next piece index for each
-    // device entry
+    // We store the next piece index of each device in the piece table
+    // using key {devid, 0}
     for (auto& dev: devices_) {
-        auto iter = piecesNS_->iterator(DoubleKeyType(dev->id(), ~0ull));
-        if (iter->valid()) {
-            iter->prev();
-        }
-        else {
-            iter->seekToLast();
-        }
-        if (!iter->valid()) {
-            dev->setNextPieceIndex(0);
-        }
-        else {
-            DoubleKeyType k(iter->key());
-            if (k.id0() == dev->id())
-                dev->setNextPieceIndex(k.id1() + 1);
-            else
-                dev->setNextPieceIndex(0);
-        }
+        KeyType val(piecesNS_->get(DoubleKeyType(dev->id(), 0)));
+        dev->setNextPieceIndex(val.id());
         VLOG(1) << "device " << dev->id()
                 << ": next piece index " << dev->nextPieceIndex();
     }
@@ -543,7 +533,7 @@ void DistFilesystem::restoreDevice(std::shared_ptr<DistDevice> dev)
     map<PieceId, uint64_t> expectedPieces;
     DoubleKeyType sk(dev->id(), 0);
     DoubleKeyType ek(dev->id(), ~0ull);
-    for (auto iter = piecesNS_->iterator(sk); iter->valid(ek); iter->next()) {
+    for (auto iter = piecesNS_->iterator(sk, ek); iter->valid(); iter->next()) {
         auto val = PieceData(iter->value());
         auto id = PieceId{val.fileid(), val.offset(), val.size()};
         VLOG(2) << "Expected piece " << id;
@@ -657,6 +647,10 @@ void DistFilesystem::restoreDevice(std::shared_ptr<DistDevice> dev)
                 DoubleKeyType(dev->id(), dev->newPieceIndex()),
                 PieceData(id));
         }
+        trans->put(
+            piecesNS_,
+            DoubleKeyType(dev->id(), 0),
+            KeyType(dev->nextPieceIndex()));
         db()->commit(move(trans));
     }
 
@@ -706,7 +700,7 @@ DistFilesystem::decommissionDevice(std::shared_ptr<DistDevice> dev)
     map<PieceId, uint64_t> expectedPieces;
     DoubleKeyType sk(dev->id(), 0);
     DoubleKeyType ek(dev->id(), ~0ull);
-    for (auto iter = piecesNS_->iterator(sk); iter->valid(ek); iter->next()) {
+    for (auto iter = piecesNS_->iterator(sk, ek); iter->valid(); iter->next()) {
         auto val = PieceData(iter->value());
         auto id = PieceId{val.fileid(), val.offset(), val.size()};
         expectedPieces[id] = DoubleKeyType(iter->key()).id1();

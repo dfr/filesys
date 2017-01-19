@@ -67,9 +67,8 @@ void DistfsCheck::check()
 
     // Check that data locations are consistent with the piece table.
     DataKeyType datastart(1, 0), dataend(~0ul, 0);
-    iterator = dataNS->iterator();
-    iterator->seek(datastart);
-    while (iterator->valid(dataend)) {
+    iterator = dataNS->iterator(datastart, dataend);
+    while (iterator->valid()) {
         PieceData key(iterator->key());
         auto fileid = key.fileid();
         auto offset = key.offset();

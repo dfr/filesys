@@ -98,7 +98,6 @@ public:
 protected:
     std::shared_ptr<ObjFilesystem> fs_;
     std::shared_ptr<Fsattr> backingFsattr_;
-    size_t fileCount_;
 };
 
 /// Subclass ObjFileMeta to add some helper methods
@@ -264,10 +263,10 @@ private:
     void decodeEntry();
 
     std::shared_ptr<ObjFilesystem> fs_;
-    std::unique_ptr<keyval::Iterator> iterator_;
     uint64_t seek_;
     DirectoryKeyType start_;
     DirectoryKeyType end_;
+    std::unique_ptr<keyval::Iterator> iterator_;
     DirectoryEntry entry_;
     mutable std::shared_ptr<File> file_;
 };
@@ -292,6 +291,7 @@ public:
     std::shared_ptr<File> find(const FileHandle& fh) override;
     std::shared_ptr<keyval::Database> database() const override;
 
+    auto fileCount() const { return std::uint64_t(fileCount_); }
     auto backingFs() const { return backingFs_; }
     auto defaultNS() const { return defaultNS_; }
     auto directoriesNS() const { return directoriesNS_; }
@@ -324,6 +324,16 @@ public:
     void writeMeta(keyval::Transaction* trans);
     void setFsid();
 
+    /// Called when a new file is created
+    void fileCreated() {
+        fileCount_++;
+    }
+
+    /// Called when a file is destroyed
+    void fileDestroyed() {
+        fileCount_--;
+    }
+
     /// Called when database master state changes
     virtual void databaseMasterChanged(bool isMaster);
 
@@ -338,6 +348,7 @@ protected:
     ObjFilesystemMeta meta_;
     std::uint32_t blockSize_;
     std::atomic<std::uint64_t> nextId_;
+    std::atomic<std::uint64_t> fileCount_;
     FilesystemId fsid_;
     std::shared_ptr<ObjFile> root_;
     util::LRUCache<std::uint64_t, ObjFile> cache_;

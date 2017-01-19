@@ -54,7 +54,8 @@ public:
     }
 
     std::unique_ptr<Iterator> iterator() override;
-    std::unique_ptr<Iterator> iterator(std::shared_ptr<Buffer> key) override;
+    std::unique_ptr<Iterator> iterator(
+        std::shared_ptr<Buffer> startKey, std::shared_ptr<Buffer> endKey) override;
     std::shared_ptr<Buffer> get(std::shared_ptr<Buffer> key) override;
     std::uint64_t spaceUsed(
         std::shared_ptr<Buffer> start, std::shared_ptr<Buffer> end) override;
@@ -77,19 +78,24 @@ private:
 class RocksIterator: public Iterator
 {
 public:
-    RocksIterator(rocksdb::Iterator* it) : it_(it) {}
+    RocksIterator(
+        rocksdb::DB* db,
+        rocksdb::ColumnFamilyHandle* ns,
+        std::shared_ptr<Buffer> startKey,
+        std::shared_ptr<Buffer> endKey);
     void seek(std::shared_ptr<Buffer> key) override;
     void seekToFirst() override;
     void seekToLast() override;
     void next() override;
     void prev() override;
     bool valid() const override;
-    bool valid(std::shared_ptr<Buffer> endKey) const override;
     std::shared_ptr<Buffer> key() const override;
     std::shared_ptr<Buffer> value() const override;
 
 private:
     std::unique_ptr<rocksdb::Iterator> it_;
+    rocksdb::Slice startKey_;
+    rocksdb::Slice endKey_;
 };
 
 class RocksTransaction: public Transaction

@@ -213,13 +213,6 @@ ObjFsattr::ObjFsattr(
     : fs_(fs),
       backingFsattr_(backingFsattr)
 {
-    // XXX bogus - we should keep track in the fs object
-    KeyType start(1);
-    KeyType end(~0ul);
-    fileCount_ = 0;
-    for (auto iterator = fs_->defaultNS()->iterator(start);
-         iterator->valid(end); iterator->next())
-        fileCount_++;
 }
 
 size_t ObjFsattr::totalSpace() const
@@ -256,7 +249,7 @@ size_t ObjFsattr::totalFiles() const
 
 size_t ObjFsattr::freeFiles() const
 {
-    return totalFiles() - fileCount_;
+    return totalFiles() - fs_->fileCount();
 }
 
 size_t ObjFsattr::availFiles() const

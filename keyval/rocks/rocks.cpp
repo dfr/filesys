@@ -109,18 +109,14 @@ bool RocksDatabase::get(
 
 unique_ptr<keyval::Iterator> RocksNamespace::iterator()
 {
-    auto iter = db_->NewIterator(ReadOptions(), handle_.get());
-    iter->SeekToFirst();
-    return make_unique<RocksIterator>(iter);
+    return make_unique<RocksIterator>(db_, handle_.get(), nullptr, nullptr);
 }
 
-unique_ptr<keyval::Iterator> RocksNamespace::iterator(shared_ptr<Buffer> key)
+unique_ptr<keyval::Iterator> RocksNamespace::iterator(
+    shared_ptr<Buffer> startKey, shared_ptr<Buffer> endKey)
 {
-    auto iter = db_->NewIterator(ReadOptions(), handle_.get());
-    iter->Seek(Slice(reinterpret_cast<const char*>(key->data()), key->size()));
-    return make_unique<RocksIterator>(iter);
+    return make_unique<RocksIterator>(db_, handle_.get(), startKey, endKey);
 }
-
 
 shared_ptr<Buffer> RocksNamespace::get(shared_ptr<Buffer> key)
 {
@@ -147,6 +143,29 @@ uint64_t RocksNamespace::spaceUsed(
     uint64_t sz;
     db_->GetApproximateSizes(handle_.get(), &range, 1, &sz, true);
     return sz;
+}
+
+RocksIterator::RocksIterator(
+    rocksdb::DB* db,
+    rocksdb::ColumnFamilyHandle* ns,
+    std::shared_ptr<Buffer> startKey,
+    std::shared_ptr<Buffer> endKey)
+{
+    ReadOptions opts;
+    if (endKey) {
+        endKey_ = Slice(
+            reinterpret_cast<const char*>(endKey->data()), endKey->size());
+        opts.iterate_upper_bound = &endKey_;
+    }
+    it_.reset(move(db->NewIterator(opts, ns)));
+    if (startKey) {
+        startKey_ = Slice(
+            reinterpret_cast<const char*>(startKey->data()), startKey->size());
+        it_->Seek(startKey_);
+    }
+    else {
+        it_->SeekToFirst();
+    }
 }
 
 void RocksIterator::seek(shared_ptr<Buffer> key)
@@ -177,12 +196,6 @@ void RocksIterator::prev()
 bool RocksIterator::valid() const
 {
     return it_->Valid();
-}
-
-bool RocksIterator::valid(shared_ptr<Buffer> endKey) const
-{
-    Slice ek(reinterpret_cast<const char*>(endKey->data()), endKey->size());
-    return it_->Valid() && it_->key().compare(ek) < 0;
 }
 
 shared_ptr<Buffer> RocksIterator::key() const

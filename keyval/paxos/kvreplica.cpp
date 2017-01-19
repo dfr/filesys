@@ -32,9 +32,11 @@ public:
         return ns_->iterator();
     }
 
-    std::unique_ptr<Iterator> iterator(std::shared_ptr<Buffer> key) override
+    std::unique_ptr<Iterator> iterator(
+        std::shared_ptr<Buffer> startKey,
+        std::shared_ptr<Buffer> endKey) override
     {
-        return ns_->iterator(key);
+        return ns_->iterator(startKey, endKey);
     }
 
     std::shared_ptr<Buffer> get(std::shared_ptr<Buffer> key) override

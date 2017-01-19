@@ -99,12 +99,14 @@ class Namespace
 public:
     virtual ~Namespace() {}
 
-    /// Create a new iterator which is set to iterate from the start
-    /// of the namespace
+    /// Create a new iterator which is set to iterate over the entire
+    /// namespace
     virtual std::unique_ptr<Iterator> iterator() = 0;
 
-    /// Create a new iterator which is set to iterate from the given key
-    virtual std::unique_ptr<Iterator> iterator(std::shared_ptr<Buffer> key) = 0;
+    /// Create a new iterator which is set to iterate from the given
+    /// start key up to but not including the end key
+    virtual std::unique_ptr<Iterator> iterator(
+        std::shared_ptr<Buffer> startKey, std::shared_ptr<Buffer> endKey) = 0;
 
     /// Get the value for a given key in this namespace
     virtual std::shared_ptr<Buffer> get(std::shared_ptr<Buffer> key) = 0;
@@ -138,10 +140,6 @@ public:
 
     /// Return true if the iterator references a valid entry
     virtual bool valid() const = 0;
-
-    /// Return true if the iterator references a valid entry and the
-    /// entry's key is less than the given endKey
-    virtual bool valid(std::shared_ptr<Buffer> endKey) const = 0;
 
     /// Return the current entry's key
     virtual std::shared_ptr<Buffer> key() const = 0;

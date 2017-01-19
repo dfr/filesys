@@ -49,9 +49,10 @@ unique_ptr<Iterator> MemoryNamespace::iterator()
     return make_unique<MemoryIterator>(*this);
 }
 
-unique_ptr<Iterator> MemoryNamespace::iterator(shared_ptr<Buffer> key)
+unique_ptr<Iterator> MemoryNamespace::iterator(
+    shared_ptr<Buffer> startKey, shared_ptr<Buffer> endKey)
 {
-    return make_unique<MemoryIterator>(*this, key);
+    return make_unique<MemoryIterator>(*this, startKey, endKey);
 }
 
 shared_ptr<Buffer> MemoryNamespace::get(shared_ptr<Buffer> key)
@@ -130,13 +131,13 @@ void MemoryIterator::prev()
 
 bool MemoryIterator::valid() const
 {
-    return valid_;
-}
-
-bool MemoryIterator::valid(shared_ptr<Buffer> endKey) const
-{
-    namespaceT::key_compare comp;
-    return valid_ && comp(key_, endKey);
+    if (!valid_)
+        return false;
+    if (endKey_) {
+        namespaceT::key_compare comp;
+        return comp(key_, endKey_);
+    }
+    return true;
 }
 
 shared_ptr<Buffer> MemoryIterator::key() const

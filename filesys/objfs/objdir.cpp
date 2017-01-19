@@ -13,14 +13,13 @@ using namespace std;
 ObjDirectoryIterator::ObjDirectoryIterator(
     std::shared_ptr<ObjFilesystem> fs, FileId fileid, uint64_t seek)
     : fs_(fs),
-      iterator_(fs->directoriesNS()->iterator()),
       seek_(seek + 1),
       start_(fileid, ""),
-      end_(FileId(fileid + 1), "")
+      end_(FileId(fileid + 1), ""),
+      iterator_(fs->directoriesNS()->iterator(start_, end_))
 {
     // XXX: lame seek implementation
-    iterator_->seek(start_);
-    while (seek > 0 && iterator_->valid(end_)) {
+    while (seek > 0 && iterator_->valid()) {
         iterator_->next();
         seek--;
     }
@@ -29,7 +28,7 @@ ObjDirectoryIterator::ObjDirectoryIterator(
 
 bool ObjDirectoryIterator::valid() const
 {
-    return iterator_->valid(end_);
+    return iterator_->valid();
 }
 
 FileId ObjDirectoryIterator::fileid() const

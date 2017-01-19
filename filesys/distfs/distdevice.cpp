@@ -23,7 +23,7 @@ DistDevice::DistDevice(
       uaddrs_(status.uaddrs),
       storage_({0, 0, 0}),
       priority_(1.0f),
-      nextPieceIndex_(0),
+      nextPieceIndex_(1),
       state_(UNKNOWN)
 {
     // Don't bother to resolve the addresses until we actually get an
@@ -37,7 +37,7 @@ DistDevice::DistDevice(
       uaddrs_(status.uaddrs),
       storage_(storage),
       priority_(1.0f),
-      nextPieceIndex_(0),
+      nextPieceIndex_(1),
       state_(UNKNOWN)
 {
     resolveAddresses();
@@ -189,6 +189,7 @@ void DistDevice::write(shared_ptr<DistFilesystem> fs)
 
     auto trans = fs->db()->beginTransaction();
     trans->put(fs->devicesNS(), KeyType(id_), buf);
+    trans->put(fs->piecesNS(), DoubleKeyType(id_, 0), KeyType(nextPieceIndex_));
     fs->db()->commit(move(trans));
 }
 

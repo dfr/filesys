@@ -47,6 +47,7 @@ again:
             throw system_error(EACCES, system_category());
         }
         nextId_ = meta_.nextId;
+        fileCount_ = meta_.fileCount;
     }
     catch (oncrpc::XdrError&) {
         LOG(ERROR) << "error decoding filesystem metadata";
@@ -63,6 +64,7 @@ again:
         for (auto& v: meta_.fsid.data)
             v = rnd();
         meta_.nextId = 2;
+        meta_.fileCount = 0;
         nextId_ = meta_.nextId;
         auto trans = db_->beginTransaction();
         writeMeta(trans.get());
@@ -121,6 +123,7 @@ ObjFilesystem::root()
             meta.attr.ctime = time.count();
             meta.attr.birthtime = time.count();
             root_ = makeNewFile(move(meta));
+            fileCount_++;
             add(root_);
 
             if (db_->isMaster()) {
@@ -213,6 +216,7 @@ ObjFilesystem::writeMeta(Transaction* trans)
     oncrpc::XdrMemory xm(512);
     assert(nextId_ >= meta_.nextId);
     meta_.nextId = nextId_;
+    meta_.fileCount = fileCount_;
     xdr(meta_, static_cast<oncrpc::XdrSink*>(&xm));
     trans->put(
         defaultNS(),
@@ -284,6 +288,7 @@ ObjFilesystem::databaseMasterChanged(bool isMaster)
                 throw system_error(EACCES, system_category());
             }
             nextId_ = meta_.nextId;
+            fileCount_ = meta_.fileCount;
             LOG(INFO) << "next fileid: " << nextId_;
         }
         catch (oncrpc::XdrError&) {

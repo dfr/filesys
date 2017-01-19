@@ -501,6 +501,8 @@ void ObjFile::unlink(
         meta_.attr.nlink--;
         assert(meta_.attr.size > 0);
         fs->remove(file->fileid());
+        fs->fileDestroyed();
+        fs->writeMeta(trans);
     }
     else {
         file->meta_.attr.nlink--;
@@ -512,6 +514,8 @@ void ObjFile::unlink(
             file->truncate(cred, trans, file->meta_.attr.size, 0);
             trans->remove(fs->defaultNS(), KeyType(id));
             fs->remove(file->fileid());
+            fs->fileDestroyed();
+            fs->writeMeta(trans);
         }
     }
     DirectoryKeyType key(fileid(), name);
@@ -579,6 +583,7 @@ shared_ptr<ObjFile> ObjFile::createNewFile(
 
     // Write a single transaction which increments ObjFilesystem::nextId,
     // and our size, writes the new file meta and adds the directory entry
+    fs->fileCreated();
     auto trans = fs->db()->beginTransaction();
     writeCb(trans.get(), newFile);
     fs->writeMeta(trans.get());
@@ -656,8 +661,8 @@ void ObjFile::truncate(
         fileid(), (newSize + blockMask) & ~blockMask);
     DataKeyType end(fileid(), ~0ull);
 
-    auto iterator = fs->dataNS()->iterator(start);
-    while (iterator->valid(end)) {
+    auto iterator = fs->dataNS()->iterator(start, end);
+    while (iterator->valid()) {
         trans->remove(fs->dataNS(), iterator->key());
         iterator->next();
     }

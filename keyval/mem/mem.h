@@ -72,7 +72,8 @@ public:
     }
 
     std::unique_ptr<Iterator> iterator() override;
-    std::unique_ptr<Iterator> iterator(std::shared_ptr<Buffer> key) override;
+    std::unique_ptr<Iterator> iterator(
+        std::shared_ptr<Buffer> startKey, std::shared_ptr<Buffer> endKey) override;
     std::shared_ptr<Buffer> get(std::shared_ptr<Buffer> key) override;
     std::uint64_t spaceUsed(
         std::shared_ptr<Buffer> start, std::shared_ptr<Buffer> end) override;
@@ -103,12 +104,16 @@ public:
         read();
     }
 
-    MemoryIterator(MemoryNamespace& ns, std::shared_ptr<Buffer> key)
-        : ns_(ns)
+    MemoryIterator(
+        MemoryNamespace& ns,
+        std::shared_ptr<Buffer> startKey,
+        std::shared_ptr<Buffer> endKey)
+        : ns_(ns),
+          endKey_(endKey)
     {
         auto lk = ns.lock();
         gen_ = ns.gen();
-        it_ = ns.map().lower_bound(key);
+        it_ = ns.map().lower_bound(startKey);
         read();
     }
 
@@ -133,7 +138,6 @@ public:
     void next() override;
     void prev() override;
     bool valid() const override;
-    bool valid(std::shared_ptr<Buffer> endKey) const override;
     std::shared_ptr<Buffer> key() const override;
     std::shared_ptr<Buffer> value() const override;
 
@@ -142,6 +146,7 @@ private:
     std::uint64_t gen_;
     namespaceT::const_iterator it_;
     bool valid_;
+    std::shared_ptr<Buffer> endKey_;
     std::shared_ptr<Buffer> key_;
     std::shared_ptr<Buffer> value_;
 };

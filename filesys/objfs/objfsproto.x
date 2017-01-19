@@ -11,6 +11,7 @@ struct ObjFilesystemMeta
     int vers;               /* = 1 */
     UUID fsid;              /* unique identifier for this filesystem */
     unsigned hyper nextId;  /* next fileid to use */
+    unsigned hyper fileCount; /* number of files in this filesystem */
 };
 
 /*
