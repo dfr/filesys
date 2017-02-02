@@ -4,6 +4,7 @@
  */
 
 #include <rpc++/server.h>
+#include <rpc++/sockman.h>
 #include <glog/logging.h>
 
 #include "nfsd/threadpool.h"

@@ -3,6 +3,7 @@
  * All rights reserved.
  */
 
+#include <thread>
 #include <gtest/gtest.h>
 #include <gflags/gflags.h>
 

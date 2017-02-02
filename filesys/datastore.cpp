@@ -8,6 +8,7 @@
 
 #include <filesys/filesys.h>
 #include <gflags/gflags.h>
+#include <rpc++/sockman.h>
 #include <rpc++/urlparser.h>
 
 #include "filesys/distfs/distfsproto.h"

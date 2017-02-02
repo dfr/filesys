@@ -13,6 +13,7 @@
 #include <rpc++/cred.h>
 #include <rpc++/rest.h>
 #include <rpc++/server.h>
+#include <rpc++/sockman.h>
 #include <rpc++/urlparser.h>
 #include <keyval/keyval.h>
 #include <filesys/filesys.h>

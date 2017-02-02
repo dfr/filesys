@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <random>
 #include <system_error>
+#include <thread>
 
 #include <rpc++/urlparser.h>
 #include <rpc++/xdr.h>

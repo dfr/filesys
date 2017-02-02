@@ -11,6 +11,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include <rpc++/sockman.h>
 #include <rpc++/urlparser.h>
 
 #include "nfs4fs.h"

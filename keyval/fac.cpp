@@ -9,6 +9,8 @@
 #include "keyval/rocks/rocks.h"
 #include "keyval/paxos/paxos.h"
 
+#include <rpc++/sockman.h>
+
 using namespace keyval;
 
 std::shared_ptr<Database> keyval::make_memdb()

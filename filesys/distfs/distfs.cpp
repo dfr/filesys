@@ -9,6 +9,7 @@
 
 #include <glog/logging.h>
 #include <glog/stl_logging.h>
+#include <rpc++/sockman.h>
 #include "distfs.h"
 #include "filesys/posix/posixfs.h"
 

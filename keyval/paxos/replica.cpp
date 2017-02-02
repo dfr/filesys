@@ -9,6 +9,7 @@
 #include <random>
 #include <glog/logging.h>
 #include <glog/stl_logging.h>
+#include <rpc++/sockman.h>
 
 #include "paxos.h"
 
