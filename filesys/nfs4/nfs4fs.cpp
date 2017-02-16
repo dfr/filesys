@@ -37,7 +37,7 @@ NfsFilesystem::NfsFilesystem(
       cbsvc_(this)
 {
     // Only allow a fraction of the file cache to have active delegations
-    delegations_.setSizeLimit(cache_.sizeLimit() / 8);
+    delegations_.setCostLimit(cache_.costLimit() / 8);
 
     // We need a service registry for our callback program
     if (!svcreg_) {

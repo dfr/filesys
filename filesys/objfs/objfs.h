@@ -177,6 +177,9 @@ public:
         const Credential& cred, std::uint64_t seek) override;
     std::shared_ptr<Fsattr> fsstat(const Credential& cred) override;
 
+    // LRUCache compliance
+    int cost() const { return 1; }
+
     std::shared_ptr<ObjFilesystem> ofs() const { return fs_.lock(); }
     FileId fileid() const { return FileId(meta_.fileid); }
     auto& meta() const { return meta_; }

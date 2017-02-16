@@ -546,6 +546,9 @@ public:
         const std::string& mds,
         const std::vector<oncrpc::AddressInfo>& addrs,
         const std::vector<oncrpc::AddressInfo>& adminAddrs);
+
+    // LRUCache compliance
+    int cost() const { return 1; }
 };
 
 class FilesystemFactory

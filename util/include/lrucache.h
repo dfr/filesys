@@ -15,6 +15,11 @@
 namespace util {
 
 /// A cache mapping instances of ID to shared_ptr<OBJ> entries
+///
+/// The size of the cache is limited using setCostLimit using a
+/// potentially variable cost for each object. The method OBJ::cost
+/// should return the cost of the object.
+///
 template <typename ID, typename OBJ,
           typename HASH = std::hash<ID>,
           typename EQUAL = std::equal_to<ID>>
@@ -66,6 +71,7 @@ public:
             cache_.erase(fileid);
             obj = p->second;
             lru_.erase(p);
+            totalCost_ -= obj->cost();
         }
         return obj;
     }
@@ -82,14 +88,17 @@ public:
     /// Return the number of entries in the cache
     int size() const { return cache_.size(); }
 
+    /// Return the total cost of cached objects
+    int totalCost() const { return totalCost_; }
+
     /// Return the maximum cache size
-    auto sizeLimit() const { return sizeLimit_; }
+    auto costLimit() const { return costLimit_; }
 
     /// Set the cache size limit
-    void setSizeLimit(int sz)
+    void setCostLimit(int sz)
     {
         std::unique_lock<std::mutex> lock(mutex_);
-        sizeLimit_ = sz;
+        costLimit_ = sz;
         expire(std::move(lock));
     }
 
@@ -116,6 +125,8 @@ public:
     // Support for iterating over the cace
     auto begin() { return lru_.begin(); }
     auto end() { return lru_.end(); }
+    auto rbegin() { return lru_.rbegin(); }
+    auto rend() { return lru_.rend(); }
 
 private:
 
@@ -127,6 +138,7 @@ private:
         //VLOG(2) << "adding fileid: " << file->fileid();
         auto p = lru_.insert(lru_.begin(), std::make_pair(fileid, file));
         cache_[fileid] = p;
+        totalCost_ += file->cost();
         expire(std::move(lock));
     }
 
@@ -134,7 +146,7 @@ private:
     {
         assert(lock);
         // Expire old entries if the cache is full
-        while (cache_.size() > sizeLimit_) {
+        while (totalCost_ > costLimit_) {
             bool expiredOne = false;
             for (auto i = lru_.rbegin(); i != lru_.rend(); ++i) {
                 if (i->second.unique()) {
@@ -145,6 +157,7 @@ private:
                     auto p = cache_[oldest.first];
                     cache_.erase(oldest.first);
                     lru_.erase(p);
+                    totalCost_ -= oldest.second->cost();
                     expiredOne = true;
                     break;
                 }
@@ -155,14 +168,15 @@ private:
         }
     }
 
-    static constexpr int DEFAULT_SIZE_LIMIT = 1024;
+    static constexpr int DEFAULT_COST_LIMIT = 1024;
     typedef std::list<std::pair<ID, std::shared_ptr<OBJ>>> lruT;
 
     // should be shared_timed_mutex but its missing on OS X
     std::mutex mutex_;
     lruT lru_;
     std::unordered_map<ID, typename lruT::iterator, HASH, EQUAL> cache_;
-    int sizeLimit_ = DEFAULT_SIZE_LIMIT;
+    int costLimit_ = DEFAULT_COST_LIMIT;
+    int totalCost_ = 0;
     int hits_ = 0;
     int misses_ = 0;
 };

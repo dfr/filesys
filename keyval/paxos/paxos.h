@@ -220,6 +220,9 @@ struct AcceptorState
     {
     }
 
+    // LRUCache compliance
+    int cost() const { return 1; }
+
     /// Instance number
     ///
     std::int64_t instance;

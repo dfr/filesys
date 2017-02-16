@@ -2943,7 +2943,7 @@ int NfsServer::expireClients()
     // is purged.
     for (auto client: clients) {
         // Expire old recallable state
-        client->expireState(now);
+        //client->expireState(now);
 
         // Send a CB_RECALL_ANY message if the client has excessive
         // recallable state

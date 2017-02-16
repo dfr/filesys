@@ -152,6 +152,9 @@ public:
         const Credential& cred, std::uint64_t seek) override;
     std::shared_ptr<Fsattr> fsstat(const Credential& cred) override;
 
+    // LRUCache compliance
+    int cost() const { return 1; }
+
     // Return a File object from the backing store filesystem for this piece
     std::shared_ptr<File> backingFile();
 

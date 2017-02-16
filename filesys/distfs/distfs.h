@@ -227,6 +227,9 @@ public:
     std::pair<std::shared_ptr<Device>, std::shared_ptr<File>> mirror(
         const Credential& cred, int i) override;
 
+    // LRUCache compliance
+    int cost() const { return 1; }
+
     auto lock()
     {
         return std::unique_lock<std::mutex>(mutex_);

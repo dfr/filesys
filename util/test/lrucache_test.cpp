@@ -19,6 +19,7 @@ using namespace testing;
 struct File
 {
     File(int id) : id_(id) {}
+    int cost() const { return 1; }
     int fileid() const { return id_; }
     int id_;
 };
@@ -50,21 +51,21 @@ TEST_F(LRUCacheTest, Basic)
     EXPECT_CALL(cb, update(_))
         .Times(1);
     auto f = cache.find(1, update, ctor);
-    EXPECT_EQ(1, cache.size());
+    EXPECT_EQ(1, cache.totalCost());
     EXPECT_EQ(f, cache.find(1, update, ctor));
 }
 
 TEST_F(LRUCacheTest, LRU)
 {
     EXPECT_CALL(cb, ctor(_))
-        .Times(cache.sizeLimit() + 3)
+        .Times(cache.costLimit() + 3)
         .WillRepeatedly(Invoke(newFile));
 
     // Entry 0 should expire
-    for (int i = 0; i < cache.sizeLimit() + 1; i++) {
+    for (int i = 0; i < cache.costLimit() + 1; i++) {
         cache.find(i, update, ctor);
     }
-    EXPECT_EQ(cache.sizeLimit(), cache.size());
+    EXPECT_EQ(cache.costLimit(), cache.totalCost());
     EXPECT_EQ(false, cache.contains(0));
 
     // We should re-create it here and entry 1 should expire
@@ -84,15 +85,15 @@ TEST_F(LRUCacheTest, LRU)
 TEST_F(LRUCacheTest, Busy)
 {
     EXPECT_CALL(cb, ctor(_))
-        .Times(cache.sizeLimit() + 1)
+        .Times(cache.costLimit() + 1)
         .WillRepeatedly(Invoke(newFile));
 
     // Entry 1 should expire since entry 0 will be busy
     auto e0 = cache.find(0, update, ctor);
-    for (int i = 1; i < cache.sizeLimit() + 1; i++) {
+    for (int i = 1; i < cache.costLimit() + 1; i++) {
         cache.find(i, update, ctor);
     }
-    EXPECT_EQ(cache.sizeLimit(), cache.size());
+    EXPECT_EQ(cache.costLimit(), cache.totalCost());
     EXPECT_EQ(true, cache.contains(0));
     EXPECT_EQ(false, cache.contains(1));
 }

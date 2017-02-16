@@ -37,7 +37,7 @@ PosixFilesystem::PosixFilesystem(const std::string& path)
 
     // XXX: Don't cache too many pieces - we are using select and don't
     // want to have file descriptors greater than 1023
-    cache_.setSizeLimit(512);
+    cache_.setCostLimit(512);
 }
 
 shared_ptr<File>

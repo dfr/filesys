@@ -150,6 +150,9 @@ public:
         const Credential& cred, std::uint64_t seek) override;
     std::shared_ptr<Fsattr> fsstat(const Credential& cred) override;
 
+    // LRUCache compliance
+    int cost() const { return 1; }
+
     auto nfs() const { return fs_.lock(); }
     const nfs_fh4& fh() const { return fh_; }
     const NfsAttr& attr() const { return attr_; }
@@ -266,6 +269,9 @@ public:
         open_delegation4&& delegation);
 
     ~NfsDelegation();
+
+    // LRUCache compliance
+    int cost() const { return file_->cost(); }
 
     auto stateid() const { return stateid_; }
     auto isWrite() const
