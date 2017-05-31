@@ -113,8 +113,10 @@ public:
             if (pwd)
                 return string(pwd->pw_name) + "@" + realm_;
         }
-        LOG(INFO) << "Lookup failed for uid: " << id;
-        return "unknown@" + realm_;
+
+        // Return unknown users as numbers - this works with the Linux
+        // client
+        return to_string(id);
     }
 
     int lookup(const string& val) override
@@ -192,8 +194,10 @@ public:
             if (grp)
                 return string(grp->gr_name) + "@" + realm_;
         }
-        LOG(INFO) << "Lookup failed for gid: " << id;
-        return "unknown@" + realm_;
+
+        // Return unknown users as numbers - this works with the Linux
+        // client
+        return to_string(id);
     }
 
     int lookup(const string& val) override
