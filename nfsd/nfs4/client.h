@@ -6,6 +6,7 @@
 // -*- c++ -*-
 #pragma once
 
+#include <list>
 #include <unordered_set>
 #include <filesys/filesys.h>
 #include <rpc++/rest.h>
@@ -182,62 +183,17 @@ public:
         int access,
         int deny,
         std::shared_ptr<filesys::OpenFile> of,
-        util::Clock::time_point expiry)
-    {
-        std::unique_lock<std::mutex> lock(mutex_);
-        auto id = newStateId();
-        auto ns = std::make_shared<NfsState>(
-            stateNS_, StateType::OPEN, id, shared_from_this(), fs,
-            owner, access, deny, of, expiry);
-        state_[id] = ns;
-        fs->addOpen(ns);
-        return ns;
-    }
-
+        util::Clock::time_point expiry);
     std::shared_ptr<NfsState> addDelegation(
         std::shared_ptr<NfsFileState> fs,
         int access,
         std::shared_ptr<filesys::OpenFile> of,
-        util::Clock::time_point expiry)
-    {
-        std::unique_lock<std::mutex> lock(mutex_);
-        auto id = newStateId();
-        auto ns = std::make_shared<NfsState>(
-            stateNS_, StateType::DELEGATION, id, shared_from_this(), fs,
-            filesys::nfs4::state_owner4{id_, {}}, access, 0, of, expiry);
-        assert(state_.find(id) == state_.end());
-        recallableStateCount_++;
-        state_[id] = ns;
-        fs->addDelegation(ns);
-        return ns;
-    }
-
+        util::Clock::time_point expiry);
     std::shared_ptr<NfsState> addLayout(
         std::shared_ptr<NfsFileState> fs,
         filesys::nfs4::layoutiomode4 iomode,
         const std::vector<std::shared_ptr<filesys::Device>>& devices,
-        util::Clock::time_point expiry)
-    {
-        std::unique_lock<std::mutex> lock(mutex_);
-        auto id = newStateId();
-        int access = (iomode == filesys::nfs4::LAYOUTIOMODE4_RW ?
-                      filesys::nfs4::OPEN4_SHARE_ACCESS_BOTH :
-                      filesys::nfs4::OPEN4_SHARE_ACCESS_READ);
-        auto ns = std::make_shared<NfsState>(
-            stateNS_, StateType::LAYOUT, id, shared_from_this(), fs,
-            filesys::nfs4::state_owner4{id_, {}}, access, 0, nullptr, expiry);
-        for (auto dev: devices) {
-            auto& ds = devices_[dev];
-            ds.layouts.insert(ns);
-            checkDeviceState(lock, dev, ds);
-        }
-        ns->setDevices(devices);
-        assert(state_.find(id) == state_.end());
-        recallableStateCount_++;
-        state_[id] = ns;
-        fs->addLayout(ns);
-        return ns;
-    }
+        util::Clock::time_point expiry);
 
     void clearState();
     void clearState(const filesys::nfs4::stateid4& stateid);
@@ -291,6 +247,11 @@ public:
 
     void sendRecallAny();
 
+    void updateExpiry(
+        std::shared_ptr<NfsState>,
+        util::Clock::time_point oldExpiry,
+        util::Clock::time_point newExpiry);
+
     void expireState(util::Clock::time_point now);
 
     void reportRevoked();
@@ -317,10 +278,11 @@ private:
         DeviceState> devices_;
 
     // Current state
+    typedef std::list<std::shared_ptr<NfsState>> statesT;
     std::atomic_int nextStateIndex_;
     std::unordered_map<
         filesys::nfs4::stateid4,
-        std::shared_ptr<NfsState>,
+        statesT::iterator,
         filesys::nfs4::NfsStateidHashIgnoreSeqid,
         filesys::nfs4::NfsStateidEqualIgnoreSeqid> state_;
     std::unordered_map<
@@ -328,6 +290,7 @@ private:
         std::shared_ptr<NfsState>,
         filesys::nfs4::NfsStateidHashIgnoreSeqid,
         filesys::nfs4::NfsStateidEqualIgnoreSeqid> revokedState_;
+    statesT orderedState_;         // roughly ordered by expiry
     int recallableStateCount_ = 0;
 
     // Pseudo-slot for create_session

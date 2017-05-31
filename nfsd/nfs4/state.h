@@ -168,10 +168,7 @@ public:
     }
 
     auto expiry() const { return expiry_; }
-    void setExpiry(util::Clock::time_point expiry)
-    {
-        expiry_ = expiry;
-    }
+    void setExpiry(util::Clock::time_point expiry);
 
 private:
     std::shared_ptr<keyval::Namespace> stateNS_;

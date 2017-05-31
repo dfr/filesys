@@ -195,3 +195,13 @@ void NfsState::updateDelegation(
         id_.seqid++;
     }
 }
+
+void NfsState::setExpiry(util::Clock::time_point expiry)
+{
+    //LOG(INFO) << "Updating expiry for state: " << id_;
+    auto client = client_.lock();
+    if (client) {
+        client->updateExpiry(shared_from_this(), expiry_, expiry);
+    }
+    expiry_ = expiry;
+}
